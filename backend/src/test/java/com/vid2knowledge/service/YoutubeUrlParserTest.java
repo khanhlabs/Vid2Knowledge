@@ -1,7 +1,8 @@
 package com.vid2knowledge.service;
 
+import com.vid2knowledge.analysis.application.YoutubeUrlParser;
 import com.vid2knowledge.common.exception.InvalidYoutubeUrlException;
-import com.vid2knowledge.domain.NormalizedYoutubeUrl;
+import com.vid2knowledge.analysis.domain.NormalizedYoutubeUrl;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;

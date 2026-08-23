@@ -58,6 +58,19 @@ public class GlobalExceptionHandler {
         return response(status, "REQUEST_REJECTED", message, request);
     }
 
+    @ExceptionHandler
+    public ResponseEntity<ApiError> handleInvalidYoutubeUrl(
+            InvalidYoutubeUrlException exception,
+            HttpServletRequest request
+    ) {
+        return response(
+                HttpStatus.BAD_REQUEST,
+                "INVALID_YOUTUBE_URL",
+                exception.getMessage(),
+                request
+        );
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(
             Exception exception,
