@@ -1,7 +1,7 @@
-package com.vid2knowledge.service;
+package com.vid2knowledge.analysis.application;
 
 import com.vid2knowledge.common.exception.InvalidYoutubeUrlException;
-import com.vid2knowledge.domain.NormalizedYoutubeUrl;
+import com.vid2knowledge.analysis.domain.NormalizedYoutubeUrl;
 import org.springframework.stereotype.Service;
 import java.net.URI;
 import java.net.URLDecoder;

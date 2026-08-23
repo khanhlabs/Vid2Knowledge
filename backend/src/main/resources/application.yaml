@@ -30,4 +30,7 @@ spring:
 
 gemini:
   api-key: ${GEMINI_API_KEY:}
+  model: ${GEMINI_MODEL:gemini-3.7-flash}
+  base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
+  timeout: ${GEMINI_TIMEOUT:180s}
 
