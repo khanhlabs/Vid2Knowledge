@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DatabaseMigrationTest {
 
     @Container
-    static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:0.8.6-pg18-bookworm");
 
     @Test
     void migratesAnEmptyDatabaseAndCreatesTheTenantFoundation() throws Exception {
@@ -23,7 +23,7 @@ class DatabaseMigrationTest {
                 .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                 .load();
 
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(15);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(16);
         flyway.validate();
 
         try (var connection = DriverManager.getConnection(
@@ -79,7 +79,12 @@ class DatabaseMigrationTest {
                     "assessment_attempt_answers",
                     "lesson_prerequisites",
                     "course_completion_rules",
-                    "completion_certificates"
+                    "completion_certificates",
+                    "embedding_chunks",
+                    "qa_threads",
+                    "qa_messages",
+                    "qa_citations",
+                    "qa_query_runs"
             ));
         }
     }

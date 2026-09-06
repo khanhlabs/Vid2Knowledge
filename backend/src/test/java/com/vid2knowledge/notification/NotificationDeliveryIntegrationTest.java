@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers
 class NotificationDeliveryIntegrationTest {
     @Container
-    static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:0.8.6-pg18-bookworm");
 
     private JdbcTemplate jdbc;
     private TransactionTemplate transactions;

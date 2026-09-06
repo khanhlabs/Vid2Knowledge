@@ -2,7 +2,7 @@ name: vid2knowledge
 
 services:
   postgres:
-    image: postgres:18
+    image: pgvector/pgvector:0.8.6-pg18-bookworm
     container_name: vid2knowledge-postgres
     environment:
       # Fixed local-only credentials prevent unrelated root .env values changing this stack.

@@ -259,6 +259,15 @@ export function WorkspacePage() {
               </strong>
             </article>
             <article>
+              <small>Ask Video còn lại</small>
+              <strong>
+                {usage.data
+                  ? usage.data.availableQaQueries.toLocaleString('vi-VN')
+                  : '—'}{' '}
+                câu hỏi
+              </strong>
+            </article>
+            <article>
               <small>Chi phí AI thực tế</small>
               <strong>
                 {usage.data
@@ -358,7 +367,9 @@ export function WorkspacePage() {
                       {Math.floor(
                         plan.processedVideoSeconds / 60,
                       ).toLocaleString('vi-VN')}{' '}
-                      phút · {plan.interval === 'YEAR' ? 'năm' : 'tháng'}
+                      phút ·{' '}
+                      {new Intl.NumberFormat('vi-VN').format(plan.qaQueries)}{' '}
+                      lượt hỏi AI · {plan.interval === 'YEAR' ? 'năm' : 'tháng'}
                     </span>
                   </div>
                   <div>

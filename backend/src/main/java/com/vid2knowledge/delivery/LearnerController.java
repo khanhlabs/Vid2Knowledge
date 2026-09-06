@@ -33,19 +33,22 @@ public class LearnerController {
     private final FlashcardReviewService reviews;
     private final AssessmentService assessments;
     private final LearningPathService learningPaths;
+    private final GroundedQaService groundedQa;
 
     public LearnerController(
             TenantAccessService access,
             LearnerService learners,
             FlashcardReviewService reviews,
             AssessmentService assessments,
-            LearningPathService learningPaths
+            LearningPathService learningPaths,
+            GroundedQaService groundedQa
     ) {
         this.access = access;
         this.learners = learners;
         this.reviews = reviews;
         this.assessments = assessments;
         this.learningPaths = learningPaths;
+        this.groundedQa = groundedQa;
     }
 
     @GetMapping("/assignments")
@@ -132,6 +135,21 @@ public class LearnerController {
     ) {
         return learningPaths.issue(
                 learner(organizationId, authentication), courseId, cohortId, correlation(servletRequest)
+        );
+    }
+
+    @PostMapping("/assignments/{assignmentId}/qa")
+    public GroundedQaService.Answer ask(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID assignmentId,
+            @RequestHeader("Idempotency-Key") @Size(min = 8, max = 160) String idempotencyKey,
+            @Valid @RequestBody AskQuestion request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        return groundedQa.ask(
+                learner(organizationId, authentication), assignmentId, request.question(),
+                idempotencyKey, correlation(servletRequest)
         );
     }
 
@@ -223,5 +241,8 @@ public class LearnerController {
     }
 
     public record SubmitAssessment(@NotEmpty @Size(max = 100) List<Integer> answers) {
+    }
+
+    public record AskQuestion(@jakarta.validation.constraints.NotBlank @Size(max = 1000) String question) {
     }
 }

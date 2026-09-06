@@ -124,6 +124,19 @@ public class IdentityService {
                     Timestamp.from(now.plus(commercial.trialDuration())), Timestamp.from(now), Timestamp.from(now)
             );
         }
+        if (commercial.trialQaQueries() > 0) {
+            jdbc.update(
+                    """
+                    INSERT INTO entitlements(
+                        id, organization_id, metric, allowance, period_start, period_end,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    UuidV7Generator.generate(), organizationId, UsageMetric.QA_QUERY.name(),
+                    commercial.trialQaQueries(), Timestamp.from(now),
+                    Timestamp.from(now.plus(commercial.trialDuration())), Timestamp.from(now), Timestamp.from(now)
+            );
+        }
         jdbc.update(
                 """
                 INSERT INTO audit_logs(

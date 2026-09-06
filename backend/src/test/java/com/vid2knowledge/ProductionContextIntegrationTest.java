@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ProductionContextIntegrationTest {
 
     @Container
-    static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:0.8.6-pg18-bookworm");
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry properties) {

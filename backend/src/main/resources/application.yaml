@@ -54,6 +54,7 @@ features:
 gemini:
   api-key: ${GEMINI_API_KEY:}
   model: ${GEMINI_MODEL:gemini-3.7-flash}
+  embedding-model: ${GEMINI_EMBEDDING_MODEL:gemini-embedding-001}
   base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
   timeout: ${GEMINI_TIMEOUT:180s}
 
@@ -91,6 +92,7 @@ task-queue:
 
 commercial:
   trial-processed-video-seconds: ${TRIAL_PROCESSED_VIDEO_SECONDS:3600}
+  trial-qa-queries: ${TRIAL_QA_QUERIES:20}
   trial-duration: ${TRIAL_DURATION:14d}
   invitation-ttl: ${INVITATION_TTL:7d}
 

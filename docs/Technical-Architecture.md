@@ -25,7 +25,7 @@ Browser/PWA
 | Web | React 19, TypeScript, Vite 8 | Khớp source, build static rẻ | Không đổi framework nếu không có bottleneck |
 | UI | Tailwind, shadcn/ui, Radix | Nhanh nhưng vẫn accessible và tùy biến | Design system riêng khi brand lớn |
 | API | Java 25, Spring Boot 4.1 | Khớp source, type-safe, mature security/data | Giữ modular monolith càng lâu càng tốt |
-| DB | Supabase PostgreSQL Singapore | Free cho dev; Pro có backup, Auth và latency gần VN | Chuyển managed Postgres khác qua Flyway/standard SQL khi economics yêu cầu |
+| DB/vector | Supabase PostgreSQL Singapore + pgvector | Free cho dev; Pro có backup và latency gần VN; local/test pin `pgvector/pgvector:0.8.6-pg18-bookworm` | Chuyển managed Postgres khác qua Flyway/standard SQL khi economics yêu cầu |
 | Auth | Supabase Auth | Google OAuth, magic link, invitation; giảm security code | Enterprise SSO qua adapter/IdP khi có hợp đồng |
 | Compute | Cloud Run Singapore | Scale-to-zero, container chuẩn, request-based | Min instance > 0 khi latency/revenue biện minh |
 | Queue | Cloud Tasks | Durable push, retry/rate limit, 1M ops free/tháng | Pub/Sub chỉ khi fan-out/event volume thực sự cần |

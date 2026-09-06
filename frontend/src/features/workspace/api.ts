@@ -21,6 +21,10 @@ export interface Usage {
   availableSeconds: number
   actualAiCostMicrousd: number
   shadowAiCostMicrousd: number
+  qaQueryAllowance: number
+  qaQueryCommitted: number
+  qaQueryReserved: number
+  availableQaQueries: number
   periodEnd: string
 }
 
@@ -31,6 +35,14 @@ export interface Plan {
   interval: string
   amountVnd: number
   processedVideoSeconds: number
+  qaQueries: number
+}
+
+export interface KnowledgeIndexResult {
+  packageRevisionId: string
+  chunks: number
+  embeddingModel: string
+  rebuilt: boolean
 }
 
 export interface Subscription {
@@ -186,6 +198,11 @@ export const workspaceApi = {
   ) =>
     api<LearningPackage>(
       `/api/v1/organizations/${organizationId}/packages/${packageId}/${action}`,
+      { method: 'POST' },
+    ),
+  indexKnowledge: (organizationId: string, packageId: string) =>
+    api<KnowledgeIndexResult>(
+      `/api/v1/organizations/${organizationId}/packages/${packageId}/knowledge-index`,
       { method: 'POST' },
     ),
   members: (organizationId: string) =>

@@ -867,6 +867,33 @@ button:disabled {
 .certificate-result small {
   color: #52645a;
 }
+.grounded-qa {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid #cdd8cf;
+  border-radius: 12px;
+  background: #f8faf6;
+}
+.grounded-qa h2,
+.grounded-qa p {
+  margin: 0;
+}
+.grounded-qa textarea {
+  width: 100%;
+  resize: vertical;
+}
+.qa-answer {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  border-radius: 9px;
+  background: #e5f3eb;
+}
+.qa-answer a {
+  font-size: 0.86rem;
+}
 
 .consent {
   color: #737c74;

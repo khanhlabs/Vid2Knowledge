@@ -58,7 +58,7 @@ public class BillingService {
         return jdbc.query(
                 """
                 SELECT id, code, version, name, billing_interval, amount_vnd,
-                       processed_video_seconds, instructor_seats, active_learners
+                       processed_video_seconds, instructor_seats, active_learners, qa_queries
                 FROM pricing_plans
                 WHERE active = TRUE AND effective_from <= ?
                   AND (effective_until IS NULL OR effective_until > ?)
@@ -68,7 +68,8 @@ public class BillingService {
                         result.getObject("id", UUID.class), result.getString("code"), result.getInt("version"),
                         result.getString("name"), result.getString("billing_interval"),
                         result.getLong("amount_vnd"), result.getLong("processed_video_seconds"),
-                        result.getInt("instructor_seats"), result.getInt("active_learners")
+                        result.getInt("instructor_seats"), result.getInt("active_learners"),
+                        result.getLong("qa_queries")
                 ),
                 Timestamp.from(clock.instant()), Timestamp.from(clock.instant())
         );
@@ -92,14 +93,41 @@ public class BillingService {
                 (result, row) -> new UsageView(
                         result.getLong("allowance"), result.getLong("committed"), result.getLong("reserved"),
                         result.getLong("actual_cost"), result.getLong("shadow_cost"),
-                        result.getTimestamp("period_start").toInstant(), result.getTimestamp("period_end").toInstant()
+                        result.getTimestamp("period_start").toInstant(), result.getTimestamp("period_end").toInstant(),
+                        0, 0, 0
                 ),
                 Timestamp.from(clock.instant()), organizationId, organizationId, organizationId,
                 UsageMetric.PROCESSED_VIDEO_SECOND.name(), Timestamp.from(clock.instant()), Timestamp.from(clock.instant())
         );
-        return views.stream().findFirst().orElseThrow(() ->
+        UsageView base = views.stream().findFirst().orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED, "No active entitlement")
         );
+        MetricBalance qa = metricBalance(organizationId, UsageMetric.QA_QUERY);
+        return new UsageView(
+                base.allowanceSeconds(), base.committedSeconds(), base.reservedSeconds(),
+                base.actualAiCostMicrousd(), base.shadowAiCostMicrousd(), base.periodStart(), base.periodEnd(),
+                qa.allowance(), qa.committed(), qa.reserved()
+        );
+    }
+
+    private MetricBalance metricBalance(UUID organizationId, UsageMetric metric) {
+        return jdbc.query(
+                """
+                SELECT e.allowance,
+                       COALESCE(sum(r.committed_units) FILTER (WHERE r.status = 'COMMITTED'), 0) AS committed,
+                       COALESCE(sum(r.reserved_units) FILTER (
+                           WHERE r.status = 'RESERVED' AND r.expires_at > ?
+                       ), 0) AS reserved
+                FROM entitlements e LEFT JOIN usage_reservations r ON r.entitlement_id = e.id
+                WHERE e.organization_id = ? AND e.metric = ? AND e.period_start <= ? AND e.period_end > ?
+                GROUP BY e.id ORDER BY e.period_start DESC LIMIT 1
+                """,
+                (result, row) -> new MetricBalance(
+                        result.getLong("allowance"), result.getLong("committed"), result.getLong("reserved")
+                ),
+                Timestamp.from(clock.instant()), organizationId, metric.name(),
+                Timestamp.from(clock.instant()), Timestamp.from(clock.instant())
+        ).stream().findFirst().orElse(new MetricBalance(0, 0, 0));
     }
 
     public Optional<SubscriptionView> subscription(UUID organizationId) {
@@ -396,7 +424,7 @@ public class BillingService {
         return jdbc.query(
                 """
                 SELECT o.id, o.organization_id, o.plan_id, o.amount_vnd, o.state,
-                       o.provider_payment_link_id, p.billing_interval, p.processed_video_seconds
+                       o.provider_payment_link_id, p.billing_interval, p.processed_video_seconds, p.qa_queries
                 FROM billing_orders o JOIN pricing_plans p ON p.id = o.plan_id
                 WHERE o.order_code = ? FOR UPDATE OF o
                 """,
@@ -404,7 +432,8 @@ public class BillingService {
                         result.getObject("id", UUID.class), result.getObject("organization_id", UUID.class),
                         result.getObject("plan_id", UUID.class), result.getLong("amount_vnd"),
                         result.getString("state"), result.getString("provider_payment_link_id"),
-                        result.getString("billing_interval"), result.getLong("processed_video_seconds")
+                        result.getString("billing_interval"), result.getLong("processed_video_seconds"),
+                        result.getLong("qa_queries")
                 ),
                 orderCode
         ).stream().findFirst().orElseThrow(() ->
@@ -428,6 +457,18 @@ public class BillingService {
                 """,
                 UuidV7Generator.generate(), order.organizationId(), subscription.subscriptionId(),
                 UsageMetric.PROCESSED_VIDEO_SECOND.name(), order.processedSeconds(),
+                Timestamp.from(subscription.periodStart()), Timestamp.from(subscription.periodEnd()),
+                Timestamp.from(now), Timestamp.from(now)
+        );
+        jdbc.update(
+                """
+                INSERT INTO entitlements(
+                    id, organization_id, subscription_id, metric, allowance,
+                    period_start, period_end, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                UuidV7Generator.generate(), order.organizationId(), subscription.subscriptionId(),
+                UsageMetric.QA_QUERY.name(), order.qaQueries(),
                 Timestamp.from(subscription.periodStart()), Timestamp.from(subscription.periodEnd()),
                 Timestamp.from(now), Timestamp.from(now)
         );
@@ -664,7 +705,8 @@ public class BillingService {
 
     public record Plan(
             UUID id, String code, int version, String name, String interval,
-            long amountVnd, long processedVideoSeconds, int instructorSeats, int activeLearners
+            long amountVnd, long processedVideoSeconds, int instructorSeats, int activeLearners,
+            long qaQueries
     ) {
     }
 
@@ -678,12 +720,21 @@ public class BillingService {
             long actualAiCostMicrousd,
             long shadowAiCostMicrousd,
             Instant periodStart,
-            Instant periodEnd
+            Instant periodEnd,
+            long qaQueryAllowance,
+            long qaQueryCommitted,
+            long qaQueryReserved
     ) {
         public long availableSeconds() {
             return Math.max(0, allowanceSeconds - committedSeconds - reservedSeconds);
         }
+
+        public long availableQaQueries() {
+            return Math.max(0, qaQueryAllowance - qaQueryCommitted - qaQueryReserved);
+        }
     }
+
+    private record MetricBalance(long allowance, long committed, long reserved) { }
 
     public record SubscriptionView(
             UUID id, String planCode, String planName, String status,
@@ -712,7 +763,7 @@ public class BillingService {
 
     private record OrderForPayment(
             UUID id, UUID organizationId, UUID planId, long amountVnd, String state,
-            String paymentLinkId, String interval, long processedSeconds
+            String paymentLinkId, String interval, long processedSeconds, long qaQueries
     ) {
     }
 

@@ -170,6 +170,22 @@ export interface Certificate {
   revoked: boolean
 }
 
+export interface GroundedAnswer {
+  threadId: string
+  messageId: string
+  answer: string
+  insufficientEvidence: boolean
+  citations: Array<{
+    position: number
+    itemType: string
+    itemId: string
+    content: string
+    timestampSeconds: number
+    evidence: string
+  }>
+  createdAt: string
+}
+
 export const learnerApi = {
   assignments: (organizationId: string) =>
     api<AssignmentSummary[]>(
@@ -209,6 +225,20 @@ export const learnerApi = {
     api<Certificate>(
       `/api/v1/organizations/${organizationId}/learner/paths/${courseId}/cohorts/${cohortId}/certificate`,
       { method: 'POST' },
+    ),
+  ask: (
+    organizationId: string,
+    assignmentId: string,
+    question: string,
+    requestKey: string,
+  ) =>
+    api<GroundedAnswer>(
+      `/api/v1/organizations/${organizationId}/learner/assignments/${assignmentId}/qa`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': requestKey },
+        body: JSON.stringify({ question }),
+      },
     ),
   reviewCard: (
     organizationId: string,

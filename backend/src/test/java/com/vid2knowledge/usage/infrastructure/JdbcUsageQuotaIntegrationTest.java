@@ -7,6 +7,7 @@ import com.vid2knowledge.analysis.application.AnalysisLeaseLostException;
 import com.vid2knowledge.analysis.application.RegisterYoutubeSourceService;
 import com.vid2knowledge.analysis.application.YoutubeUrlParser;
 import com.vid2knowledge.analysis.application.port.AiGenerationResult;
+import com.vid2knowledge.analysis.application.port.KnowledgeAiProvider;
 import com.vid2knowledge.analysis.application.port.VideoMetadataProvider;
 import com.vid2knowledge.analysis.domain.GenerationAccounting;
 import com.vid2knowledge.analysis.infrastructure.JdbcAnalysisJobStore;
@@ -18,12 +19,14 @@ import com.vid2knowledge.auth.IdentityService;
 import com.vid2knowledge.auth.InvitationService;
 import com.vid2knowledge.auth.OrganizationAdminService;
 import com.vid2knowledge.config.CommercialProperties;
+import com.vid2knowledge.config.AiCostProperties;
 import com.vid2knowledge.delivery.CatalogService;
 import com.vid2knowledge.delivery.AssessmentService;
 import com.vid2knowledge.delivery.LearnerService;
 import com.vid2knowledge.delivery.LearningPathService;
 import com.vid2knowledge.delivery.FlashcardReviewService;
 import com.vid2knowledge.delivery.FsrsScheduler;
+import com.vid2knowledge.delivery.GroundedQaService;
 import com.vid2knowledge.delivery.OutcomeAnalyticsService;
 import com.vid2knowledge.delivery.PackageWorkflowService;
 import com.vid2knowledge.analysis.application.LearningPackageCodec;
@@ -68,7 +71,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class JdbcUsageQuotaIntegrationTest {
 
     @Container
-    static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
+    static final PostgreSQLContainer postgres = new PostgreSQLContainer("pgvector/pgvector:0.8.6-pg18-bookworm");
 
     private JdbcTemplate jdbc;
     private JdbcUsageQuota quota;
@@ -237,7 +240,7 @@ class JdbcUsageQuotaIntegrationTest {
         Instant now = Instant.parse("2026-09-06T00:00:00Z");
         var identities = new IdentityService(
                 jdbc,
-                new CommercialProperties(3_600, Duration.ofDays(14), Duration.ofDays(7)),
+                new CommercialProperties(3_600, 20, Duration.ofDays(14), Duration.ofDays(7)),
                 Clock.fixed(now, ZoneOffset.UTC)
         );
 
@@ -257,12 +260,18 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE auth_subject = 'jwt-subject-new'", Long.class))
                 .isEqualTo(1L);
         assertThat(jdbc.queryForObject(
-                "SELECT allowance FROM entitlements WHERE organization_id = ?", Long.class, organization.id()
+                "SELECT allowance FROM entitlements WHERE organization_id = ? AND metric = 'PROCESSED_VIDEO_SECOND'",
+                Long.class, organization.id()
         )).isEqualTo(3_600L);
         assertThat(jdbc.queryForObject(
-                "SELECT EXTRACT(EPOCH FROM (period_end - period_start))::bigint FROM entitlements WHERE organization_id = ?",
+                "SELECT EXTRACT(EPOCH FROM (period_end - period_start))::bigint FROM entitlements " +
+                        "WHERE organization_id = ? AND metric = 'PROCESSED_VIDEO_SECOND'",
                 Long.class, organization.id()
         )).isEqualTo(Duration.ofDays(14).toSeconds());
+        assertThat(jdbc.queryForObject(
+                "SELECT allowance FROM entitlements WHERE organization_id = ? AND metric = 'QA_QUERY'",
+                Long.class, organization.id()
+        )).isEqualTo(20L);
     }
 
     @Test
@@ -546,6 +555,99 @@ class JdbcUsageQuotaIntegrationTest {
     }
 
     @Test
+    void groundedQaUsesTenantScopedVectorsCitationsIdempotencyAndQuota() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        UUID learnerId = seedLearner(organizationId);
+        CurrentActor learner = new CurrentActor(learnerId, organizationId, CurrentActor.Role.LEARNER);
+        UUID packageId = seedPublishedPackage(organizationId, ownerId);
+        var launch = new CatalogService(jdbc).launchProgram(
+                owner, "Hỏi đáp có nguồn", packageId, java.util.List.of(learnerId),
+                Instant.now().minusSeconds(1), Instant.now().plus(Duration.ofDays(7)),
+                "qa-launch", "qa-correlation-1"
+        );
+        jdbc.update(
+                """
+                INSERT INTO entitlements(id, organization_id, metric, allowance, period_start, period_end)
+                VALUES (?, ?, 'QA_QUERY', 5, ?, ?)
+                """,
+                UuidV7Generator.generate(), organizationId,
+                Timestamp.from(Instant.now().minusSeconds(1)), Timestamp.from(Instant.now().plus(Duration.ofDays(7)))
+        );
+        AtomicInteger answersGenerated = new AtomicInteger();
+        KnowledgeAiProvider provider = new KnowledgeAiProvider() {
+            @Override
+            public java.util.List<java.util.List<Double>> embed(
+                    java.util.List<String> texts, EmbeddingPurpose purpose
+            ) {
+                return texts.stream().map(text -> {
+                    var vector = new java.util.ArrayList<Double>(java.util.Collections.nCopies(768, 0.0));
+                    vector.set(0, 1.0);
+                    return java.util.List.copyOf(vector);
+                }).toList();
+            }
+
+            @Override
+            public AiGenerationResult generateGroundedAnswer(String prompt) {
+                answersGenerated.incrementAndGet();
+                assertThat(prompt).contains("CONTEXT:", "Không dùng kiến thức bên ngoài");
+                return new AiGenerationResult(
+                        "TEST", "grounded-test", "v1", 100, 20, 0, 50, 0,
+                        "{\"answer\":\"Câu trả lời từ bài học.\",\"citations\":[1],\"insufficientEvidence\":false}"
+                );
+            }
+
+            @Override
+            public String embeddingModel() {
+                return "embedding-test-768";
+            }
+        };
+        var rate = new AiCostProperties.Rate(1_000_000, 2_000_000, 2_000_000);
+        var qa = new GroundedQaService(
+                jdbc, new ObjectMapper(), provider, quota,
+                new AiCostProperties(rate, rate, 3, Duration.ofMinutes(5)),
+                transactions, Clock.systemUTC()
+        );
+
+        var indexed = qa.index(owner, packageId, "qa-correlation-2");
+        var answer = qa.ask(
+                learner, launch.assignmentId(), "Khái niệm chính là gì?",
+                "qa-request-123", "qa-correlation-3"
+        );
+        var replay = qa.ask(
+                learner, launch.assignmentId(), "Khái niệm chính là gì?",
+                "qa-request-123", "qa-correlation-4"
+        );
+        assertThat(indexed.chunks()).isGreaterThanOrEqualTo(5);
+        assertThat(answer.insufficientEvidence()).isFalse();
+        assertThat(answer.citations()).singleElement().satisfies(citation -> {
+            assertThat(citation.timestampSeconds()).isGreaterThanOrEqualTo(0);
+            assertThat(citation.content()).isNotBlank();
+        });
+        assertThat(replay).isEqualTo(answer);
+        assertThat(answersGenerated).hasValue(1);
+        assertThatThrownBy(() -> qa.ask(
+                learner, launch.assignmentId(), "Câu hỏi bị đổi",
+                "qa-request-123", "qa-correlation-5"
+        )).isInstanceOf(IdempotencyConflictException.class);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM usage_reservations WHERE organization_id = ? AND metric = 'QA_QUERY'",
+                Long.class, organizationId
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM cost_ledger WHERE organization_id = ? AND operation LIKE 'QA_%'",
+                Long.class, organizationId
+        )).isEqualTo(3L);
+        CurrentActor otherTenant = new CurrentActor(learnerId, UUID.randomUUID(), CurrentActor.Role.LEARNER);
+        assertThatThrownBy(() -> qa.ask(
+                otherTenant, launch.assignmentId(), "Cross tenant", "qa-cross-tenant", "qa-correlation-6"
+        )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
     void programLaunchIsAtomicIdempotentAndImmediatelyAssignable() {
         UUID ownerId = jdbc.queryForObject(
                 "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
@@ -619,7 +721,7 @@ class JdbcUsageQuotaIntegrationTest {
                 UUID.class, organizationId
         );
         CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
-        var commercial = new CommercialProperties(3_600, Duration.ofDays(14), Duration.ofDays(7));
+        var commercial = new CommercialProperties(3_600, 20, Duration.ofDays(14), Duration.ofDays(7));
         var identities = new IdentityService(jdbc, commercial);
         var invitations = new InvitationService(jdbc, identities, commercial, new DisabledNotificationQueue());
         var invitation = transactions.execute(status -> invitations.invite(

@@ -38,7 +38,7 @@
 - `flashcard_memory_states`, `flashcard_review_log`; review append-only, state là projection theo FSRS-6, lưu algorithm version để reschedule/migrate có kiểm soát.
 - `lesson_prerequisites`, `course_completion_rules`, `completion_certificates`; prerequisite cùng course và chống cycle, certificate snapshot tiêu chí cấp, có verification code và trạng thái thu hồi.
 - `mastery_states(organization_id, user_id, topic_key, score, evidence_count, updated_at)`.
-- `qa_threads`, `qa_messages`, `qa_citations`, `embedding_chunks` với pgvector và revision reference.
+- `qa_threads`, `qa_messages`, `qa_citations`, `qa_query_runs`, `embedding_chunks` với pgvector 768 chiều và revision reference. HNSW cosine index chỉ chứa chunk từ human-verified published revision; model embedding là một phần của unique key để re-index an toàn.
 - `learner_feedback`, `content_reports`.
 
 ### Billing và operations
@@ -118,7 +118,8 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `GET .../assignments/{assignmentId}/assessments/overview` trả số lượt, delayed-recall eligibility và top điểm yếu.
 - `POST .../assignments/{assignmentId}/assessments` tạo snapshot `PRACTICE|DELAYED_RECALL`; `POST .../assessments/{snapshotId}/submit` chấm snapshot phía server. Cả hai bắt buộc `Idempotency-Key`; delayed recall mở sau lượt practice đầu tiên 3 ngày.
 - `GET .../learner/reviews/due|summary`, `POST .../assignments/{assignmentId}/flashcards/{cardId}/reviews`; rating bắt buộc idempotent và tenant-scoped.
-- `POST .../qa/messages`; response có citations và usage.
+- `POST .../packages/{packageId}/knowledge-index` tạo/cập nhật vector index bằng Gemini embedding batch; author chủ động bật để không phát sinh chi phí ngầm.
+- `POST .../learner/assignments/{assignmentId}/qa` bắt buộc `Idempotency-Key`; reserve `QA_QUERY` trước provider call, retrieval tenant/revision-scoped, response có citations hoặc explicit insufficient-evidence refusal.
 - `POST .../feedback` và `POST .../reports`.
 - `POST .../courses/{courseId}/completion-rule|publish`, `POST .../lessons/{lessonId}/prerequisites` cho author; `POST .../certificates/{certificateId}/revoke` chỉ OWNER/ADMIN và bắt buộc lý do.
 - `GET .../learner/paths`, `POST .../learner/paths/{courseId}/cohorts/{cohortId}/certificate`; certificate chỉ cấp khi mọi lesson đạt passing score và delayed recall nếu buyer bật.

@@ -11,6 +11,7 @@ import {
   type Certificate,
   type LearningPath,
   type DueCard,
+  type GroundedAnswer,
   type ReviewRating,
 } from './api'
 
@@ -26,6 +27,12 @@ export function LearnerPage() {
   } | null>(null)
   const [submissionKey, setSubmissionKey] = useState<string | null>(null)
   const [certificate, setCertificate] = useState<Certificate | null>(null)
+  const [qaQuestion, setQaQuestion] = useState('')
+  const [qaAnswer, setQaAnswer] = useState<GroundedAnswer | null>(null)
+  const [qaRequest, setQaRequest] = useState<{
+    question: string
+    key: string
+  } | null>(null)
   const [revealedCardId, setRevealedCardId] = useState<string | null>(null)
   const [pendingReview, setPendingReview] = useState<{
     card: DueCard
@@ -67,6 +74,9 @@ export function LearnerPage() {
       setResult(null)
       setAssessmentStart(null)
       setSubmissionKey(null)
+      setQaQuestion('')
+      setQaAnswer(null)
+      setQaRequest(null)
     },
   })
   const startAssessment = useMutation({
@@ -142,6 +152,12 @@ export function LearnerPage() {
       learnerApi.issueCertificate(organizationId, path.courseId, path.cohortId),
     onSuccess: setCertificate,
   })
+  const ask = useMutation({
+    mutationFn: (request: { question: string; key: string }) =>
+      learnerApi.ask(organizationId, lesson!.id, request.question, request.key),
+    retry: 2,
+    onSuccess: setQaAnswer,
+  })
 
   const rateCard = (card: DueCard, rating: ReviewRating) => {
     const request =
@@ -168,6 +184,17 @@ export function LearnerPage() {
     const key = submissionKey ?? idempotencyKey('assessment-submit')
     setSubmissionKey(key)
     submitAssessment.mutate({ snapshot: assessment, answers, key })
+  }
+
+  const askGroundedQuestion = () => {
+    const question = qaQuestion.trim()
+    if (!question) return
+    const request =
+      qaRequest?.question === question
+        ? qaRequest
+        : { question, key: idempotencyKey('qa-question') }
+    setQaRequest(request)
+    ask.mutate(request)
   }
 
   return (
@@ -203,6 +230,52 @@ export function LearnerPage() {
             <p className="lesson-overview">
               {lesson.content.summary?.overview}
             </p>
+            <section className="grounded-qa" aria-labelledby="qa-title">
+              <p className="eyebrow">ASK VIDEO · CÓ NGUỒN</p>
+              <h2 id="qa-title">Hỏi trong phạm vi bài đã duyệt</h2>
+              <textarea
+                value={qaQuestion}
+                maxLength={1000}
+                rows={3}
+                placeholder="Ví dụ: Vì sao bước này quan trọng?"
+                onChange={(event) => {
+                  setQaQuestion(event.target.value)
+                  setQaRequest(null)
+                }}
+              />
+              <button
+                disabled={ask.isPending || !qaQuestion.trim()}
+                onClick={askGroundedQuestion}
+              >
+                {ask.isPending ? 'Đang đối chiếu nguồn…' : 'Hỏi bài học'}
+              </button>
+              {qaAnswer && (
+                <div className="qa-answer" role="status">
+                  <p>{qaAnswer.answer}</p>
+                  {qaAnswer.citations.map((citation) => (
+                    <a
+                      key={`${citation.itemType}-${citation.itemId}`}
+                      href={
+                        lesson.content.video?.youtubeUrl
+                          ? `${lesson.content.video.youtubeUrl}&t=${citation.timestampSeconds}s`
+                          : undefined
+                      }
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      [{citation.position}] {citation.evidence} ·{' '}
+                      {citation.timestampSeconds}s ↗
+                    </a>
+                  ))}
+                </div>
+              )}
+              {ask.isError && (
+                <p className="form-error">
+                  Chưa thể trả lời. Nội dung có thể chưa được lập chỉ mục hoặc
+                  quota hỏi đáp đã hết.
+                </p>
+              )}
+            </section>
             {lesson.content.keyTakeaways && (
               <>
                 <h2>Điểm cần nhớ</h2>

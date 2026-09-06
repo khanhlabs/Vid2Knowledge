@@ -10,6 +10,7 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "commercial")
 public record CommercialProperties(
         @Min(0) long trialProcessedVideoSeconds,
+        @Min(0) long trialQaQueries,
         Duration trialDuration,
         Duration invitationTtl
 ) {

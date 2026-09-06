@@ -38,6 +38,9 @@ export function PackageReviewPage() {
         queryKey: ['package', organizationId, packageId],
       }),
   })
+  const knowledgeIndex = useMutation({
+    mutationFn: () => workspaceApi.indexKnowledge(organizationId, packageId),
+  })
   if (!organizationId)
     return (
       <div className="screen-message">
@@ -87,7 +90,29 @@ export function PackageReviewPage() {
               {label}
             </button>
           ))}
+          {item.state === 'PUBLISHED' && (
+            <button
+              disabled={knowledgeIndex.isPending}
+              onClick={() => knowledgeIndex.mutate()}
+            >
+              {knowledgeIndex.isPending
+                ? 'Đang lập chỉ mục…'
+                : 'Bật Ask Video có nguồn'}
+            </button>
+          )}
         </div>
+        {knowledgeIndex.data && (
+          <p className="success-message">
+            Đã lập chỉ mục {knowledgeIndex.data.chunks} đoạn bằng{' '}
+            {knowledgeIndex.data.embeddingModel}.
+          </p>
+        )}
+        {knowledgeIndex.isError && (
+          <p className="form-error">
+            Không thể lập chỉ mục. Kiểm tra cấu hình AI và thử lại trước khi
+            giao tính năng hỏi đáp.
+          </p>
+        )}
         {transition.isError && (
           <p className="form-error">
             Chuyển trạng thái không hợp lệ hoặc bạn không có quyền.

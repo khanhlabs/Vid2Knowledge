@@ -2,6 +2,7 @@ package com.vid2knowledge.analysis.infrastructure;
 
 import com.vid2knowledge.analysis.application.port.VideoAnalysisProvider;
 import com.vid2knowledge.analysis.application.port.AiGenerationResult;
+import com.vid2knowledge.analysis.application.port.KnowledgeAiProvider;
 import com.vid2knowledge.config.GeminiProperties;
 import com.vid2knowledge.analysis.application.AiProviderException;
 import org.slf4j.Logger;
@@ -17,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 @Component
-public class GeminiInteractionClient implements VideoAnalysisProvider {
+public class GeminiInteractionClient implements VideoAnalysisProvider, KnowledgeAiProvider {
 
     private final RestClient restClient;
     private final GeminiProperties properties;
@@ -40,20 +41,80 @@ public class GeminiInteractionClient implements VideoAnalysisProvider {
     }
 
     @Override
+    public List<List<Double>> embed(List<String> texts, EmbeddingPurpose purpose) {
+        if (texts.isEmpty() || texts.size() > 100) {
+            throw new IllegalArgumentException("Embedding batch must contain 1 to 100 texts");
+        }
+        String taskType = purpose == EmbeddingPurpose.DOCUMENT
+                ? "RETRIEVAL_DOCUMENT" : "RETRIEVAL_QUERY";
+        String model = "models/" + properties.embeddingModel();
+        List<Map<String, Object>> requests = texts.stream().map(text -> Map.<String, Object>of(
+                "model", model,
+                "content", Map.of("parts", List.of(Map.of("text", text))),
+                "taskType", taskType,
+                "outputDimensionality", 768
+        )).toList();
+        JsonNode response;
+        try {
+            response = restClient.post()
+                    .uri("/models/{model}:batchEmbedContents", properties.embeddingModel())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("requests", requests))
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientResponseException exception) {
+            int status = exception.getStatusCode().value();
+            throw new AiProviderException(
+                    "Gemini embedding request failed with HTTP " + status,
+                    status == 408 || status == 429 || status >= 500, exception
+            );
+        } catch (ResourceAccessException exception) {
+            throw new AiProviderException("Gemini embedding request timed out or could not connect", true, exception);
+        }
+        if (response == null || !response.path("embeddings").isArray()
+                || response.path("embeddings").size() != texts.size()) {
+            throw new AiProviderException("Gemini returned an invalid embedding batch", false);
+        }
+        return java.util.stream.StreamSupport.stream(response.path("embeddings").spliterator(), false)
+                .map(item -> java.util.stream.StreamSupport.stream(item.path("values").spliterator(), false)
+                        .map(JsonNode::asDouble).toList())
+                .peek(vector -> {
+                    if (vector.size() != 768) {
+                        throw new AiProviderException("Gemini embedding dimension mismatch", false);
+                    }
+                })
+                .toList();
+    }
+
+    @Override
+    public AiGenerationResult generateGroundedAnswer(String prompt) {
+        return generateText(List.of(Map.of("type", "text", "text", prompt)));
+    }
+
+    @Override
+    public String embeddingModel() {
+        return properties.embeddingModel();
+    }
+
+    @Override
     public AiGenerationResult generateLearningPackage(
             String prompt,
             String canonicalYoutubeUrl
     ) {
+        return generateText(List.of(
+                Map.of("type", "video", "uri", canonicalYoutubeUrl),
+                Map.of("type", "text", "text", prompt)
+        ));
+    }
+
+    private AiGenerationResult generateText(List<Map<String, String>> input) {
         circuitBreaker.beforeCall();
         long startedAt = System.nanoTime();
 
         Map<String, Object> requestBody = Map.of(
                 "model", properties.model(),
                 "store", false,
-                "input", List.of(
-                        Map.of("type", "video", "uri", canonicalYoutubeUrl),
-                        Map.of("type", "text", "text", prompt)
-                )
+                "input", input
         );
 
         JsonNode response;

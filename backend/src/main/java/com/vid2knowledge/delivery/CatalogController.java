@@ -33,13 +33,16 @@ public class CatalogController {
     private final TenantAccessService access;
     private final CatalogService catalog;
     private final LearningPathService learningPaths;
+    private final GroundedQaService groundedQa;
 
     public CatalogController(
-            TenantAccessService access, CatalogService catalog, LearningPathService learningPaths
+            TenantAccessService access, CatalogService catalog, LearningPathService learningPaths,
+            GroundedQaService groundedQa
     ) {
         this.access = access;
         this.catalog = catalog;
         this.learningPaths = learningPaths;
+        this.groundedQa = groundedQa;
     }
 
     @GetMapping("/courses")
@@ -241,6 +244,18 @@ public class CatalogController {
         learningPaths.revoke(
                 manager(organizationId, authentication), certificateId, request.reason(),
                 correlation(servletRequest)
+        );
+    }
+
+    @PostMapping("/packages/{packageId}/knowledge-index")
+    public GroundedQaService.IndexResult indexKnowledge(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID packageId,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        return groundedQa.index(
+                author(organizationId, authentication), packageId, correlation(servletRequest)
         );
     }
 

@@ -172,7 +172,12 @@ describe('LearnerPage adaptive review', () => {
             availableAt: '2026-09-06T00:00:00Z',
             status: 'STARTED',
             progressPercent: 1,
-            content: { summary: { overview: 'Nội dung bài học.' } },
+            content: {
+              video: {
+                youtubeUrl: 'https://www.youtube.com/watch?v=abcdefghijk',
+              },
+              summary: { overview: 'Nội dung bài học.' },
+            },
           }),
         )
       }
@@ -184,6 +189,27 @@ describe('LearnerPage adaptive review', () => {
             delayedRecallAvailable: false,
             delayedRecallCompleted: false,
             weakAreas: [],
+          }),
+        )
+      }
+      if (url.endsWith('/assignments/assignment-1/qa')) {
+        return Promise.resolve(
+          json({
+            threadId: 'thread-1',
+            messageId: 'message-1',
+            answer: 'Câu trả lời chỉ dựa trên bài học.',
+            insufficientEvidence: false,
+            citations: [
+              {
+                position: 1,
+                itemType: 'SECTION',
+                itemId: 'section-1',
+                content: 'Đoạn nguồn.',
+                timestampSeconds: 33,
+                evidence: 'Bằng chứng trực tiếp.',
+              },
+            ],
+            createdAt: '2026-09-06T00:00:00Z',
           }),
         )
       }
@@ -237,6 +263,20 @@ describe('LearnerPage adaptive review', () => {
 
     await userEvent.click(
       await screen.findByRole('button', { name: 'Bắt đầu' }),
+    )
+    await userEvent.type(
+      screen.getByPlaceholderText('Ví dụ: Vì sao bước này quan trọng?'),
+      'Vì sao?',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Hỏi bài học' }))
+    expect(
+      await screen.findByText('Câu trả lời chỉ dựa trên bài học.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /Bằng chứng trực tiếp.*33s/ }),
+    ).toHaveAttribute(
+      'href',
+      'https://www.youtube.com/watch?v=abcdefghijk&t=33s',
     )
     await userEvent.click(
       await screen.findByRole('button', { name: 'Bắt đầu đề luyện mới' }),
