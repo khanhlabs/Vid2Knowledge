@@ -49,6 +49,7 @@ public class LegalAcceptanceInterceptor implements HandlerInterceptor {
         return path.equals("/api/v1/me")
                 || path.startsWith("/api/v1/legal/")
                 || path.startsWith("/api/v1/privacy/")
+                || path.equals("/api/v1/integrations/openapi.json")
                 || path.startsWith("/api/v1/integrations/v1/")
                 || path.startsWith("/api/v1/webhooks/")
                 || path.startsWith("/api/v1/certificates/")

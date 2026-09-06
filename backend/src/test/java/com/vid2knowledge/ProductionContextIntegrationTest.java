@@ -24,6 +24,8 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -155,5 +157,14 @@ class ProductionContextIntegrationTest {
         mockMvc.perform(get("/api/v1/integrations/v1/organizations/{organizationId}/courses", organizationId)
                         .header("Authorization", "Bearer invalid"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void integrationContractIsPublicAndCacheableWithoutLegalAcceptance() throws Exception {
+        mockMvc.perform(get("/api/v1/integrations/openapi.json"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("application/json"))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("max-age=3600")))
+                .andExpect(content().json("{\"openapi\":\"3.1.0\",\"info\":{\"version\":\"1.0.0\"}}", false));
     }
 }

@@ -81,6 +81,9 @@ describe('IntegrationsPage', () => {
 
     const user = userEvent.setup()
     await user.type(await screen.findByLabelText('Tên key'), 'BI export')
+    expect(
+      screen.getByRole('link', { name: 'Tải OpenAPI contract v1' }),
+    ).toHaveAttribute('href', '/api/v1/integrations/openapi.json')
     await user.click(screen.getByRole('button', { name: 'Tạo key 30 ngày' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(

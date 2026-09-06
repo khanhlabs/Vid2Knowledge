@@ -74,6 +74,7 @@ public class SecurityConfig {
                             .requestMatchers(
                                     "/actuator/health/**", "/api/v1/webhooks/**", "/api/v1/certificates/**"
                             ).permitAll()
+                            .requestMatchers(HttpMethod.GET, "/api/v1/integrations/openapi.json").permitAll()
                             .requestMatchers(HttpMethod.GET, "/api/v1/legal/manifest").permitAll()
                             .anyRequest().authenticated()
                     )

@@ -1,0 +1,132 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Vid2Knowledge Business Data API",
+    "version": "1.0.0",
+    "description": "Stable, read-only tenant API and signed webhook contract for Business customers."
+  },
+  "servers": [{ "url": "/" }],
+  "security": [{ "businessApiKey": [] }],
+  "paths": {
+    "/api/v1/integrations/v1/organizations/{organizationId}/courses": {
+      "get": {
+        "operationId": "listCourses",
+        "summary": "List courses in the API key tenant",
+        "x-required-scope": "catalog:read",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationId" }],
+        "responses": {
+          "200": { "description": "Course catalog", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Course" } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/v1/integrations/v1/organizations/{organizationId}/analytics/overview": {
+      "get": {
+        "operationId": "getOutcomeOverview",
+        "summary": "Get organization learning outcomes",
+        "x-required-scope": "analytics:read",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationId" }],
+        "responses": {
+          "200": { "description": "Outcome overview", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrganizationOutcome" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/v1/integrations/v1/organizations/{organizationId}/analytics/cohorts": {
+      "get": {
+        "operationId": "listCohortOutcomes",
+        "summary": "Compare cohort learning outcomes",
+        "x-required-scope": "analytics:read",
+        "parameters": [{ "$ref": "#/components/parameters/OrganizationId" }],
+        "responses": {
+          "200": { "description": "Cohort outcomes", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/CohortOutcome" } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "businessEvent": {
+      "post": {
+        "summary": "Event delivered to the configured customer endpoint",
+        "security": [],
+        "parameters": [
+          { "name": "X-V2K-Delivery", "in": "header", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "X-V2K-Event", "in": "header", "required": true, "schema": { "type": "string" } },
+          { "name": "X-V2K-Timestamp", "in": "header", "required": true, "schema": { "type": "integer", "format": "int64" } },
+          { "name": "X-V2K-Signature", "in": "header", "required": true, "description": "v1=hex(HMAC-SHA256(secret, timestamp + '.' + rawBody))", "schema": { "type": "string", "pattern": "^v1=[0-9a-f]{64}$" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEnvelope" } } } },
+        "responses": { "204": { "description": "Accepted; any 2xx status acknowledges delivery" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "businessApiKey": { "type": "http", "scheme": "bearer", "bearerFormat": "v2k_live_*", "description": "Use a scoped key created by an organization Owner/Admin." }
+    },
+    "parameters": {
+      "OrganizationId": { "name": "organizationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+    },
+    "responses": {
+      "Unauthorized": { "description": "Missing, invalid, expired or revoked API key", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "Forbidden": { "description": "Wrong tenant, missing scope or inactive Business entitlement", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Problem" } } } },
+      "RateLimited": { "description": "Request limit exceeded; retry after the response Retry-After interval", "headers": { "Retry-After": { "schema": { "type": "integer" } } } }
+    },
+    "schemas": {
+      "Course": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "title", "state", "version", "moduleCount", "lessonCount"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" }, "title": { "type": "string" },
+          "description": { "type": ["string", "null"] }, "state": { "type": "string" },
+          "version": { "type": "integer", "format": "int64" }, "moduleCount": { "type": "integer" },
+          "lessonCount": { "type": "integer" }
+        }
+      },
+      "OrganizationOutcome": {
+        "type": "object", "additionalProperties": false,
+        "required": ["activeCohorts", "learners", "assigned", "started", "completed", "feedbackResponses", "helpfulResponses", "reportedErrors", "openErrors", "timezone", "generatedAt", "activationRate", "completionRate"],
+        "properties": {
+          "activeCohorts": { "type": "integer" }, "learners": { "type": "integer" }, "assigned": { "type": "integer" },
+          "started": { "type": "integer" }, "completed": { "type": "integer" },
+          "averageScorePercent": { "type": ["integer", "null"] }, "practiceAverageScorePercent": { "type": ["integer", "null"] },
+          "delayedRecallAverageScorePercent": { "type": ["integer", "null"] }, "feedbackResponses": { "type": "integer" },
+          "helpfulResponses": { "type": "integer" }, "reportedErrors": { "type": "integer" }, "openErrors": { "type": "integer" },
+          "timezone": { "type": "string" }, "generatedAt": { "type": "string", "format": "date-time" },
+          "activationRate": { "type": "number", "minimum": 0, "maximum": 1 }, "completionRate": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      },
+      "CohortOutcome": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "name", "status", "learners", "assigned", "started", "completed", "activationRate", "completionRate"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" }, "name": { "type": "string" }, "status": { "type": "string" },
+          "startsAt": { "type": ["string", "null"], "format": "date-time" }, "endsAt": { "type": ["string", "null"], "format": "date-time" },
+          "learners": { "type": "integer" }, "assigned": { "type": "integer" }, "started": { "type": "integer" }, "completed": { "type": "integer" },
+          "averageScorePercent": { "type": ["integer", "null"] }, "activationRate": { "type": "number", "minimum": 0, "maximum": 1 },
+          "completionRate": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      },
+      "WebhookEnvelope": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "type", "version", "occurredAt", "organizationId", "data"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "type": { "type": "string", "enum": ["AnalysisCompleted", "AnalysisFailed", "PackagePublished", "AssignmentPublished", "AssessmentSubmitted", "DelayedRecallCompleted", "QualityIssueReported", "InvitationAccepted", "PaymentReceived", "SubscriptionCancellationScheduled"] },
+          "version": { "type": "integer", "minimum": 1 }, "occurredAt": { "type": "string", "format": "date-time" },
+          "organizationId": { "type": "string", "format": "uuid" }, "data": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "Problem": {
+        "type": "object", "properties": { "status": { "type": "integer" }, "code": { "type": "string" }, "message": { "type": "string" }, "correlationId": { "type": "string" } }
+      }
+    }
+  }
+}

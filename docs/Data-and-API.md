@@ -178,6 +178,9 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
   Key bị tenant-bind, scope-check, rate-limit và ngừng hoạt động ngay khi revoke/expire hoặc subscription
   Business không còn active. Owner/Admin vẫn xem và revoke/disable credential cũ sau khi gói hết hạn;
   chỉ create/rotate yêu cầu Business active. Không dùng API key thay user JWT trên API quản trị.
+- `GET /api/v1/integrations/openapi.json` là OpenAPI 3.1 contract công khai, immutable trong major
+  version và cache một giờ. CI contract test chặn drift giữa scope/event allowlist với tài liệu;
+  breaking change phải phát hành namespace `/v2`, không sửa âm thầm `/v1`.
 - Webhook chỉ nhận public HTTPS port 443; resolve và chặn loopback/private/link-local/CGNAT/ULA lúc tạo
   và trước mỗi attempt để giảm SSRF/DNS-rebinding risk. Không follow redirect. Envelope có
   `id`, `type`, `version`, `occurredAt`, `organizationId`, `data`; header gồm `X-V2K-Delivery`,

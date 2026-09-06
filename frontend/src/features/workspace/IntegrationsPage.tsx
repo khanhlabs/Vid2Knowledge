@@ -171,6 +171,13 @@ export function IntegrationsPage() {
             Key và signing secret chỉ hiện đúng một lần. Hãy lưu ngay trong
             secret manager của hệ thống nhận.
           </p>
+          <a
+            className="button-link"
+            href="/api/v1/integrations/openapi.json"
+            download="vid2knowledge-business-api-v1.json"
+          >
+            Tải OpenAPI contract v1
+          </a>
         </div>
       </section>
 
