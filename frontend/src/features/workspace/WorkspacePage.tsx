@@ -34,6 +34,8 @@ export function WorkspacePage() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('LEARNER')
   const [inviteLink, setInviteLink] = useState('')
+  const [refundInvoiceId, setRefundInvoiceId] = useState('')
+  const [refundReason, setRefundReason] = useState('')
   const me = useQuery({ queryKey: ['me'], queryFn: workspaceApi.me })
   const plans = useQuery({ queryKey: ['plans'], queryFn: workspaceApi.plans })
 
@@ -75,6 +77,11 @@ export function WorkspacePage() {
   const invoices = useQuery({
     queryKey: ['invoices', activeOrganizationId],
     queryFn: () => workspaceApi.invoices(activeOrganizationId),
+    enabled: Boolean(activeOrganizationId && canManageMembers),
+  })
+  const refunds = useQuery({
+    queryKey: ['refunds', activeOrganizationId],
+    queryFn: () => workspaceApi.refunds(activeOrganizationId),
     enabled: Boolean(activeOrganizationId && canManageMembers),
   })
   const members = useQuery({
@@ -148,6 +155,21 @@ export function WorkspacePage() {
       queryClient.invalidateQueries({
         queryKey: ['subscription', activeOrganizationId],
       }),
+  })
+  const requestRefund = useMutation({
+    mutationFn: () =>
+      workspaceApi.requestRefund(
+        activeOrganizationId,
+        refundInvoiceId,
+        refundReason,
+      ),
+    onSuccess: async () => {
+      setRefundInvoiceId('')
+      setRefundReason('')
+      await queryClient.invalidateQueries({
+        queryKey: ['refunds', activeOrganizationId],
+      })
+    },
   })
   const invite = useMutation({
     mutationFn: () =>
@@ -405,17 +427,30 @@ export function WorkspacePage() {
                       ).toLocaleString('vi-VN')}{' '}
                       phút ·{' '}
                       {new Intl.NumberFormat('vi-VN').format(plan.qaQueries)}{' '}
-                      lượt hỏi AI · {plan.interval === 'YEAR' ? 'năm' : 'tháng'}
+                      lượt hỏi AI ·{' '}
+                      {plan.productType === 'TOP_UP'
+                        ? 'credit dùng đến cuối kỳ hiện tại'
+                        : plan.interval === 'YEAR'
+                          ? 'năm'
+                          : 'tháng'}
                     </span>
                   </div>
                   <div>
                     <b>{money(plan.amountVnd)}</b>
                     <button
                       className="small-button"
-                      disabled={checkout.isPending}
+                      disabled={
+                        checkout.isPending ||
+                        (plan.productType === 'TOP_UP' && !subscription.data)
+                      }
+                      title={
+                        plan.productType === 'TOP_UP' && !subscription.data
+                          ? 'Cần có thuê bao đang hoạt động trước khi nạp credit'
+                          : undefined
+                      }
                       onClick={() => checkout.mutate(plan.id)}
                     >
-                      Chọn gói
+                      {plan.productType === 'TOP_UP' ? 'Nạp credit' : 'Chọn gói'}
                     </button>
                   </div>
                 </article>
@@ -441,10 +476,71 @@ export function WorkspacePage() {
                         </small>
                       </span>
                       <span>{money(invoice.amountPaidVnd)}</span>
+                      {invoice.invoiceType === 'TOP_UP' &&
+                        invoice.state === 'PAID' &&
+                        !refunds.data?.some(
+                          (refund) => refund.invoiceId === invoice.id,
+                        ) && (
+                          <button
+                            className="text-button"
+                            onClick={() => setRefundInvoiceId(invoice.id)}
+                          >
+                            Yêu cầu hoàn tiền
+                          </button>
+                        )}
                     </div>
                   ))}
                 </div>
               )}
+              {refundInvoiceId && (
+                <form
+                  className="stacked-form"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    requestRefund.mutate()
+                  }}
+                >
+                  <label htmlFor="refund-reason">
+                    Lý do hoàn credit chưa sử dụng
+                  </label>
+                  <textarea
+                    id="refund-reason"
+                    minLength={10}
+                    maxLength={1000}
+                    required
+                    value={refundReason}
+                    onChange={(event) => setRefundReason(event.target.value)}
+                  />
+                  <div>
+                    <button
+                      className="small-button"
+                      disabled={requestRefund.isPending}
+                    >
+                      Gửi yêu cầu
+                    </button>{' '}
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => setRefundInvoiceId('')}
+                    >
+                      Đóng
+                    </button>
+                  </div>
+                </form>
+              )}
+              {requestRefund.isError && (
+                <p className="form-error">{errorMessage(requestRefund.error)}</p>
+              )}
+              {refunds.data?.map((refund) => (
+                <p className="fine-print" key={refund.id}>
+                  Hoàn tiền {money(refund.amountVnd)} ·{' '}
+                  {refund.state === 'REQUESTED'
+                    ? 'đang chờ đối soát ngân hàng'
+                    : refund.state === 'SUCCEEDED'
+                      ? `đã hoàn · ${refund.providerReference}`
+                      : 'không được chấp thuận'}
+                </p>
+              ))}
               {cancelSubscription.isError && (
                 <p className="form-error">
                   Không thể cập nhật gia hạn. Vui lòng thử lại.

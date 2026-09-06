@@ -84,6 +84,32 @@ public class BillingController {
         return billing.invoices(organizationId);
     }
 
+    @GetMapping("/organizations/{organizationId}/billing/refunds")
+    public List<BillingService.RefundView> refunds(
+            @PathVariable UUID organizationId,
+            Authentication authentication
+    ) {
+        access.require(organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN);
+        return billing.refunds(organizationId);
+    }
+
+    @PostMapping("/organizations/{organizationId}/billing/refunds")
+    @ResponseStatus(HttpStatus.CREATED)
+    public BillingService.RefundView requestRefund(
+            @PathVariable UUID organizationId,
+            @Valid @RequestBody RefundRequest refund,
+            Authentication authentication,
+            HttpServletRequest request
+    ) {
+        CurrentActor actor = access.require(
+                organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN
+        );
+        return billing.requestRefund(
+                actor, refund.invoiceId(), refund.reason(),
+                request.getAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE).toString()
+        );
+    }
+
     @PostMapping("/organizations/{organizationId}/billing/subscriptions/{subscriptionId}/cancel")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void cancel(
@@ -106,5 +132,11 @@ public class BillingController {
     }
 
     public record CheckoutRequest(@NotNull UUID planId) {
+    }
+
+    public record RefundRequest(
+            @NotNull UUID invoiceId,
+            @NotNull @Size(min = 10, max = 1000) String reason
+    ) {
     }
 }

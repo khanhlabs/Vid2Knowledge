@@ -119,6 +119,7 @@ public class NotificationDispatcher {
                 case "INVITATION" -> invitation(job, payload, organization);
                 case "PAYMENT_RECEIPT" -> receipt(job, payload, organization);
                 case "CANCELLATION_SCHEDULED" -> cancellation(job, payload, organization);
+                case "RENEWAL_PAYMENT_REQUIRED" -> renewal(job, payload, organization);
                 default -> throw new NotificationDeliveryException("Unsupported notification type", false, null);
             };
         } catch (NotificationDeliveryException failure) {
@@ -164,6 +165,24 @@ public class NotificationDispatcher {
                 + " vẫn dùng được đến " + periodEnd + " (GMT+7) và sẽ không tự gia hạn.</p>";
         String text = "Gói của " + HtmlUtils.htmlUnescape(organization) + " vẫn dùng được đến "
                 + periodEnd + " (GMT+7) và sẽ không tự gia hạn.";
+        return new OutboundEmail(job.recipient(), subject, html, text, job.id().toString());
+    }
+
+    private OutboundEmail renewal(ClaimedNotification job, JsonNode payload, String organization) {
+        String invoice = escaped(payload, "invoiceNumber");
+        String checkoutUrl = payload.path("checkoutUrl").asText();
+        if (!checkoutUrl.startsWith("https://")) {
+            throw new NotificationDeliveryException("Renewal checkout URL is invalid", false, null);
+        }
+        String amount = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("vi-VN"))
+                .format(payload.path("amountVnd").asLong());
+        String periodEnd = DATE.format(Instant.parse(payload.path("periodEnd").asText()));
+        String subject = "Cần thanh toán để tiếp tục Vid2Knowledge";
+        String html = "<h2>Gói sắp hết hạn</h2><p>" + organization + " cần thanh toán "
+                + HtmlUtils.htmlEscape(amount) + " trước " + periodEnd + " (GMT+7).</p><p><a href=\""
+                + HtmlUtils.htmlEscape(checkoutUrl) + "\">Thanh toán " + invoice + "</a></p>";
+        String text = "Gói của " + HtmlUtils.htmlUnescape(organization) + " cần thanh toán " + amount
+                + " trước " + periodEnd + " (GMT+7). " + invoice + ": " + checkoutUrl;
         return new OutboundEmail(job.recipient(), subject, html, text, job.id().toString());
     }
 

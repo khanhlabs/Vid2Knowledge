@@ -61,6 +61,19 @@ public class JdbcNotificationQueue implements NotificationQueue {
         }
     }
 
+    @Override
+    public void renewalPaymentRequired(UUID organizationId, UUID invoiceId, String invoiceNumber,
+                                       long amountVnd, String checkoutUrl, Instant periodEnd) {
+        for (String recipient : billingRecipients(organizationId)) {
+            enqueue(organizationId, "RENEWAL_PAYMENT_REQUIRED",
+                    "renewal/" + invoiceId + "/" + recipientKey(recipient), recipient, Map.of(
+                            "invoiceNumber", invoiceNumber, "amountVnd", amountVnd,
+                            "checkoutUrl", checkoutUrl, "periodEnd", periodEnd.toString(),
+                            "organizationName", organizationName(organizationId)
+                    ));
+        }
+    }
+
     private void enqueue(UUID organizationId, String type, String dedupeKey,
                          String recipient, Map<String, Object> payload) {
         try {

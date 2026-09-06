@@ -16,4 +16,9 @@ public interface NotificationQueue {
     );
 
     void cancellationScheduled(UUID organizationId, UUID subscriptionId, Instant periodEnd);
+
+    void renewalPaymentRequired(
+            UUID organizationId, UUID invoiceId, String invoiceNumber,
+            long amountVnd, String checkoutUrl, Instant periodEnd
+    );
 }

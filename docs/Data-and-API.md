@@ -135,9 +135,16 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 
 ### Billing
 
-- `GET /api/v1/billing/plans`, `GET .../usage`, `GET .../invoices`.
-- `POST .../checkout-sessions` tạo payOS link từ server-side price.
-- `POST .../subscriptions/{id}/cancel` và purchase top-up.
+- `GET /api/v1/billing/plans`, `GET .../usage`, `GET .../invoices`, `GET .../refunds`.
+- `POST .../checkout-sessions` tạo payOS link từ server-side price; catalog phân biệt
+  `SUBSCRIPTION` và prepaid `TOP_UP`. Top-up chỉ mở khi thuê bao còn hiệu lực quá TTL
+  checkout, cộng atomically vào entitlement hiện tại và có `credit_grants` để đối soát.
+- `POST .../subscriptions/{id}/cancel` dừng cuối kỳ. Reconciliation task tạo duy nhất một
+  renewal invoice/payment link trước 7 ngày; subscription quá hạn đi qua grace period
+  `PAST_DUE` 7 ngày trước khi `EXPIRED`.
+- `POST .../refunds` chỉ nhận yêu cầu hoàn toàn bộ top-up còn đủ credit. Vì payOS không có
+  refund API, internal task chỉ xác nhận sau khi operator đã hoàn tiền qua ngân hàng và nhập
+  provider reference; lúc đó invoice/payment/order và credit được thu hồi trong một transaction.
 - `POST /api/v1/webhooks/payos` là public webhook riêng, không dùng user auth nhưng bắt buộc signature/inbox dedupe.
 
 ### Analytics/export/integration

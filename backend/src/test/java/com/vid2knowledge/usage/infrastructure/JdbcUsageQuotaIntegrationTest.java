@@ -1114,6 +1114,151 @@ class JdbcUsageQuotaIntegrationTest {
     }
 
     @Test
+    void paidTopUpExtendsCurrentEntitlementsWithoutCreatingAnotherSubscription() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        AtomicInteger links = new AtomicInteger();
+        PaymentGateway gateway = (orderCode, amount, description) -> {
+            String id = "topup-link-" + links.incrementAndGet();
+            return new PaymentGateway.CheckoutLink(id, URI.create("https://pay.payos.vn/web/" + id));
+        };
+        var billing = billing(gateway);
+        var subscription = billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000101"), "topup-base"
+        );
+        pay(billing, subscription, "topup-link-1", "topup-base-reference");
+        var topUp = billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000301"), "topup-credit"
+        );
+        pay(billing, topUp, "topup-link-2", "topup-credit-reference");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM subscriptions WHERE organization_id = ?", Long.class, organizationId
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM credit_grants WHERE billing_order_id = ?", Long.class, topUp.orderId()
+        )).isEqualTo(2L);
+        assertThat(billing.usage(organizationId).allowanceSeconds()).isEqualTo(25_200L);
+        assertThat(billing.usage(organizationId).qaQueryAllowance()).isEqualTo(1_250L);
+        assertThat(jdbc.queryForObject(
+                "SELECT invoice_type FROM invoices WHERE billing_order_id = ?", String.class, topUp.orderId()
+        )).isEqualTo("TOP_UP");
+    }
+
+    @Test
+    void unusedTopUpRefundRequiresManualProviderConfirmationAndRevokesCreditsOnce() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        AtomicInteger links = new AtomicInteger();
+        PaymentGateway gateway = (orderCode, amount, description) -> {
+            String id = "refund-link-" + links.incrementAndGet();
+            return new PaymentGateway.CheckoutLink(id, URI.create("https://pay.payos.vn/web/" + id));
+        };
+        var billing = billing(gateway);
+        var base = billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000101"), "refund-base"
+        );
+        pay(billing, base, "refund-link-1", "refund-base-reference");
+        var topUp = billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000301"), "refund-topup"
+        );
+        pay(billing, topUp, "refund-link-2", "refund-topup-reference");
+        UUID invoiceId = jdbc.queryForObject(
+                "SELECT id FROM invoices WHERE billing_order_id = ?", UUID.class, topUp.orderId()
+        );
+
+        var requested = billing.requestRefund(
+                owner, invoiceId, "Khách hàng chưa sử dụng gói nạp thêm", "refund-request-correlation"
+        );
+        assertThat(requested.state()).isEqualTo("REQUESTED");
+        assertThat(billing.usage(organizationId).allowanceSeconds()).isEqualTo(25_200L);
+
+        var confirmed = billing.resolveRefund(requested.id(), true, "BANK-REFUND-0001", null);
+        var replay = billing.resolveRefund(requested.id(), true, "BANK-REFUND-0001", null);
+
+        assertThat(confirmed.state()).isEqualTo("SUCCEEDED");
+        assertThat(replay.state()).isEqualTo("SUCCEEDED");
+        assertThat(billing.usage(organizationId).allowanceSeconds()).isEqualTo(18_000L);
+        assertThat(billing.usage(organizationId).qaQueryAllowance()).isEqualTo(1_000L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM billing_adjustments WHERE refund_request_id = ?",
+                Long.class, requested.id()
+        )).isEqualTo(2L);
+        assertThat(jdbc.queryForObject("SELECT state FROM invoices WHERE id = ?", String.class, invoiceId))
+                .isEqualTo("REFUNDED");
+    }
+
+    @Test
+    void reconciliationPreparesOneRenewalInvoiceAndPaidLinkExtendsSubscription() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        AtomicInteger links = new AtomicInteger();
+        PaymentGateway gateway = (orderCode, amount, description) -> {
+            String id = "dunning-link-" + links.incrementAndGet();
+            return new PaymentGateway.CheckoutLink(id, URI.create("https://pay.payos.vn/web/" + id));
+        };
+        var billing = billing(gateway);
+        var initial = billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000101"), "dunning-base"
+        );
+        pay(billing, initial, "dunning-link-1", "dunning-base-reference");
+        UUID subscriptionId = billing.subscription(organizationId).orElseThrow().id();
+        Instant nearExpiry = Instant.now().plus(Duration.ofDays(2));
+        jdbc.update(
+                "UPDATE subscriptions SET current_period_end = ? WHERE id = ?",
+                Timestamp.from(nearExpiry), subscriptionId
+        );
+
+        var prepared = billing.reconcilePendingPayments();
+        var replay = billing.reconcilePendingPayments();
+        assertThat(prepared.renewalsPrepared()).isEqualTo(1);
+        assertThat(replay.renewalsPrepared()).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM renewal_attempts WHERE subscription_id = ?", Long.class, subscriptionId
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM invoices WHERE subscription_id = ? AND state = 'OPEN'",
+                Long.class, subscriptionId
+        )).isEqualTo(1L);
+
+        Long renewalOrderCode = jdbc.queryForObject(
+                """
+                SELECT o.order_code FROM renewal_attempts r
+                JOIN billing_orders o ON o.id = r.billing_order_id
+                WHERE r.subscription_id = ?
+                """,
+                Long.class, subscriptionId
+        );
+        UUID renewalOrderId = jdbc.queryForObject(
+                "SELECT billing_order_id FROM renewal_attempts WHERE subscription_id = ?",
+                UUID.class, subscriptionId
+        );
+        pay(billing, new BillingService.Checkout(
+                renewalOrderId, renewalOrderCode, 790_000, "https://pay.payos.vn/web/dunning-link-2",
+                Instant.now().plus(Duration.ofMinutes(30))
+        ), "dunning-link-2", "dunning-renewal-reference");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT state FROM renewal_attempts WHERE subscription_id = ?", String.class, subscriptionId
+        )).isEqualTo("PAID");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM invoices WHERE billing_order_id = ?", Long.class, renewalOrderId
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT state FROM invoices WHERE billing_order_id = ?", String.class, renewalOrderId
+        )).isEqualTo("PAID");
+    }
+
+    @Test
     void createsJobReservationAndOutboxAtomicallyAndReplaysSafely() {
         UUID sourceId = seedSourceWithRights(organizationId);
         var service = new RequestAnalysisService(

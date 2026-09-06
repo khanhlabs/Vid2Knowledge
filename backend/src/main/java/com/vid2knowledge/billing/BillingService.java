@@ -57,7 +57,7 @@ public class BillingService {
     public List<Plan> plans() {
         return jdbc.query(
                 """
-                SELECT id, code, version, name, billing_interval, amount_vnd,
+                SELECT id, code, version, name, billing_interval, product_type, amount_vnd,
                        processed_video_seconds, instructor_seats, active_learners, qa_queries
                 FROM pricing_plans
                 WHERE active = TRUE AND effective_from <= ?
@@ -67,6 +67,7 @@ public class BillingService {
                 (result, row) -> new Plan(
                         result.getObject("id", UUID.class), result.getString("code"), result.getInt("version"),
                         result.getString("name"), result.getString("billing_interval"),
+                        result.getString("product_type"),
                         result.getLong("amount_vnd"), result.getLong("processed_video_seconds"),
                         result.getInt("instructor_seats"), result.getInt("active_learners"),
                         result.getLong("qa_queries")
@@ -151,7 +152,7 @@ public class BillingService {
     public List<InvoiceView> invoices(UUID organizationId) {
         return jdbc.query(
                 """
-                SELECT id, invoice_number, state, currency, amount_due_vnd,
+                SELECT id, invoice_number, state, currency, invoice_type, amount_due_vnd,
                        amount_paid_vnd, due_at, paid_at, created_at
                 FROM invoices
                 WHERE organization_id = ?
@@ -159,7 +160,7 @@ public class BillingService {
                 """,
                 (result, row) -> new InvoiceView(
                         result.getObject("id", UUID.class), result.getString("invoice_number"),
-                        result.getString("state"), result.getString("currency"),
+                        result.getString("state"), result.getString("currency"), result.getString("invoice_type"),
                         result.getLong("amount_due_vnd"), result.getLong("amount_paid_vnd"),
                         result.getTimestamp("due_at").toInstant(),
                         result.getTimestamp("paid_at") == null ? null : result.getTimestamp("paid_at").toInstant(),
@@ -276,6 +277,12 @@ public class BillingService {
         );
         Plan plan = plans().stream().filter(candidate -> candidate.id().equals(planId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Plan not found"));
+        if ("TOP_UP".equals(plan.productType()) && !hasTopUpEligibleSubscription(actor.organizationId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Top-up requires a subscription active beyond the checkout window"
+            );
+        }
         String fingerprint = RequestFingerprint.sha256(actor.organizationId() + "|" + plan.id());
         List<PendingOrder> existing = jdbc.query(
                 """
@@ -323,6 +330,18 @@ public class BillingService {
                 Timestamp.from(now.plus(Duration.ofMinutes(2))), Timestamp.from(now), Timestamp.from(now)
         );
         return new PendingOrder(orderId, orderCode, plan.amountVnd(), null, expiresAt, fingerprint, orderId);
+    }
+
+    private boolean hasTopUpEligibleSubscription(UUID organizationId) {
+        Long count = jdbc.queryForObject(
+                """
+                SELECT count(*) FROM subscriptions
+                WHERE organization_id = ? AND status = 'ACTIVE' AND cancel_at_period_end = FALSE
+                  AND current_period_end > ?
+                """,
+                Long.class, organizationId, Timestamp.from(clock.instant().plus(payOs.checkoutTtl()))
+        );
+        return count != null && count > 0;
     }
 
     public void processWebhook(JsonNode envelope) {
@@ -424,7 +443,8 @@ public class BillingService {
         return jdbc.query(
                 """
                 SELECT o.id, o.organization_id, o.plan_id, o.amount_vnd, o.state,
-                       o.provider_payment_link_id, p.billing_interval, p.processed_video_seconds, p.qa_queries
+                       o.provider_payment_link_id, p.billing_interval, p.product_type,
+                       p.processed_video_seconds, p.qa_queries
                 FROM billing_orders o JOIN pricing_plans p ON p.id = o.plan_id
                 WHERE o.order_code = ? FOR UPDATE OF o
                 """,
@@ -432,7 +452,8 @@ public class BillingService {
                         result.getObject("id", UUID.class), result.getObject("organization_id", UUID.class),
                         result.getObject("plan_id", UUID.class), result.getLong("amount_vnd"),
                         result.getString("state"), result.getString("provider_payment_link_id"),
-                        result.getString("billing_interval"), result.getLong("processed_video_seconds"),
+                        result.getString("billing_interval"), result.getString("product_type"),
+                        result.getLong("processed_video_seconds"),
                         result.getLong("qa_queries")
                 ),
                 orderCode
@@ -447,6 +468,10 @@ public class BillingService {
                 Timestamp.from(now), Timestamp.from(now), order.id()
         );
         expireElapsedSubscriptions(now);
+        if ("TOP_UP".equals(order.productType())) {
+            settleTopUp(order, now, settlementKey);
+            return;
+        }
         SubscriptionPeriod subscription = allocateSubscription(order, now);
         jdbc.update(
                 """
@@ -482,21 +507,112 @@ public class BillingService {
                 UuidV7Generator.generate(), order.organizationId(), subscription.subscriptionId(), order.id(),
                 Timestamp.from(subscription.periodStart()), Timestamp.from(subscription.periodEnd()), Timestamp.from(now)
         );
-        Long invoiceSequence = jdbc.queryForObject("SELECT nextval('invoice_number_seq')", Long.class);
-        UUID invoiceId = UuidV7Generator.generate();
-        String invoiceNumber = "V2K-" + invoiceSequence;
+        completeInvoiceAndNotify(order, subscription.subscriptionId(), "SUBSCRIPTION", now);
+        emitPaymentReceived(order, now, settlementKey);
+    }
+
+    private void settleTopUp(OrderForPayment order, Instant now, String settlementKey) {
+        UUID videoEntitlement = grantCredit(
+                order, UsageMetric.PROCESSED_VIDEO_SECOND, order.processedSeconds(), now, settlementKey
+        );
+        UUID qaEntitlement = grantCredit(order, UsageMetric.QA_QUERY, order.qaQueries(), now, settlementKey);
+        if ((order.processedSeconds() > 0 && videoEntitlement == null)
+                || (order.qaQueries() > 0 && qaEntitlement == null)) {
+            throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED, "Top-up requires an active subscription");
+        }
+        completeInvoiceAndNotify(order, null, "TOP_UP", now);
+        emitPaymentReceived(order, now, settlementKey);
+    }
+
+    private UUID grantCredit(
+            OrderForPayment order, UsageMetric metric, long units, Instant now, String settlementKey
+    ) {
+        if (units <= 0) {
+            return null;
+        }
+        List<UUID> entitlementIds = jdbc.query(
+                """
+                SELECT id FROM entitlements
+                WHERE organization_id = ? AND metric = ? AND period_start <= ? AND period_end > ?
+                ORDER BY period_start DESC LIMIT 1 FOR UPDATE
+                """,
+                (result, row) -> result.getObject("id", UUID.class), order.organizationId(), metric.name(),
+                Timestamp.from(now), Timestamp.from(now)
+        );
+        if (entitlementIds.isEmpty()) {
+            return null;
+        }
+        UUID entitlementId = entitlementIds.getFirst();
+        jdbc.update("UPDATE entitlements SET allowance = allowance + ?, updated_at = ? WHERE id = ?",
+                units, Timestamp.from(now), entitlementId);
         jdbc.update(
                 """
-                INSERT INTO invoices(
-                    id, organization_id, subscription_id, billing_order_id, invoice_number,
-                    state, amount_due_vnd, amount_paid_vnd, due_at, paid_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'PAID', ?, ?, ?, ?, ?, ?)
+                INSERT INTO credit_grants(
+                    id, organization_id, billing_order_id, entitlement_id, metric,
+                    granted_units, granted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                invoiceId, order.organizationId(), subscription.subscriptionId(), order.id(),
-                invoiceNumber, order.amountVnd(), order.amountVnd(), Timestamp.from(now),
-                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now)
+                UuidV7Generator.generate(), order.organizationId(), order.id(), entitlementId,
+                metric.name(), units, Timestamp.from(now)
         );
+        jdbc.update(
+                """
+                INSERT INTO usage_ledger(
+                    id, organization_id, entitlement_id, event_type, units, correlation_id, occurred_at
+                ) VALUES (?, ?, ?, 'ADJUSTED', ?, ?, ?)
+                """,
+                UuidV7Generator.generate(), order.organizationId(), entitlementId, units,
+                "topup-" + RequestFingerprint.sha256(settlementKey).substring(0, 24), Timestamp.from(now)
+        );
+        return entitlementId;
+    }
+
+    private void completeInvoiceAndNotify(
+            OrderForPayment order, UUID subscriptionId, String invoiceType, Instant now
+    ) {
+        List<InvoiceIdentity> existing = jdbc.query(
+                "SELECT id, invoice_number FROM invoices WHERE billing_order_id = ? FOR UPDATE",
+                (result, row) -> new InvoiceIdentity(
+                        result.getObject("id", UUID.class), result.getString("invoice_number")
+                ), order.id()
+        );
+        UUID invoiceId;
+        String invoiceNumber;
+        if (existing.isEmpty()) {
+            Long invoiceSequence = jdbc.queryForObject("SELECT nextval('invoice_number_seq')", Long.class);
+            invoiceId = UuidV7Generator.generate();
+            invoiceNumber = "V2K-" + invoiceSequence;
+            jdbc.update(
+                    """
+                    INSERT INTO invoices(
+                        id, organization_id, subscription_id, billing_order_id, invoice_number,
+                        state, amount_due_vnd, amount_paid_vnd, due_at, paid_at, created_at, updated_at,
+                        invoice_type
+                    ) VALUES (?, ?, ?, ?, ?, 'PAID', ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    invoiceId, order.organizationId(), subscriptionId, order.id(),
+                    invoiceNumber, order.amountVnd(), order.amountVnd(), Timestamp.from(now),
+                    Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), invoiceType
+            );
+        } else {
+            invoiceId = existing.getFirst().id();
+            invoiceNumber = existing.getFirst().number();
+            jdbc.update(
+                    """
+                    UPDATE invoices SET state = 'PAID', amount_paid_vnd = amount_due_vnd,
+                        paid_at = ?, updated_at = ? WHERE id = ?
+                    """,
+                    Timestamp.from(now), Timestamp.from(now), invoiceId
+            );
+            jdbc.update(
+                    "UPDATE renewal_attempts SET state = 'PAID', updated_at = ? WHERE billing_order_id = ?",
+                    Timestamp.from(now), order.id()
+            );
+        }
         notifications.paymentReceipt(order.organizationId(), invoiceId, invoiceNumber, order.amountVnd(), now);
+    }
+
+    private void emitPaymentReceived(OrderForPayment order, Instant now, String settlementKey) {
         jdbc.update(
                 """
                 INSERT INTO outbox_events(
@@ -564,13 +680,36 @@ public class BillingService {
     }
 
     private int expireElapsedSubscriptions(Instant now) {
-        return jdbc.update(
+        int changed = jdbc.update(
                 """
                 UPDATE subscriptions SET status = 'EXPIRED', updated_at = ?
-                WHERE status IN ('ACTIVE', 'PAST_DUE', 'SCHEDULED') AND current_period_end <= ?
+                WHERE ((status = 'ACTIVE' AND cancel_at_period_end = TRUE)
+                    OR status = 'SCHEDULED') AND current_period_end <= ?
                 """,
                 Timestamp.from(now), Timestamp.from(now)
         );
+        changed += jdbc.update(
+                """
+                UPDATE subscriptions SET status = 'PAST_DUE', updated_at = ?
+                WHERE status = 'ACTIVE' AND cancel_at_period_end = FALSE AND current_period_end <= ?
+                """,
+                Timestamp.from(now), Timestamp.from(now)
+        );
+        changed += jdbc.update(
+                """
+                UPDATE subscriptions SET status = 'EXPIRED', updated_at = ?
+                WHERE status = 'PAST_DUE' AND current_period_end + INTERVAL '7 days' <= ?
+                """,
+                Timestamp.from(now), Timestamp.from(now)
+        );
+        jdbc.update(
+                """
+                UPDATE renewal_attempts ra SET state = 'EXPIRED', updated_at = ?
+                WHERE ra.state = 'AWAITING_PAYMENT' AND ra.period_end + INTERVAL '7 days' <= ?
+                """,
+                Timestamp.from(now), Timestamp.from(now)
+        );
+        return changed;
     }
 
     private void markWebhookProcessed(String eventKey, Instant now, String errorCode) {
@@ -585,7 +724,7 @@ public class BillingService {
 
     public ReconciliationResult reconcilePendingPayments() {
         if (!payOs.enabled()) {
-            return new ReconciliationResult(0, 0, 0, 0, 0);
+            return new ReconciliationResult(0, 0, 0, 0, 0, 0);
         }
         List<ReconciliationCandidate> candidates = jdbc.query(
                 """
@@ -637,7 +776,95 @@ public class BillingService {
             }
         }
         int advanced = transactions.execute(status -> advanceSubscriptions(clock.instant()));
-        return new ReconciliationResult(candidates.size(), paid, terminal, failed, advanced);
+        int renewalsPrepared = prepareRenewals();
+        return new ReconciliationResult(candidates.size(), paid, terminal, failed, advanced, renewalsPrepared);
+    }
+
+    private int prepareRenewals() {
+        Instant now = clock.instant();
+        List<RenewalCandidate> candidates = jdbc.query(
+                """
+                SELECT s.id, s.organization_id, s.plan_id, s.current_period_end, m.user_id
+                FROM subscriptions s
+                JOIN LATERAL (
+                    SELECT user_id FROM memberships
+                    WHERE organization_id = s.organization_id AND role = 'OWNER' AND status = 'ACTIVE'
+                    ORDER BY joined_at LIMIT 1
+                ) m ON TRUE
+                WHERE s.status = 'ACTIVE' AND s.cancel_at_period_end = FALSE
+                  AND s.current_period_end > ? AND s.current_period_end <= ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM renewal_attempts r
+                      WHERE r.subscription_id = s.id AND r.period_end = s.current_period_end
+                  )
+                ORDER BY s.current_period_end LIMIT 25
+                """,
+                (result, row) -> new RenewalCandidate(
+                        result.getObject("id", UUID.class), result.getObject("organization_id", UUID.class),
+                        result.getObject("plan_id", UUID.class), result.getObject("user_id", UUID.class),
+                        result.getTimestamp("current_period_end").toInstant()
+                ), Timestamp.from(now), Timestamp.from(now.plus(Duration.ofDays(7)))
+        );
+        int prepared = 0;
+        for (RenewalCandidate candidate : candidates) {
+            try {
+                CurrentActor owner = new CurrentActor(
+                        candidate.ownerId(), candidate.organizationId(), CurrentActor.Role.OWNER
+                );
+                String key = "renewal|" + candidate.subscriptionId() + "|" + candidate.periodEnd();
+                Checkout checkout = checkout(owner, candidate.planId(), key);
+                boolean inserted = Boolean.TRUE.equals(transactions.execute(status ->
+                        persistRenewalAttempt(candidate, checkout, clock.instant())
+                ));
+                if (inserted) {
+                    prepared++;
+                }
+            } catch (RuntimeException failure) {
+                log.warn("Could not prepare subscription renewal. subscriptionId={}, errorType={}",
+                        candidate.subscriptionId(), failure.getClass().getSimpleName());
+            }
+        }
+        return prepared;
+    }
+
+    private boolean persistRenewalAttempt(RenewalCandidate candidate, Checkout checkout, Instant now) {
+        Long existing = jdbc.queryForObject(
+                "SELECT count(*) FROM renewal_attempts WHERE subscription_id = ? AND period_end = ?",
+                Long.class, candidate.subscriptionId(), Timestamp.from(candidate.periodEnd())
+        );
+        if (existing != null && existing > 0) {
+            return false;
+        }
+        Long invoiceSequence = jdbc.queryForObject("SELECT nextval('invoice_number_seq')", Long.class);
+        UUID invoiceId = UuidV7Generator.generate();
+        String invoiceNumber = "V2K-" + invoiceSequence;
+        jdbc.update(
+                """
+                INSERT INTO invoices(
+                    id, organization_id, subscription_id, billing_order_id, invoice_number,
+                    state, amount_due_vnd, amount_paid_vnd, due_at, created_at, updated_at, invoice_type
+                ) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, 0, ?, ?, ?, 'SUBSCRIPTION')
+                """,
+                invoiceId, candidate.organizationId(), candidate.subscriptionId(), checkout.orderId(),
+                invoiceNumber, checkout.amountVnd(), Timestamp.from(candidate.periodEnd()),
+                Timestamp.from(now), Timestamp.from(now)
+        );
+        jdbc.update(
+                """
+                INSERT INTO renewal_attempts(
+                    id, organization_id, subscription_id, billing_order_id, invoice_id,
+                    period_end, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                UuidV7Generator.generate(), candidate.organizationId(), candidate.subscriptionId(),
+                checkout.orderId(), invoiceId, Timestamp.from(candidate.periodEnd()),
+                Timestamp.from(now), Timestamp.from(now)
+        );
+        notifications.renewalPaymentRequired(
+                candidate.organizationId(), invoiceId, invoiceNumber, checkout.amountVnd(),
+                checkout.checkoutUrl(), candidate.periodEnd()
+        );
+        return true;
     }
 
     private void settleReconciled(
@@ -694,6 +921,238 @@ public class BillingService {
         return changed;
     }
 
+    public List<RefundView> refunds(UUID organizationId) {
+        return jdbc.query(
+                """
+                SELECT r.id, r.invoice_id, r.amount_vnd, r.reason, r.state,
+                       r.provider_reference, r.requested_at, r.resolved_at
+                FROM refund_requests r
+                WHERE r.organization_id = ?
+                ORDER BY r.requested_at DESC, r.id DESC
+                """,
+                (result, row) -> new RefundView(
+                        result.getObject("id", UUID.class), result.getObject("invoice_id", UUID.class),
+                        result.getLong("amount_vnd"), result.getString("reason"), result.getString("state"),
+                        result.getString("provider_reference"), result.getTimestamp("requested_at").toInstant(),
+                        result.getTimestamp("resolved_at") == null
+                                ? null : result.getTimestamp("resolved_at").toInstant()
+                ),
+                organizationId
+        );
+    }
+
+    public RefundView requestRefund(CurrentActor actor, UUID invoiceId, String reason, String correlationId) {
+        String normalizedReason = reason == null ? "" : reason.trim();
+        if (normalizedReason.length() < 10 || normalizedReason.length() > 1000) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Refund reason must be 10-1000 characters");
+        }
+        return transactions.execute(status -> {
+            List<RefundSource> sources = jdbc.query(
+                    """
+                    SELECT i.id, i.billing_order_id, i.amount_paid_vnd, i.state, i.invoice_type, p.id AS payment_id
+                    FROM invoices i JOIN payments p ON p.billing_order_id = i.billing_order_id
+                    WHERE i.id = ? AND i.organization_id = ?
+                    FOR UPDATE OF i, p
+                    """,
+                    (result, row) -> new RefundSource(
+                            result.getObject("id", UUID.class), result.getObject("billing_order_id", UUID.class),
+                            result.getObject("payment_id", UUID.class), result.getLong("amount_paid_vnd"),
+                            result.getString("state"), result.getString("invoice_type")
+                    ),
+                    invoiceId, actor.organizationId()
+            );
+            if (sources.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Paid invoice not found");
+            }
+            RefundSource source = sources.getFirst();
+            if (!"TOP_UP".equals(source.invoiceType()) || !"PAID".equals(source.state())) {
+                throw new ResponseStatusException(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Self-service refund is limited to unused top-up purchases"
+                );
+            }
+            List<RefundView> existing = refundByInvoice(invoiceId);
+            if (!existing.isEmpty()) {
+                return existing.getFirst();
+            }
+            assertCreditsCanBeRevoked(source.orderId());
+            Instant now = clock.instant();
+            UUID refundId = UuidV7Generator.generate();
+            jdbc.update(
+                    """
+                    INSERT INTO refund_requests(
+                        id, organization_id, payment_id, invoice_id, amount_vnd, reason,
+                        requested_by, requested_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    refundId, actor.organizationId(), source.paymentId(), invoiceId, source.amountVnd(),
+                    normalizedReason, actor.userId(), Timestamp.from(now)
+            );
+            appendBillingAudit(actor.organizationId(), actor.userId(), "REFUND_REQUESTED", refundId,
+                    correlationId, now);
+            return refundByInvoice(invoiceId).getFirst();
+        });
+    }
+
+    public RefundView resolveRefund(
+            UUID refundId, boolean approved, String providerReference, String resolutionReason
+    ) {
+        String reference = providerReference == null ? "" : providerReference.trim();
+        String rejection = resolutionReason == null ? "" : resolutionReason.trim();
+        if (approved && (reference.length() < 3 || reference.length() > 200)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Provider refund reference is required");
+        }
+        if (!approved && (rejection.length() < 3 || rejection.length() > 1000)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Rejection reason is required");
+        }
+        return transactions.execute(status -> {
+            RefundResolution source = jdbc.query(
+                    """
+                    SELECT r.id, r.organization_id, r.invoice_id, r.payment_id, r.state,
+                           r.provider_reference, i.billing_order_id
+                    FROM refund_requests r JOIN invoices i ON i.id = r.invoice_id
+                    WHERE r.id = ? FOR UPDATE OF r, i
+                    """,
+                    (result, row) -> new RefundResolution(
+                            result.getObject("id", UUID.class), result.getObject("organization_id", UUID.class),
+                            result.getObject("invoice_id", UUID.class), result.getObject("payment_id", UUID.class),
+                            result.getObject("billing_order_id", UUID.class), result.getString("state"),
+                            result.getString("provider_reference")
+                    ), refundId
+            ).stream().findFirst().orElseThrow(() ->
+                    new ResponseStatusException(HttpStatus.NOT_FOUND, "Refund request not found")
+            );
+            if (!"REQUESTED".equals(source.state())) {
+                if (approved && "SUCCEEDED".equals(source.state()) && reference.equals(source.providerReference())) {
+                    return refundByInvoice(source.invoiceId()).getFirst();
+                }
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Refund request is already resolved");
+            }
+            Instant now = clock.instant();
+            if (!approved) {
+                jdbc.update(
+                        "UPDATE refund_requests SET state = 'REJECTED', resolution_reason = ?, resolved_at = ? WHERE id = ?",
+                        rejection, Timestamp.from(now), refundId
+                );
+                appendBillingAudit(source.organizationId(), null, "REFUND_REJECTED", refundId,
+                        "refund-rejected-" + refundId, now);
+                return refundByInvoice(source.invoiceId()).getFirst();
+            }
+            revokeCredits(source, now);
+            jdbc.update(
+                    "UPDATE refund_requests SET state = 'SUCCEEDED', provider_reference = ?, resolved_at = ? WHERE id = ?",
+                    reference, Timestamp.from(now), refundId
+            );
+            jdbc.update("UPDATE invoices SET state = 'REFUNDED', amount_paid_vnd = 0, updated_at = ? WHERE id = ?",
+                    Timestamp.from(now), source.invoiceId());
+            jdbc.update("UPDATE payments SET state = 'REFUNDED' WHERE id = ?", source.paymentId());
+            jdbc.update("UPDATE billing_orders SET state = 'REFUNDED', updated_at = ? WHERE id = ?",
+                    Timestamp.from(now), source.orderId());
+            appendBillingAudit(source.organizationId(), null, "REFUND_CONFIRMED", refundId,
+                    "refund-confirmed-" + RequestFingerprint.sha256(reference).substring(0, 24), now);
+            return refundByInvoice(source.invoiceId()).getFirst();
+        });
+    }
+
+    private void revokeCredits(RefundResolution refund, Instant now) {
+        List<CreditGrant> grants = jdbc.query(
+                """
+                SELECT id, entitlement_id, metric, granted_units
+                FROM credit_grants WHERE billing_order_id = ? AND state = 'ACTIVE'
+                ORDER BY metric FOR UPDATE
+                """,
+                (result, row) -> new CreditGrant(
+                        result.getObject("id", UUID.class), result.getObject("entitlement_id", UUID.class),
+                        result.getString("metric"), result.getLong("granted_units")
+                ), refund.orderId()
+        );
+        if (grants.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Top-up credits are no longer refundable");
+        }
+        for (CreditGrant grant : grants) {
+            Long available = jdbc.queryForObject(
+                    """
+                    SELECT e.allowance
+                           - COALESCE((SELECT sum(r.committed_units) FROM usage_reservations r
+                               WHERE r.entitlement_id = e.id AND r.status = 'COMMITTED'), 0)
+                           - COALESCE((SELECT sum(r.reserved_units) FROM usage_reservations r
+                               WHERE r.entitlement_id = e.id AND r.status = 'RESERVED' AND r.expires_at > ?), 0)
+                    FROM entitlements e WHERE e.id = ? FOR UPDATE
+                    """,
+                    Long.class, Timestamp.from(now), grant.entitlementId()
+            );
+            if (available == null || available < grant.units()) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT, "Top-up credits have been used and cannot be refunded"
+                );
+            }
+            jdbc.update("UPDATE entitlements SET allowance = allowance - ?, updated_at = ? WHERE id = ?",
+                    grant.units(), Timestamp.from(now), grant.entitlementId());
+            jdbc.update("UPDATE credit_grants SET state = 'REVOKED', revoked_at = ? WHERE id = ?",
+                    Timestamp.from(now), grant.id());
+            jdbc.update(
+                    """
+                    INSERT INTO billing_adjustments(
+                        id, organization_id, refund_request_id, entitlement_id, metric,
+                        units_delta, reason, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'UNUSED_TOP_UP_REFUND', ?)
+                    """,
+                    UuidV7Generator.generate(), refund.organizationId(), refund.id(), grant.entitlementId(),
+                    grant.metric(), -grant.units(), Timestamp.from(now)
+            );
+            jdbc.update(
+                    """
+                    INSERT INTO usage_ledger(
+                        id, organization_id, entitlement_id, event_type, units, correlation_id, occurred_at
+                    ) VALUES (?, ?, ?, 'ADJUSTED', ?, ?, ?)
+                    """,
+                    UuidV7Generator.generate(), refund.organizationId(), grant.entitlementId(), grant.units(),
+                    "refund-" + refund.id(), Timestamp.from(now)
+            );
+        }
+    }
+
+    private void assertCreditsCanBeRevoked(UUID orderId) {
+        Long count = jdbc.queryForObject(
+                "SELECT count(*) FROM credit_grants WHERE billing_order_id = ? AND state = 'ACTIVE'",
+                Long.class, orderId
+        );
+        if (count == null || count == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Top-up credits are no longer refundable");
+        }
+    }
+
+    private List<RefundView> refundByInvoice(UUID invoiceId) {
+        return jdbc.query(
+                """
+                SELECT id, invoice_id, amount_vnd, reason, state, provider_reference, requested_at, resolved_at
+                FROM refund_requests WHERE invoice_id = ?
+                """,
+                (result, row) -> new RefundView(
+                        result.getObject("id", UUID.class), result.getObject("invoice_id", UUID.class),
+                        result.getLong("amount_vnd"), result.getString("reason"), result.getString("state"),
+                        result.getString("provider_reference"), result.getTimestamp("requested_at").toInstant(),
+                        result.getTimestamp("resolved_at") == null
+                                ? null : result.getTimestamp("resolved_at").toInstant()
+                ), invoiceId
+        );
+    }
+
+    private void appendBillingAudit(
+            UUID organizationId, UUID actorId, String action, UUID resourceId, String correlationId, Instant now
+    ) {
+        jdbc.update(
+                """
+                INSERT INTO audit_logs(
+                    id, organization_id, actor_user_id, action, resource_type,
+                    resource_id, correlation_id, created_at
+                ) VALUES (?, ?, ?, ?, 'RefundRequest', ?, ?, ?)
+                """,
+                UuidV7Generator.generate(), organizationId, actorId, action, resourceId, correlationId,
+                Timestamp.from(now)
+        );
+    }
+
     private static PendingOrder mapPending(java.sql.ResultSet result, int row) throws java.sql.SQLException {
         return new PendingOrder(
                 result.getObject("id", UUID.class), result.getLong("order_code"), result.getLong("amount_vnd"),
@@ -704,7 +1163,7 @@ public class BillingService {
     }
 
     public record Plan(
-            UUID id, String code, int version, String name, String interval,
+            UUID id, String code, int version, String name, String interval, String productType,
             long amountVnd, long processedVideoSeconds, int instructorSeats, int activeLearners,
             long qaQueries
     ) {
@@ -743,8 +1202,14 @@ public class BillingService {
     }
 
     public record InvoiceView(
-            UUID id, String invoiceNumber, String state, String currency,
+            UUID id, String invoiceNumber, String state, String currency, String invoiceType,
             long amountDueVnd, long amountPaidVnd, Instant dueAt, Instant paidAt, Instant createdAt
+    ) {
+    }
+
+    public record RefundView(
+            UUID id, UUID invoiceId, long amountVnd, String reason, String state,
+            String providerReference, Instant requestedAt, Instant resolvedAt
     ) {
     }
 
@@ -763,7 +1228,7 @@ public class BillingService {
 
     private record OrderForPayment(
             UUID id, UUID organizationId, UUID planId, long amountVnd, String state,
-            String paymentLinkId, String interval, long processedSeconds, long qaQueries
+            String paymentLinkId, String interval, String productType, long processedSeconds, long qaQueries
     ) {
     }
 
@@ -776,6 +1241,30 @@ public class BillingService {
     private record ReconciliationCandidate(long orderCode, long amountVnd, String paymentLinkId) {
     }
 
-    public record ReconciliationResult(int checked, int paid, int terminal, int failed, int subscriptionsAdvanced) {
+    private record RefundSource(
+            UUID invoiceId, UUID orderId, UUID paymentId, long amountVnd, String state, String invoiceType
+    ) {
+    }
+
+    private record RefundResolution(
+            UUID id, UUID organizationId, UUID invoiceId, UUID paymentId, UUID orderId,
+            String state, String providerReference
+    ) {
+    }
+
+    private record CreditGrant(UUID id, UUID entitlementId, String metric, long units) {
+    }
+
+    private record InvoiceIdentity(UUID id, String number) {
+    }
+
+    private record RenewalCandidate(
+            UUID subscriptionId, UUID organizationId, UUID planId, UUID ownerId, Instant periodEnd
+    ) {
+    }
+
+    public record ReconciliationResult(
+            int checked, int paid, int terminal, int failed, int subscriptionsAdvanced, int renewalsPrepared
+    ) {
     }
 }

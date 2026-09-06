@@ -33,6 +33,7 @@ export interface Plan {
   code: string
   name: string
   interval: string
+  productType: 'SUBSCRIPTION' | 'TOP_UP'
   amountVnd: number
   processedVideoSeconds: number
   qaQueries: number
@@ -60,11 +61,23 @@ export interface Invoice {
   invoiceNumber: string
   state: 'OPEN' | 'PAID' | 'VOID' | 'REFUNDED'
   currency: 'VND'
+  invoiceType: 'SUBSCRIPTION' | 'TOP_UP'
   amountDueVnd: number
   amountPaidVnd: number
   dueAt: string
   paidAt?: string
   createdAt: string
+}
+
+export interface Refund {
+  id: string
+  invoiceId: string
+  amountVnd: number
+  reason: string
+  state: 'REQUESTED' | 'SUCCEEDED' | 'REJECTED'
+  providerReference?: string
+  requestedAt: string
+  resolvedAt?: string
 }
 
 export interface AnalysisJob {
@@ -221,6 +234,13 @@ export const workspaceApi = {
     ),
   invoices: (organizationId: string) =>
     api<Invoice[]>(`/api/v1/organizations/${organizationId}/billing/invoices`),
+  refunds: (organizationId: string) =>
+    api<Refund[]>(`/api/v1/organizations/${organizationId}/billing/refunds`),
+  requestRefund: (organizationId: string, invoiceId: string, reason: string) =>
+    api<Refund>(`/api/v1/organizations/${organizationId}/billing/refunds`, {
+      method: 'POST',
+      body: JSON.stringify({ invoiceId, reason }),
+    }),
   cancelSubscription: (organizationId: string, subscriptionId: string) =>
     api<void>(
       `/api/v1/organizations/${organizationId}/billing/subscriptions/${subscriptionId}/cancel`,

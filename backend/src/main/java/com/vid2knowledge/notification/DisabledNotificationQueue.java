@@ -23,4 +23,9 @@ public class DisabledNotificationQueue implements NotificationQueue {
     @Override
     public void cancellationScheduled(UUID organizationId, UUID subscriptionId, Instant periodEnd) {
     }
+
+    @Override
+    public void renewalPaymentRequired(UUID organizationId, UUID invoiceId, String invoiceNumber,
+                                       long amountVnd, String checkoutUrl, Instant periodEnd) {
+    }
 }
