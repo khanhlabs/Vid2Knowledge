@@ -59,7 +59,7 @@ public class AnalysisJobController {
         );
         return ResponseEntity.accepted()
                 .location(URI.create("/api/v1/organizations/" + organizationId + "/analysis-jobs/" + job.id()))
-                .body(AnalysisJobResponse.from(job));
+                .body(AnalysisJobResponse.from(job, analyses.packageId(organizationId, job)));
     }
 
     @GetMapping("/{jobId}")
@@ -73,6 +73,7 @@ public class AnalysisJobController {
                 CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN,
                 CurrentActor.Role.INSTRUCTOR, CurrentActor.Role.REVIEWER
         );
-        return AnalysisJobResponse.from(analyses.get(organizationId, jobId));
+        var job = analyses.get(organizationId, jobId);
+        return AnalysisJobResponse.from(job, analyses.packageId(organizationId, job));
     }
 }

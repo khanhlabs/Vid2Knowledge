@@ -10,9 +10,12 @@ public record AnalysisJobResponse(
         UUID sourceId,
         String state,
         int attempt,
-        Instant queuedAt
+        Instant queuedAt,
+        UUID packageId
 ) {
-    public static AnalysisJobResponse from(AnalysisJob job) {
-        return new AnalysisJobResponse(job.id(), job.sourceId(), job.state().name(), job.attempt(), job.queuedAt());
+    public static AnalysisJobResponse from(AnalysisJob job, UUID packageId) {
+        return new AnalysisJobResponse(
+                job.id(), job.sourceId(), job.state().name(), job.attempt(), job.queuedAt(), packageId
+        );
     }
 }

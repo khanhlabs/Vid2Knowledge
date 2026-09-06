@@ -64,4 +64,15 @@ public class AnalysisApiService {
     public AnalysisJob get(UUID organizationId, UUID jobId) {
         return jobs.findById(organizationId, jobId).orElseThrow(SourceRightsRequiredException::new);
     }
+
+    public UUID packageId(UUID organizationId, AnalysisJob job) {
+        if (job.state() != AnalysisJob.State.COMPLETED) {
+            return null;
+        }
+        return jdbc.query(
+                "SELECT id FROM learning_packages WHERE organization_id = ? AND source_id = ?",
+                (result, row) -> result.getObject("id", UUID.class),
+                organizationId, job.sourceId()
+        ).stream().findFirst().orElse(null);
+    }
 }
