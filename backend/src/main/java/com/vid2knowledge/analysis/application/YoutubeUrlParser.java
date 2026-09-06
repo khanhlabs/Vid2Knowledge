@@ -23,7 +23,7 @@ public class YoutubeUrlParser {
         try {
             URI uri = URI.create(rawUrl.trim());
 
-            if (!isHttpUrl(uri) || uri.getUserInfo() != null) {
+            if (!isSupportedHttpsUrl(uri) || uri.getUserInfo() != null) {
                 throw invalid();
             }
 
@@ -85,12 +85,10 @@ public class YoutubeUrlParser {
                 .findFirst();
     }
 
-    private boolean isHttpUrl(URI uri){
-        if (uri.getScheme() != null
-                && uri.getScheme().equalsIgnoreCase("http")) return true;
-        assert uri.getScheme() != null;
-        return uri.getScheme().equalsIgnoreCase("https")
-        && uri.getHost() != null;
+    private boolean isSupportedHttpsUrl(URI uri){
+        return "https".equalsIgnoreCase(uri.getScheme())
+                && uri.getHost() != null
+                && (uri.getPort() == -1 || uri.getPort() == 443);
     }
 
     private boolean isValidVideoId(String videoId){

@@ -1,12 +1,23 @@
-name: mybusiness
+name: vid2knowledge
 
 services:
   postgres:
     image: postgres:18
     container_name: vid2knowledge-postgres
     environment:
-      POSTGRES_DB: ${DB_NAME:?DB_NAME not set}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD not set}
-      POSTGRES_USER: ${DB_USERNAME:?DB_USERNAME not set}
+      # Fixed local-only credentials prevent unrelated root .env values changing this stack.
+      POSTGRES_DB: vid2knowledge
+      POSTGRES_PASSWORD: vid2knowledge-local
+      POSTGRES_USER: vid2knowledge
     ports:
       - '5433:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - vid2knowledge-postgres18-data:/var/lib/postgresql
+
+volumes:
+  vid2knowledge-postgres18-data:

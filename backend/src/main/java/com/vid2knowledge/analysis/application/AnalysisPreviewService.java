@@ -1,7 +1,7 @@
 package com.vid2knowledge.analysis.application;
 
 import com.vid2knowledge.analysis.domain.LearningPackage;
-import com.vid2knowledge.analysis.infrastructure.GeminiInteractionClient;
+import com.vid2knowledge.analysis.application.port.VideoAnalysisProvider;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import org.springframework.boot.json.JsonParseException;
@@ -13,25 +13,25 @@ import java.util.Set;
 @Service
 public class AnalysisPreviewService {
 
-    private final GeminiInteractionClient geminiInteractionClient;
+    private final VideoAnalysisProvider videoAnalysisProvider;
     private final LearningPackagePromptFactory promptFactory;
     private final ObjectMapper objectMapper;
     private final Validator validator;
 
     public AnalysisPreviewService(
-            GeminiInteractionClient geminiInteractionClient,
+            VideoAnalysisProvider videoAnalysisProvider,
             LearningPackagePromptFactory promptFactory,
             ObjectMapper objectMapper,
             Validator validator
     ){
-        this.geminiInteractionClient = geminiInteractionClient;
+        this.videoAnalysisProvider = videoAnalysisProvider;
         this.promptFactory = promptFactory;
         this.objectMapper = objectMapper;
         this.validator = validator;
     }
 
     public LearningPackage generate(String canonicalYoutubeUrl){
-        String rawOutput = geminiInteractionClient.generateText(
+        String rawOutput = videoAnalysisProvider.generateLearningPackage(
                 promptFactory.create(),
                 canonicalYoutubeUrl
         );
@@ -50,7 +50,7 @@ public class AnalysisPreviewService {
                 learningPackage.flashcards(),
                 learningPackage.quiz()
         );
-    };
+    }
 
     private LearningPackage parse(String rawOutput){
         try {

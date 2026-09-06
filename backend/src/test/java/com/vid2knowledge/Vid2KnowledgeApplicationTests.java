@@ -28,7 +28,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "spring.autoconfigure.exclude="
+                + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
+                + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,"
+                + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
+        "gemini.api-key=test-key"
+})
 @AutoConfigureMockMvc
 @Import(Vid2KnowledgeApplicationTests.TestEndpointsConfiguration.class)
 class Vid2KnowledgeApplicationTests {
@@ -57,6 +63,7 @@ class Vid2KnowledgeApplicationTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("value"))
                 .andExpect(jsonPath("$.path").value("/test/errors/validate"));
     }
 
@@ -85,6 +92,15 @@ class Vid2KnowledgeApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"))
                 .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
+    }
+
+    @Test
+    void propagatesSafeCorrelationId() throws Exception {
+        mockMvc.perform(get("/api/v1/does-not-exist")
+                        .header("X-Correlation-ID", "request-123"))
+                .andExpect(status().isNotFound())
+                .andExpect(header().string("X-Correlation-ID", "request-123"))
+                .andExpect(jsonPath("$.correlationId").value("request-123"));
     }
 
     @TestConfiguration(proxyBeanMethods = false)

@@ -1,5 +1,6 @@
 package com.vid2knowledge.analysis.infrastructure;
 
+import com.vid2knowledge.analysis.application.port.VideoAnalysisProvider;
 import com.vid2knowledge.config.GeminiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 @Component
-public class GeminiInteractionClient {
+public class GeminiInteractionClient implements VideoAnalysisProvider {
 
     private final RestClient restClient;
     private final GeminiProperties properties;
@@ -32,7 +33,8 @@ public class GeminiInteractionClient {
                 .build();
     }
 
-    public String generateText(
+    @Override
+    public String generateLearningPackage(
             String prompt,
             String canonicalYoutubeUrl
     ) {
@@ -42,8 +44,8 @@ public class GeminiInteractionClient {
                 "model", properties.model(),
                 "store", false,
                 "input", List.of(
-                        Map.of("type", "text", "text", prompt),
-                        Map.of("type", "video", "uri", canonicalYoutubeUrl)
+                        Map.of("type", "video", "uri", canonicalYoutubeUrl),
+                        Map.of("type", "text", "text", prompt)
                 )
         );
 
@@ -78,13 +80,6 @@ public class GeminiInteractionClient {
                 usage.path("total_thought_tokens").asLong(),
                 usage.path("total_tokens").asLong()
         );
-
-        if (!"completed".equals(response.path("status").asText())) {
-            throw new IllegalStateException(
-                    "Gemini interaction did not complete. status="
-                            + response.path("status").asText()
-            );
-        }
 
         StringBuilder output = new StringBuilder();
 

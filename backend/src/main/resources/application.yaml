@@ -1,6 +1,8 @@
 spring:
   application:
     name: vid2knowledge-backend
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
 
 #-----------docker-------------------------
 
@@ -22,9 +24,30 @@ spring:
     driver-class-name: org.postgresql.Driver
 
     hikari:
-      maximum-pool-size: 10
-      minimum-idle: 2
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
       connection-timeout: 3000
+      validation-timeout: 2000
+
+server:
+  shutdown: graceful
+  forward-headers-strategy: framework
+  compression:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+features:
+  analysis-preview-enabled: false
 
 #--------------AI-------------------------------
 
@@ -33,4 +56,3 @@ gemini:
   model: ${GEMINI_MODEL:gemini-3.7-flash}
   base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
   timeout: ${GEMINI_TIMEOUT:180s}
-

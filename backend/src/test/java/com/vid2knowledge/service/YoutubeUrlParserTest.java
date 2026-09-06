@@ -54,4 +54,20 @@ class YoutubeUrlParserTest {
                 () -> parser.parse("https://www.youtube.com/watch?v=invalid")
         );
     }
+
+    @Test
+    void rejectsInsecureHttpUrl() {
+        assertThrows(
+                InvalidYoutubeUrlException.class,
+                () -> parser.parse("http://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        );
+    }
+
+    @Test
+    void rejectsUrlWithoutHost() {
+        assertThrows(
+                InvalidYoutubeUrlException.class,
+                () -> parser.parse("https:/watch?v=dQw4w9WgXcQ")
+        );
+    }
 }

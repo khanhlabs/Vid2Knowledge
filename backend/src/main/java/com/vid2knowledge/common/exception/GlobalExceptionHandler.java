@@ -2,6 +2,10 @@ package com.vid2knowledge.common.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import com.vid2knowledge.common.api.CorrelationIdFilter;
+import com.vid2knowledge.usage.application.EntitlementNotFoundException;
+import com.vid2knowledge.usage.application.IdempotencyConflictException;
+import com.vid2knowledge.usage.domain.QuotaExceededException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -15,6 +19,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -26,7 +31,10 @@ public class GlobalExceptionHandler {
             MethodArgumentNotValidException exception,
             HttpServletRequest request
     ) {
-        return response(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Request validation failed", request);
+        List<ApiError.FieldError> fieldErrors = exception.getBindingResult().getFieldErrors().stream()
+                .map(error -> new ApiError.FieldError(error.getField(), error.getDefaultMessage()))
+                .toList();
+        return response(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Request validation failed", fieldErrors, request);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
@@ -34,7 +42,10 @@ public class GlobalExceptionHandler {
             ConstraintViolationException exception,
             HttpServletRequest request
     ) {
-        return response(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Request validation failed", request);
+        List<ApiError.FieldError> fieldErrors = exception.getConstraintViolations().stream()
+                .map(error -> new ApiError.FieldError(error.getPropertyPath().toString(), error.getMessage()))
+                .toList();
+        return response(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Request validation failed", fieldErrors, request);
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
@@ -42,7 +53,7 @@ public class GlobalExceptionHandler {
             NoResourceFoundException exception,
             HttpServletRequest request
     ) {
-        return response(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "Resource not found", request);
+        return response(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "Resource not found", List.of(), request);
     }
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -55,7 +66,49 @@ public class GlobalExceptionHandler {
                 ? defaultMessage(status)
                 : exception.getReason();
 
-        return response(status, "REQUEST_REJECTED", message, request);
+        return response(status, "REQUEST_REJECTED", message, List.of(), request);
+    }
+
+    @ExceptionHandler(QuotaExceededException.class)
+    public ResponseEntity<ApiError> handleQuotaExceeded(
+            QuotaExceededException exception,
+            HttpServletRequest request
+    ) {
+        return response(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "USAGE_QUOTA_EXCEEDED",
+                "Usage allowance is insufficient for this request",
+                List.of(),
+                request
+        );
+    }
+
+    @ExceptionHandler(EntitlementNotFoundException.class)
+    public ResponseEntity<ApiError> handleMissingEntitlement(
+            EntitlementNotFoundException exception,
+            HttpServletRequest request
+    ) {
+        return response(
+                HttpStatus.PAYMENT_REQUIRED,
+                "ENTITLEMENT_REQUIRED",
+                "An active entitlement is required",
+                List.of(),
+                request
+        );
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ApiError> handleIdempotencyConflict(
+            IdempotencyConflictException exception,
+            HttpServletRequest request
+    ) {
+        return response(
+                HttpStatus.CONFLICT,
+                "IDEMPOTENCY_CONFLICT",
+                exception.getMessage(),
+                List.of(),
+                request
+        );
     }
 
     @ExceptionHandler
@@ -67,6 +120,7 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 "INVALID_YOUTUBE_URL",
                 exception.getMessage(),
+                List.of(),
                 request
         );
     }
@@ -87,6 +141,7 @@ public class GlobalExceptionHandler {
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
                 "An unexpected error occurred. Reference: " + errorId,
+                List.of(),
                 request
         );
     }
@@ -95,9 +150,20 @@ public class GlobalExceptionHandler {
             HttpStatusCode status,
             String code,
             String message,
+            List<ApiError.FieldError> fieldErrors,
             HttpServletRequest request
     ) {
-        ApiError body = new ApiError(Instant.now(), status.value(), code, message, request.getRequestURI());
+        Object correlationAttribute = request.getAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE);
+        String correlationId = correlationAttribute == null ? "unknown" : correlationAttribute.toString();
+        ApiError body = new ApiError(
+                Instant.now(),
+                status.value(),
+                code,
+                message,
+                request.getRequestURI(),
+                correlationId,
+                fieldErrors
+        );
         return ResponseEntity.status(status).body(body);
     }
 
