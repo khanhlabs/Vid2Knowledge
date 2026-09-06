@@ -74,7 +74,7 @@ export function CatalogPage() {
     <main className="workspace-page catalog-page">
       <header className="app-header">
         <Link to="/app">← Workspace</Link>
-        <span>Điều phối chương trình</span>
+        <Link to="/app/analytics">Báo cáo kết quả →</Link>
       </header>
       <section className="workspace-heading">
         <div>

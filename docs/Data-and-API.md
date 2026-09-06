@@ -134,7 +134,14 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 
 ### Analytics/export/integration
 
-- `GET .../analytics/courses|cohorts|costs` với filter có limit.
+- `GET .../analytics/overview|cohorts` tổng hợp activation, completion, practice score,
+  delayed-recall score, learner feedback và lỗi nội dung từ dữ liệu server canonical.
+- `GET .../analytics/cohorts/{cohortId}/insights` trả điểm yếu theo exact assessment
+  snapshot/revision; mọi truy vấn đều tenant-scoped và cohort không thuộc tenant trả 404.
+- `GET .../analytics/cohorts.csv` xuất báo cáo permissioned, escape RFC 4180 và chặn
+  spreadsheet-formula injection. Denominator là số assignment-recipient đã publish/closed;
+  timezone báo cáo là `Asia/Ho_Chi_Minh` và timestamp nguồn vẫn lưu UTC.
+- `GET .../analytics/costs` với filter có limit.
 - `POST .../exports`, `GET .../exports/{id}` trả presigned URL khi ready.
 - CRUD API keys/webhooks cho plan cho phép.
 

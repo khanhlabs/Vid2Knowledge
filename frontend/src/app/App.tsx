@@ -7,6 +7,7 @@ import { LearnerPage } from '../features/learner/LearnerPage'
 import { PackageReviewPage } from '../features/workspace/PackageReviewPage'
 import { WorkspacePage } from '../features/workspace/WorkspacePage'
 import { CatalogPage } from '../features/workspace/CatalogPage'
+import { AnalyticsPage } from '../features/workspace/AnalyticsPage'
 import { LandingPage } from './LandingPage'
 
 export default function App() {
@@ -36,6 +37,14 @@ export default function App() {
         element={
           <RequireAuth>
             <CatalogPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/app/analytics"
+        element={
+          <RequireAuth>
+            <AnalyticsPage />
           </RequireAuth>
         }
       />

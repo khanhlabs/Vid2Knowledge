@@ -324,6 +324,12 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(outcome.assigned()).isEqualTo(1);
         assertThat(outcome.completed()).isEqualTo(1);
         assertThat(outcome.averageScorePercent()).isEqualTo(100);
+        var analytics = new OutcomeAnalyticsService(jdbc);
+        assertThat(analytics.overview(organizationId).completionRate()).isEqualTo(1.0);
+        assertThat(analytics.cohorts(organizationId)).extracting(OutcomeAnalyticsService.CohortComparison::id)
+                .contains(cohort.id());
+        assertThatThrownBy(() -> analytics.summary(UUID.randomUUID(), cohort.id()))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
     }
 
     @Test
@@ -449,6 +455,19 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(overview.practiceAttempts()).isEqualTo(1);
         assertThat(overview.delayedRecallAvailable()).isFalse();
         assertThat(overview.weakAreas()).singleElement();
+        new LearnerService(jdbc, mapper).feedback(
+                learner, launch.assignmentId(), LearnerService.FeedbackKind.REPORT_ERROR,
+                "QUIZ", "quiz-1", "Đáp án cần được kiểm tra", "analytics-feedback"
+        );
+        var buyerOutcome = new OutcomeAnalyticsService(jdbc).cohort(organizationId, launch.cohortId());
+        assertThat(buyerOutcome.practiceAverageScorePercent()).isEqualTo(50);
+        assertThat(buyerOutcome.reportedErrors()).isEqualTo(1);
+        assertThat(buyerOutcome.openErrors()).isEqualTo(1);
+        assertThat(buyerOutcome.weakTopics()).singleElement()
+                .satisfies(topic -> {
+                    assertThat(topic.wrongCount()).isEqualTo(1);
+                    assertThat(topic.errorRate()).isEqualTo(1.0);
+                });
         jdbc.update(
                 "UPDATE assessment_attempts SET submitted_at = ? WHERE id = ?",
                 Timestamp.from(Instant.now().minus(Duration.ofDays(4))), result.attemptId()

@@ -1,4 +1,4 @@
-import { api, idempotencyKey } from '../../shared/api/client'
+import { api, downloadApi, idempotencyKey } from '../../shared/api/client'
 
 export interface Membership {
   id: string
@@ -141,6 +141,38 @@ export interface CohortSummary {
   memberCount: number
 }
 
+export interface OrganizationOutcome {
+  activeCohorts: number
+  learners: number
+  assigned: number
+  started: number
+  completed: number
+  averageScorePercent?: number
+  practiceAverageScorePercent?: number
+  delayedRecallAverageScorePercent?: number
+  feedbackResponses: number
+  helpfulResponses: number
+  reportedErrors: number
+  openErrors: number
+  activationRate: number
+  completionRate: number
+  timezone: string
+  generatedAt: string
+}
+
+export interface CohortOutcome {
+  id: string
+  name: string
+  status: string
+  learners: number
+  assigned: number
+  started: number
+  completed: number
+  averageScorePercent?: number
+  activationRate: number
+  completionRate: number
+}
+
 export const workspaceApi = {
   me: () => api<Me>('/api/v1/me'),
   createOrganization: (name: string, slug: string) =>
@@ -228,6 +260,19 @@ export const workspaceApi = {
     api<CourseSummary[]>(`/api/v1/organizations/${organizationId}/courses`),
   cohorts: (organizationId: string) =>
     api<CohortSummary[]>(`/api/v1/organizations/${organizationId}/cohorts`),
+  outcomeOverview: (organizationId: string) =>
+    api<OrganizationOutcome>(
+      `/api/v1/organizations/${organizationId}/analytics/overview`,
+    ),
+  cohortOutcomes: (organizationId: string) =>
+    api<CohortOutcome[]>(
+      `/api/v1/organizations/${organizationId}/analytics/cohorts`,
+    ),
+  exportCohortOutcomes: (organizationId: string) =>
+    downloadApi(
+      `/api/v1/organizations/${organizationId}/analytics/cohorts.csv`,
+      'ket-qua-cohort.csv',
+    ),
   launchProgram: (
     organizationId: string,
     input: {

@@ -13,6 +13,37 @@
   text-rendering: optimizeLegibility;
 }
 
+.analytics-table-panel {
+  margin-top: 1.5rem;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.analytics-table th,
+.analytics-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.9rem 0.75rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.analytics-table td:first-child {
+  white-space: normal;
+}
+
+.analytics-table td small {
+  display: block;
+  color: var(--muted);
+  margin-top: 0.2rem;
+}
+
 * {
   box-sizing: border-box;
 }

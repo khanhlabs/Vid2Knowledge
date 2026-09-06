@@ -88,6 +88,8 @@ All four belong to the target product. Evidence determines implementation order,
 - Multi-tenant organisations, workspaces, roles, audit log, content ownership, approval workflow, reusable templates, branding, cohort management, assignments, deadlines, and learner invitations.
 - Editable AI output with version history, human approval, regeneration controls, quality reports, duplicate detection, and reusable question banks.
 - Outcome dashboards for activation, completion, attempts, topic mastery, delayed recall, cohort comparison, and exportable reports.
+- Buyer ROI dùng dữ liệu assessment/progress phía server làm nguồn sự thật, công bố rõ
+  denominator và timezone; CSV export có phân quyền và không thể kích hoạt công thức bảng tính.
 - Self-serve trial, subscription billing, invoicing, credits/overages, coupons, proration, tax-ready records, dunning, cancellation, refund, entitlement, and revenue analytics.
 - Integrations through API/webhooks plus evidence-led LMS/SSO connections for higher-value accounts.
 - In-app onboarding, sample course, templates, lifecycle email, notifications, referral/partner attribution, support tooling, and upgrade surfaces.
