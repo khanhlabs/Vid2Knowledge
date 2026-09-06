@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import com.vid2knowledge.privacy.PrivacyService;
 
 @RestController
 @RequestMapping("/internal/tasks/billing/reconcile")
@@ -13,14 +14,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class InternalBillingController {
 
     private final BillingService billing;
+    private final PrivacyService privacy;
 
-    public InternalBillingController(BillingService billing) {
+    public InternalBillingController(BillingService billing, PrivacyService privacy) {
         this.billing = billing;
+        this.privacy = privacy;
     }
 
     @PostMapping
-    public BillingService.ReconciliationResult reconcile() {
-        return billing.reconcilePendingPayments();
+    public MaintenanceResult reconcile() {
+        return new MaintenanceResult(billing.reconcilePendingPayments(), privacy.processDueDeletions());
     }
 
     @PostMapping("/refunds/{refundId}/confirm")
@@ -41,4 +44,9 @@ public class InternalBillingController {
 
     public record RefundResolution(String providerReference, String reason) {
     }
+
+    public record MaintenanceResult(
+            BillingService.ReconciliationResult billing,
+            PrivacyService.ProcessingResult privacyDeletions
+    ) { }
 }

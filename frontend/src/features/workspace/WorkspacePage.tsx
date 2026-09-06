@@ -38,6 +38,10 @@ export function WorkspacePage() {
   const [refundReason, setRefundReason] = useState('')
   const me = useQuery({ queryKey: ['me'], queryFn: workspaceApi.me })
   const plans = useQuery({ queryKey: ['plans'], queryFn: workspaceApi.plans })
+  const deletionRequest = useQuery({
+    queryKey: ['privacy-deletion'],
+    queryFn: workspaceApi.activeDeletionRequest,
+  })
 
   const activeOrganizationId =
     organizationId || me.data?.organizations[0]?.id || ''
@@ -191,6 +195,19 @@ export function WorkspacePage() {
       queryClient.invalidateQueries({
         queryKey: ['invitations', activeOrganizationId],
       }),
+  })
+  const exportPersonalData = useMutation({
+    mutationFn: workspaceApi.exportPersonalData,
+  })
+  const requestAccountDeletion = useMutation({
+    mutationFn: workspaceApi.requestAccountDeletion,
+    onSuccess: async () =>
+      queryClient.invalidateQueries({ queryKey: ['privacy-deletion'] }),
+  })
+  const cancelAccountDeletion = useMutation({
+    mutationFn: workspaceApi.cancelAccountDeletion,
+    onSuccess: async () =>
+      queryClient.invalidateQueries({ queryKey: ['privacy-deletion'] }),
   })
 
   const submitOrganization = (event: FormEvent) => {
@@ -450,7 +467,9 @@ export function WorkspacePage() {
                       }
                       onClick={() => checkout.mutate(plan.id)}
                     >
-                      {plan.productType === 'TOP_UP' ? 'Nạp credit' : 'Chọn gói'}
+                      {plan.productType === 'TOP_UP'
+                        ? 'Nạp credit'
+                        : 'Chọn gói'}
                     </button>
                   </div>
                 </article>
@@ -529,7 +548,9 @@ export function WorkspacePage() {
                 </form>
               )}
               {requestRefund.isError && (
-                <p className="form-error">{errorMessage(requestRefund.error)}</p>
+                <p className="form-error">
+                  {errorMessage(requestRefund.error)}
+                </p>
               )}
               {refunds.data?.map((refund) => (
                 <p className="fine-print" key={refund.id}>
@@ -642,6 +663,65 @@ export function WorkspacePage() {
               )}
             </section>
           )}
+          <section className="panel member-panel">
+            <div>
+              <p className="eyebrow">DỮ LIỆU CÁ NHÂN</p>
+              <h2>Xuất hoặc xóa tài khoản</h2>
+              <p>
+                Bản xuất JSON chỉ chứa dữ liệu gắn với tài khoản của bạn. Yêu
+                cầu xóa có thời gian chờ 7 ngày và cần chuyển quyền sở hữu tổ
+                chức trước.
+              </p>
+            </div>
+            <div className="invite-row">
+              <button
+                className="small-button"
+                disabled={exportPersonalData.isPending}
+                onClick={() => exportPersonalData.mutate()}
+              >
+                Tải dữ liệu của tôi
+              </button>
+              {deletionRequest.data ? (
+                <button
+                  className="text-button"
+                  disabled={cancelAccountDeletion.isPending}
+                  onClick={() => cancelAccountDeletion.mutate()}
+                >
+                  Hủy yêu cầu xóa (dự kiến{' '}
+                  {new Date(
+                    deletionRequest.data.scheduledFor,
+                  ).toLocaleDateString('vi-VN')}
+                  )
+                </button>
+              ) : (
+                <button
+                  className="text-button"
+                  disabled={requestAccountDeletion.isPending}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        'Lên lịch xóa tài khoản sau 7 ngày? Bạn có thể hủy trong thời gian chờ.',
+                      )
+                    )
+                      requestAccountDeletion.mutate()
+                  }}
+                >
+                  Yêu cầu xóa tài khoản
+                </button>
+              )}
+            </div>
+            {(exportPersonalData.isError ||
+              requestAccountDeletion.isError ||
+              cancelAccountDeletion.isError) && (
+              <p className="form-error">
+                {errorMessage(
+                  exportPersonalData.error ??
+                    requestAccountDeletion.error ??
+                    cancelAccountDeletion.error,
+                )}
+              </p>
+            )}
+          </section>
         </>
       )}
     </main>

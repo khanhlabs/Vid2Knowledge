@@ -169,6 +169,17 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `POST /internal/tasks/reviews/schedule`.
 - `POST /internal/tasks/retention/cleanup`.
 
+### Privacy
+
+- `GET /api/v1/privacy/export` trả JSON portable của đúng authenticated subject, với
+  `Cache-Control: no-store`; không cho owner xuất dữ liệu học tập của người khác qua endpoint này.
+- `POST|DELETE /api/v1/privacy/deletion-request` lên lịch/hủy xóa trong grace period 7 ngày.
+  Sole owner phải chuyển ownership trước. Maintenance task pseudonymize identity và membership,
+  redact Q&A/email payload, giữ ledger cần cho tài chính dưới pseudonymous UUID và lưu SHA-256
+  identity block để JWT cũ không thể tự tạo lại account.
+- Việc xóa identity trong Supabase Auth vẫn là bước operator bắt buộc sau khi local request hoàn tất;
+  application block bảo đảm identity còn sót ở IdP không lấy lại quyền truy cập.
+
 Chỉ Cloud Tasks/Scheduler service account được gọi; kiểm tra OIDC audience/issuer/service-account email. Handler luôn idempotent và trả 2xx cho event đã xử lý.
 
 ## 6. HTTP contract

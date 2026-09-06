@@ -58,6 +58,7 @@ data "google_project" "current" {}
 resource "google_project_service" "required" {
   for_each = toset([
     "artifactregistry.googleapis.com",
+    "billingbudgets.googleapis.com",
     "cloudtasks.googleapis.com",
     "cloudscheduler.googleapis.com",
     "iamcredentials.googleapis.com",
@@ -196,7 +197,7 @@ resource "google_cloud_run_v2_service" "api" {
     max_instance_request_concurrency = 40
     scaling {
       min_instance_count = 0
-      max_instance_count = 5
+      max_instance_count = 3
     }
     containers {
       image = var.backend_image
@@ -234,6 +235,27 @@ resource "google_cloud_run_v2_service" "api" {
     }
   }
   depends_on = [google_project_service.required, google_secret_manager_secret.runtime]
+}
+
+resource "google_billing_budget" "project" {
+  count           = var.billing_account_id == "" ? 0 : 1
+  billing_account = var.billing_account_id
+  display_name    = "${local.prefix}-monthly-guardrail"
+
+  budget_filter {
+    projects = ["projects/${data.google_project.current.number}"]
+  }
+  amount {
+    specified_amount {
+      currency_code = "USD"
+      units         = tostring(var.monthly_budget_usd)
+    }
+  }
+  threshold_rules { threshold_percent = 0.5 }
+  threshold_rules { threshold_percent = 0.8 }
+  threshold_rules { threshold_percent = 1.0 }
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public_api" {

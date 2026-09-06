@@ -90,6 +90,9 @@ Module giao tiếp bằng application ports và domain events trong cùng proces
 - Service-role key không xuất hiện trong frontend. Frontend chỉ dùng public Supabase key theo thiết kế.
 - R2 object private, presigned URL thời hạn ngắn, key prefix tenant-randomized.
 - Rate limit nhiều tầng: Cloudflare/WAF cho bot; application cho account/IP/org/endpoint; Cloud Tasks cho provider throughput.
+- Application limiter áp fixed window riêng cho mutation thường, AI-expensive và payment,
+  đồng thời giới hạn số key trong memory. Đây là guardrail per-instance; quota transaction trong
+  PostgreSQL mới là nguồn sự thật chống vượt chi phí, còn Cloudflare là distributed outer layer.
 - Audit không lưu secret hoặc raw sensitive body; log có retention và access policy.
 - Secrets rotate được; payOS webhook signature verify constant-time; replay event không tạo side effect.
 

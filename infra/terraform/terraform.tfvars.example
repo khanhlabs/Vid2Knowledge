@@ -3,6 +3,9 @@ environment      = "staging"
 backend_image    = "asia-southeast1-docker.pkg.dev/your-gcp-project/vid2knowledge/backend@sha256:replace"
 auth_issuer_uri  = "https://your-project.supabase.co/auth/v1"
 frontend_origin  = "https://staging.example.com"
+# Optional but strongly recommended before enabling paid providers.
+billing_account_id = "000000-000000-000000"
+monthly_budget_usd  = 25
 payos_enabled    = false
 payos_return_url = "https://staging.example.com/app?payment=success"
 payos_cancel_url = "https://staging.example.com/app?payment=cancelled"

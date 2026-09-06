@@ -29,6 +29,21 @@ variable "auth_audience" {
   default = "authenticated"
 }
 variable "frontend_origin" { type = string }
+variable "billing_account_id" {
+  description = "Optional Cloud Billing account ID. Set it to create hard-to-ignore project budget alerts."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+variable "monthly_budget_usd" {
+  description = "Monthly GCP budget for this environment; alerts fire at 50%, 80%, and 100%."
+  type        = number
+  default     = 25
+  validation {
+    condition     = var.monthly_budget_usd >= 1
+    error_message = "monthly_budget_usd must be at least 1"
+  }
+}
 variable "payos_enabled" {
   type    = bool
   default = false

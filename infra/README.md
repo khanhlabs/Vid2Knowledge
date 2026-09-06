@@ -13,3 +13,7 @@ The Terraform stack provisions the low-idle-cost GCP half of Vid2Knowledge: two 
 7. Verify the sending domain in Resend, set `notification_from`, then enable `notifications_enabled`. Send an invitation in staging and confirm delivery before enabling it in production. Notification payloads are encrypted at rest and redacted after delivery; keep the encryption key available until every pending job has completed.
 
 Production deletion protection is on. Secret versions, DNS, Supabase, payOS merchant activation, billing budgets, and GitHub OIDC trust intentionally require account-owner decisions and are not fabricated by this repository.
+
+Set `billing_account_id` before production so Terraform creates a project-scoped monthly budget with alerts at 50%, 80%, and 100%. The default USD 25 budget is a guardrail, not a spending cap; provider consoles still need hard quota/cap settings where supported.
+
+The billing reconciliation schedule also processes due privacy deletions, avoiding a fourth paid Scheduler job. Application rate limits are deliberately per Cloud Run instance and memory-bounded; Cloudflare rate limiting is still required as the distributed IP/bot layer, while entitlement reservation remains the canonical protection against paid AI overuse.

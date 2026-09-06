@@ -80,6 +80,13 @@ export interface Refund {
   resolvedAt?: string
 }
 
+export interface DeletionRequest {
+  id: string
+  state: 'REQUESTED'
+  requestedAt: string
+  scheduledFor: string
+}
+
 export interface AnalysisJob {
   id: string
   sourceId: string
@@ -401,4 +408,14 @@ export const workspaceApi = {
         body: JSON.stringify({ planId }),
       },
     ),
+  exportPersonalData: () =>
+    downloadApi('/api/v1/privacy/export', 'vid2knowledge-data.json'),
+  activeDeletionRequest: () =>
+    api<DeletionRequest | null>('/api/v1/privacy/deletion-request'),
+  requestAccountDeletion: () =>
+    api<DeletionRequest>('/api/v1/privacy/deletion-request', {
+      method: 'POST',
+    }),
+  cancelAccountDeletion: () =>
+    api<void>('/api/v1/privacy/deletion-request', { method: 'DELETE' }),
 }

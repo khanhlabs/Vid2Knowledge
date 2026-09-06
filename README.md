@@ -126,11 +126,12 @@ There is no public deployment URL yet. This section will be updated when the app
 
 ## Documentation
 
-- [Product Strategy and Target Scope](docs/Features.md)
+- [Product Strategy and Target Scope](docs/features.md)
 - [Business Model and Profitability Gates](docs/Business-Model.md)
 - [Detailed Implementation Plan](docs/Plan.md)
 - [Technical Architecture](docs/Technical-Architecture.md)
 - [Data Model and API Contracts](docs/Data-and-API.md)
+- [Production Operations and Launch Gate](docs/Operations.md)
 - [Gemini Feasibility Benchmark](docs/feasibility-result.md)
 
 ## Author

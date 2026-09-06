@@ -1,6 +1,7 @@
 package com.vid2knowledge.auth;
 
 import com.vid2knowledge.common.id.UuidV7Generator;
+import com.vid2knowledge.common.id.RequestFingerprint;
 import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.usage.domain.UsageMetric;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -40,6 +41,16 @@ public class IdentityService {
     public Me provision(String subject, String email, String displayName) {
         requireClaim(subject, "JWT subject");
         requireClaim(email, "verified JWT email");
+        Long blocked = jdbc.queryForObject(
+                "SELECT count(*) FROM deleted_identity_blocks WHERE subject_hash = ?",
+                Long.class, RequestFingerprint.sha256(subject)
+        );
+        if (blocked != null && blocked > 0) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "This identity was deleted and cannot be reprovisioned"
+            );
+        }
         String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
         String safeDisplayName = displayName == null || displayName.isBlank()
                 ? normalizedEmail.substring(0, normalizedEmail.indexOf('@'))
