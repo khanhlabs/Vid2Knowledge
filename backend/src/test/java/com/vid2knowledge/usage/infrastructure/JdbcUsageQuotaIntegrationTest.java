@@ -2,6 +2,10 @@ package com.vid2knowledge.usage.infrastructure;
 
 import com.vid2knowledge.analysis.application.RequestAnalysisCommand;
 import com.vid2knowledge.analysis.application.RequestAnalysisService;
+import com.vid2knowledge.analysis.application.AnalysisCompletionService;
+import com.vid2knowledge.analysis.application.AnalysisLeaseLostException;
+import com.vid2knowledge.analysis.application.port.AiGenerationResult;
+import com.vid2knowledge.analysis.domain.GenerationAccounting;
 import com.vid2knowledge.analysis.infrastructure.JdbcAnalysisJobStore;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.common.outbox.JdbcOutboxStore;
@@ -217,9 +221,95 @@ class JdbcUsageQuotaIntegrationTest {
         var duplicate = store.claim(job.id(), "worker-2", Duration.ofMinutes(5), firstClaimAt.plusSeconds(1));
         var recovered = store.claim(job.id(), "worker-2", Duration.ofMinutes(5), firstClaimAt.plus(Duration.ofMinutes(6)));
 
-        assertThat(first).get().extracting(com.vid2knowledge.analysis.domain.AnalysisJob::attempt).isEqualTo(1);
+        assertThat(first).get().extracting(item -> item.job().attempt()).isEqualTo(1);
         assertThat(duplicate).isEmpty();
-        assertThat(recovered).get().extracting(com.vid2knowledge.analysis.domain.AnalysisJob::attempt).isEqualTo(2);
+        assertThat(recovered).get().extracting(item -> item.job().attempt()).isEqualTo(2);
+    }
+
+    @Test
+    void completionAtomicallyPersistsPackageCostAndCommittedUsage() {
+        UUID sourceId = seedSourceWithRights(organizationId);
+        var store = new JdbcAnalysisJobStore(jdbc);
+        var service = new RequestAnalysisService(store, quota, new ObjectMapper());
+        var completion = new AnalysisCompletionService(store, quota);
+        var job = transactions.execute(status -> service.request(new RequestAnalysisCommand(
+                organizationId, sourceId, 300, "{}", "request-complete-1",
+                "GOOGLE_GEMINI", "gemini-test", "correlation-complete-1"
+        )));
+        var item = store.claim(job.id(), "worker-complete", Duration.ofMinutes(5), Instant.now()).orElseThrow();
+
+        transactions.executeWithoutResult(status -> completion.complete(
+                item, "worker-complete", new GenerationAccounting(generation("{\"valid\":true}"), 120, 240),
+                "{\"valid\":true}", "prompt-v1", "schema-v1", Instant.now()
+        ));
+
+        assertThat(jdbc.queryForObject("SELECT state FROM analysis_jobs WHERE id = ?", String.class, job.id()))
+                .isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("SELECT status FROM usage_reservations WHERE id = ?", String.class, job.usageReservationId()))
+                .isEqualTo("COMMITTED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM generation_runs WHERE job_id = ?", Long.class, job.id()))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM cost_ledger WHERE organization_id = ?", Long.class, organizationId))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM package_revisions WHERE organization_id = ?", Long.class, organizationId))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM outbox_events WHERE aggregate_id = ? AND event_type = 'AnalysisCompleted'",
+                Long.class, job.id()
+        )).isEqualTo(1L);
+    }
+
+    @Test
+    void invalidPaidGenerationIsCostedAndReleasesUsage() {
+        UUID sourceId = seedSourceWithRights(organizationId);
+        var store = new JdbcAnalysisJobStore(jdbc);
+        var service = new RequestAnalysisService(store, quota, new ObjectMapper());
+        var completion = new AnalysisCompletionService(store, quota);
+        var job = transactions.execute(status -> service.request(new RequestAnalysisCommand(
+                organizationId, sourceId, 300, "{}", "request-invalid-1",
+                "GOOGLE_GEMINI", "gemini-test", "correlation-invalid-1"
+        )));
+        var item = store.claim(job.id(), "worker-invalid", Duration.ofMinutes(5), Instant.now()).orElseThrow();
+
+        transactions.executeWithoutResult(status -> completion.fail(
+                item, "worker-invalid", new GenerationAccounting(generation("not-json"), 120, 240),
+                "INVALID_AI_OUTPUT", "Malformed output", true, Instant.now(),
+                "prompt-v1", "schema-v1", Instant.now()
+        ));
+
+        assertThat(jdbc.queryForObject("SELECT state FROM analysis_jobs WHERE id = ?", String.class, job.id()))
+                .isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT status FROM usage_reservations WHERE id = ?", String.class, job.usageReservationId()))
+                .isEqualTo("RELEASED");
+        assertThat(jdbc.queryForObject("SELECT validation_state FROM generation_runs WHERE job_id = ?", String.class, job.id()))
+                .isEqualTo("INVALID");
+        assertThat(jdbc.queryForObject("SELECT raw_output FROM generation_runs WHERE job_id = ?", String.class, job.id()))
+                .isEqualTo("not-json");
+    }
+
+    @Test
+    void staleWorkerCannotWriteGenerationOrChargeUsage() {
+        UUID sourceId = seedSourceWithRights(organizationId);
+        var store = new JdbcAnalysisJobStore(jdbc);
+        var service = new RequestAnalysisService(store, quota, new ObjectMapper());
+        var completion = new AnalysisCompletionService(store, quota);
+        var job = transactions.execute(status -> service.request(new RequestAnalysisCommand(
+                organizationId, sourceId, 300, "{}", "request-fenced-1",
+                "GOOGLE_GEMINI", "gemini-test", "correlation-fenced-1"
+        )));
+        Instant claimedAt = Instant.now();
+        var stale = store.claim(job.id(), "worker-stale", Duration.ofSeconds(1), claimedAt).orElseThrow();
+        store.claim(job.id(), "worker-current", Duration.ofMinutes(5), claimedAt.plusSeconds(2)).orElseThrow();
+
+        assertThatThrownBy(() -> transactions.executeWithoutResult(status -> completion.complete(
+                stale, "worker-stale", new GenerationAccounting(generation("{}"), 1, 2), "{}",
+                "prompt-v1", "schema-v1", claimedAt.plusSeconds(3)
+        ))).isInstanceOf(AnalysisLeaseLostException.class);
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM generation_runs WHERE job_id = ?", Long.class, job.id()))
+                .isZero();
+        assertThat(jdbc.queryForObject("SELECT status FROM usage_reservations WHERE id = ?", String.class, job.usageReservationId()))
+                .isEqualTo("RESERVED");
     }
 
     @Test
@@ -315,5 +405,12 @@ class JdbcUsageQuotaIntegrationTest {
                 ownerId
         );
         return sourceId;
+    }
+
+    private static AiGenerationResult generation(String output) {
+        return new AiGenerationResult(
+                "GOOGLE_GEMINI", "gemini-test", "gemini-test-001",
+                100, 20, 10, 500, 0, output
+        );
     }
 }

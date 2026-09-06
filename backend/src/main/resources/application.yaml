@@ -56,3 +56,17 @@ gemini:
   model: ${GEMINI_MODEL:gemini-3.7-flash}
   base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
   timeout: ${GEMINI_TIMEOUT:180s}
+
+# Promotional paid rates are tracked as actual cost. Shadow rates use the
+# announced post-promotion price so margin does not depend on temporary pricing.
+ai-cost:
+  actual:
+    input-microusd-per-million-tokens: ${AI_ACTUAL_INPUT_MICROUSD:750000}
+    output-microusd-per-million-tokens: ${AI_ACTUAL_OUTPUT_MICROUSD:3750000}
+    thought-microusd-per-million-tokens: ${AI_ACTUAL_THOUGHT_MICROUSD:3750000}
+  shadow:
+    input-microusd-per-million-tokens: ${AI_SHADOW_INPUT_MICROUSD:1500000}
+    output-microusd-per-million-tokens: ${AI_SHADOW_OUTPUT_MICROUSD:7500000}
+    thought-microusd-per-million-tokens: ${AI_SHADOW_THOUGHT_MICROUSD:7500000}
+  max-attempts: ${AI_MAX_ATTEMPTS:3}
+  lease-duration: ${AI_JOB_LEASE_DURATION:5m}

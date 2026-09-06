@@ -1,6 +1,8 @@
 package com.vid2knowledge.analysis.application.port;
 
 import com.vid2knowledge.analysis.domain.AnalysisJob;
+import com.vid2knowledge.analysis.domain.AnalysisWorkItem;
+import com.vid2knowledge.analysis.domain.GenerationAccounting;
 
 import java.time.Instant;
 import java.time.Duration;
@@ -26,5 +28,28 @@ public interface AnalysisJobStore {
             Instant now
     );
 
-    Optional<AnalysisJob> claim(UUID jobId, String workerId, Duration leaseDuration, Instant now);
+    Optional<AnalysisWorkItem> claim(UUID jobId, String workerId, Duration leaseDuration, Instant now);
+
+    void complete(
+            AnalysisWorkItem workItem,
+            String workerId,
+            GenerationAccounting accounting,
+            String validatedContentJson,
+            String promptVersion,
+            String schemaVersion,
+            Instant now
+    );
+
+    void fail(
+            AnalysisWorkItem workItem,
+            String workerId,
+            GenerationAccounting accounting,
+            String errorCode,
+            String safeErrorDetail,
+            boolean terminal,
+            Instant retryAt,
+            String promptVersion,
+            String schemaVersion,
+            Instant now
+    );
 }
