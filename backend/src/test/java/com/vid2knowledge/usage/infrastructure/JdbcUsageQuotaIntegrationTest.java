@@ -292,6 +292,14 @@ class JdbcUsageQuotaIntegrationTest {
         );
         var outcome = new OutcomeAnalyticsService(jdbc).summary(organizationId, cohort.id());
 
+        assertThat(catalog.courses(organizationId)).extracting(CatalogService.Course::id).contains(course.id());
+        assertThat(catalog.course(organizationId, course.id()).modules()).singleElement()
+                .satisfies(item -> assertThat(item.lessons()).singleElement()
+                        .satisfies(savedLesson -> assertThat(savedLesson.id()).isEqualTo(lesson.id())));
+        assertThat(catalog.cohorts(organizationId)).singleElement()
+                .satisfies(item -> assertThat(item.memberCount()).isEqualTo(1));
+        assertThat(catalog.assignments(organizationId)).extracting(CatalogService.Assignment::id)
+                .contains(assignment.id());
         assertThat(view.content().path("quiz").get(0).has("correctAnswerIndex")).isFalse();
         assertThat(view.content().path("quiz").get(0).has("explanation")).isFalse();
         assertThat(result.scorePercent()).isEqualTo(100);
@@ -302,6 +310,42 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(outcome.assigned()).isEqualTo(1);
         assertThat(outcome.completed()).isEqualTo(1);
         assertThat(outcome.averageScorePercent()).isEqualTo(100);
+    }
+
+    @Test
+    void programLaunchIsAtomicIdempotentAndImmediatelyAssignable() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        UUID learnerId = seedLearner(organizationId);
+        UUID packageId = seedPublishedPackage(organizationId, ownerId);
+        var catalog = new CatalogService(jdbc);
+        Instant availableAt = Instant.now().minusSeconds(1);
+        Instant dueAt = Instant.now().plus(Duration.ofDays(7));
+
+        var first = catalog.launchProgram(
+                owner, "Pilot bán hàng", packageId, java.util.List.of(learnerId),
+                availableAt, dueAt, "program-launch-1", "launch-correlation-1"
+        );
+        var replay = catalog.launchProgram(
+                owner, "Pilot bán hàng", packageId, java.util.List.of(learnerId),
+                availableAt, dueAt, "program-launch-1", "launch-correlation-2"
+        );
+
+        assertThat(replay).isEqualTo(first);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM courses WHERE organization_id = ? AND title = 'Pilot bán hàng'",
+                Long.class, organizationId
+        )).isEqualTo(1L);
+        assertThat(new LearnerService(jdbc, new ObjectMapper()).assignments(
+                new CurrentActor(learnerId, organizationId, CurrentActor.Role.LEARNER)
+        )).extracting(LearnerService.AssignmentSummary::id).containsExactly(first.assignmentId());
+        assertThatThrownBy(() -> catalog.launchProgram(
+                owner, "Nội dung khác", packageId, java.util.List.of(learnerId),
+                availableAt, dueAt, "program-launch-1", "launch-correlation-3"
+        )).isInstanceOf(IdempotencyConflictException.class);
     }
 
     @Test
@@ -324,6 +368,8 @@ class JdbcUsageQuotaIntegrationTest {
                 owner, packageId, PackageWorkflowService.Transition.PUBLISH, "package-3"
         );
 
+        assertThat(packages.list(organizationId)).extracting(PackageWorkflowService.PackageSummary::id)
+                .contains(packageId);
         assertThat(published.state()).isEqualTo("PUBLISHED");
         assertThat(published.verificationState()).isEqualTo("HUMAN_VERIFIED");
         assertThatThrownBy(() -> packages.get(UUID.randomUUID(), packageId))

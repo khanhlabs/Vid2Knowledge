@@ -338,6 +338,8 @@ export function WorkspacePage() {
             </section>
           </div>
           <p className="learner-shortcut">
+            <Link to="/app/catalog">Điều phối khóa học & cohort</Link>
+            {' · '}
             Đang học trong tổ chức này?{' '}
             <Link to={`/learn/${activeOrganizationId}`}>Mở cổng học viên</Link>
           </p>

@@ -56,6 +56,23 @@ public class PackageWorkflowService {
         );
     }
 
+    public List<PackageSummary> list(UUID organizationId) {
+        return jdbc.query(
+                """
+                SELECT p.id, p.source_id, p.publication_state, p.version, r.revision_no,
+                       r.verification_state, COALESCE(r.content_json #>> '{video,title}', 'Untitled') AS title
+                FROM learning_packages p
+                JOIN package_revisions r ON r.id = p.current_revision_id AND r.package_id = p.id
+                WHERE p.organization_id = ? ORDER BY p.updated_at DESC, p.id DESC LIMIT 1000
+                """,
+                (result, row) -> new PackageSummary(
+                        result.getObject("id", UUID.class), result.getObject("source_id", UUID.class),
+                        result.getString("title"), result.getString("publication_state"), result.getLong("version"),
+                        result.getInt("revision_no"), result.getString("verification_state")
+                ), organizationId
+        );
+    }
+
     @Transactional
     public PackageView saveDraft(
             CurrentActor actor,
@@ -219,6 +236,11 @@ public class PackageWorkflowService {
             JsonNode content
     ) {
     }
+
+    public record PackageSummary(
+            UUID id, UUID sourceId, String title, String state, long version,
+            int revisionNo, String verificationState
+    ) {}
 
     private record PackageSource(String uri, long durationSeconds) {
     }

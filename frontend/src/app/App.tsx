@@ -6,6 +6,7 @@ import { PreviewPage } from '../features/analysis/PreviewPage'
 import { LearnerPage } from '../features/learner/LearnerPage'
 import { PackageReviewPage } from '../features/workspace/PackageReviewPage'
 import { WorkspacePage } from '../features/workspace/WorkspacePage'
+import { CatalogPage } from '../features/workspace/CatalogPage'
 import { LandingPage } from './LandingPage'
 
 export default function App() {
@@ -27,6 +28,14 @@ export default function App() {
         element={
           <RequireAuth>
             <PackageReviewPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/app/catalog"
+        element={
+          <RequireAuth>
+            <CatalogPage />
           </RequireAuth>
         }
       />

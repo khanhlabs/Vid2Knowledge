@@ -78,6 +78,35 @@ export interface InvitationCreated {
   expiresAt: string
 }
 
+export interface PackageSummary {
+  id: string
+  sourceId: string
+  title: string
+  state: string
+  version: number
+  revisionNo: number
+  verificationState: string
+}
+
+export interface CourseSummary {
+  id: string
+  title: string
+  description: string
+  state: string
+  version: number
+  moduleCount: number
+  lessonCount: number
+}
+
+export interface CohortSummary {
+  id: string
+  name: string
+  status: string
+  startsAt?: string
+  endsAt?: string
+  memberCount: number
+}
+
 export const workspaceApi = {
   me: () => api<Me>('/api/v1/me'),
   createOrganization: (name: string, slug: string) =>
@@ -142,6 +171,30 @@ export const workspaceApi = {
     api<void>(
       `/api/v1/organizations/${organizationId}/invitations/${invitationId}`,
       { method: 'DELETE' },
+    ),
+  packages: (organizationId: string) =>
+    api<PackageSummary[]>(`/api/v1/organizations/${organizationId}/packages`),
+  courses: (organizationId: string) =>
+    api<CourseSummary[]>(`/api/v1/organizations/${organizationId}/courses`),
+  cohorts: (organizationId: string) =>
+    api<CohortSummary[]>(`/api/v1/organizations/${organizationId}/cohorts`),
+  launchProgram: (
+    organizationId: string,
+    input: {
+      title: string
+      packageId: string
+      learnerIds: string[]
+      availableAt: string
+      dueAt?: string
+    },
+  ) =>
+    api<{ courseId: string; cohortId: string; assignmentId: string }>(
+      `/api/v1/organizations/${organizationId}/program-launches`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey('program-launch') },
+        body: JSON.stringify(input),
+      },
     ),
   checkout: (organizationId: string, planId: string) =>
     api<{ checkoutUrl: string }>(

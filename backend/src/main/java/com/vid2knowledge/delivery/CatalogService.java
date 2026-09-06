@@ -2,6 +2,8 @@ package com.vid2knowledge.delivery;
 
 import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.common.id.UuidV7Generator;
+import com.vid2knowledge.common.id.RequestFingerprint;
+import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -13,6 +15,7 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
 
 import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
@@ -34,6 +37,150 @@ public class CatalogService {
         this.clock = clock;
     }
 
+    public List<Course> courses(UUID organizationId) {
+        return jdbc.query(
+                """
+                SELECT c.id, c.title, c.description, c.state, c.version,
+                       count(DISTINCT m.id) AS module_count, count(DISTINCT l.id) AS lesson_count
+                FROM courses c
+                LEFT JOIN course_modules m ON m.course_id = c.id AND m.organization_id = c.organization_id
+                LEFT JOIN lessons l ON l.module_id = m.id AND l.organization_id = c.organization_id
+                WHERE c.organization_id = ?
+                GROUP BY c.id ORDER BY c.updated_at DESC, c.id DESC LIMIT 500
+                """,
+                (result, row) -> new Course(
+                        result.getObject("id", UUID.class), result.getString("title"),
+                        result.getString("description"), result.getString("state"), result.getLong("version"),
+                        result.getInt("module_count"), result.getInt("lesson_count")
+                ), organizationId
+        );
+    }
+
+    public CourseDetail course(UUID organizationId, UUID courseId) {
+        Course course = courses(organizationId).stream().filter(item -> item.id().equals(courseId))
+                .findFirst().orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "Course not found"));
+        List<ModuleDetail> modules = jdbc.query(
+                """
+                SELECT m.id AS module_id, m.course_id, m.title AS module_title, m.position AS module_position,
+                       l.id AS lesson_id, l.package_id, l.title AS lesson_title, l.position AS lesson_position
+                FROM course_modules m
+                LEFT JOIN lessons l ON l.module_id = m.id AND l.organization_id = m.organization_id
+                WHERE m.organization_id = ? AND m.course_id = ?
+                ORDER BY m.position, m.id, l.position, l.id
+                """,
+                result -> {
+                    java.util.LinkedHashMap<UUID, ModuleAccumulator> grouped = new java.util.LinkedHashMap<>();
+                    while (result.next()) {
+                        UUID moduleId = result.getObject("module_id", UUID.class);
+                        ModuleAccumulator module = grouped.computeIfAbsent(moduleId, ignored -> new ModuleAccumulator(
+                                moduleId, courseId, resultString(result, "module_title"), resultInt(result, "module_position")
+                        ));
+                        UUID lessonId = result.getObject("lesson_id", UUID.class);
+                        if (lessonId != null) {
+                            module.lessons.add(new Lesson(
+                                    lessonId, moduleId, result.getObject("package_id", UUID.class),
+                                    result.getString("lesson_title"), result.getInt("lesson_position")
+                            ));
+                        }
+                    }
+                    return grouped.values().stream().map(ModuleAccumulator::view).toList();
+                }, organizationId, courseId
+        );
+        return new CourseDetail(course, modules);
+    }
+
+    public List<Cohort> cohorts(UUID organizationId) {
+        return jdbc.query(
+                """
+                SELECT c.id, c.name, c.status, c.starts_at, c.ends_at, count(cm.user_id) AS member_count
+                FROM cohorts c LEFT JOIN cohort_members cm ON cm.cohort_id = c.id
+                WHERE c.organization_id = ? GROUP BY c.id
+                ORDER BY c.created_at DESC, c.id DESC LIMIT 500
+                """,
+                (result, row) -> new Cohort(
+                        result.getObject("id", UUID.class), result.getString("name"), result.getString("status"),
+                        instant(result.getTimestamp("starts_at")), instant(result.getTimestamp("ends_at")),
+                        result.getInt("member_count")
+                ), organizationId
+        );
+    }
+
+    public List<Assignment> assignments(UUID organizationId) {
+        return jdbc.query(
+                """
+                SELECT id, cohort_id, lesson_id, package_revision_id, title, state, available_at, due_at
+                FROM assignments WHERE organization_id = ?
+                ORDER BY created_at DESC, id DESC LIMIT 1000
+                """,
+                (result, row) -> new Assignment(
+                        result.getObject("id", UUID.class), result.getObject("cohort_id", UUID.class),
+                        result.getObject("lesson_id", UUID.class), result.getObject("package_revision_id", UUID.class),
+                        result.getString("title"), result.getString("state"),
+                        result.getTimestamp("available_at").toInstant(), instant(result.getTimestamp("due_at"))
+                ), organizationId
+        );
+    }
+
+    @Transactional
+    public ProgramLaunch launchProgram(
+            CurrentActor actor,
+            String title,
+            UUID packageId,
+            List<UUID> learnerIds,
+            Instant availableAt,
+            Instant dueAt,
+            String idempotencyKey,
+            String correlationId
+    ) {
+        String fingerprint = RequestFingerprint.sha256(
+                title.trim() + "|" + packageId + "|" + learnerIds.stream().sorted().toList()
+                        + "|" + availableAt + "|" + dueAt
+        );
+        jdbc.query(
+                "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                result -> null,
+                actor.organizationId() + ":program-launch:" + idempotencyKey
+        );
+        List<StoredLaunch> existing = jdbc.query(
+                """
+                SELECT request_hash, course_id, cohort_id, assignment_id
+                FROM program_launches WHERE organization_id = ? AND idempotency_key = ?
+                """,
+                (result, row) -> new StoredLaunch(
+                        result.getString("request_hash"), result.getObject("course_id", UUID.class),
+                        result.getObject("cohort_id", UUID.class), result.getObject("assignment_id", UUID.class)
+                ), actor.organizationId(), idempotencyKey
+        );
+        if (!existing.isEmpty()) {
+            StoredLaunch launch = existing.getFirst();
+            if (!launch.requestHash.equals(fingerprint)) throw new IdempotencyConflictException();
+            return new ProgramLaunch(launch.courseId, launch.cohortId, launch.assignmentId);
+        }
+        if (learnerIds.isEmpty() || learnerIds.size() > 2_000 || learnerIds.stream().distinct().count() != learnerIds.size()) {
+            throw new IllegalArgumentException("Program launch requires 1 to 2000 distinct learners");
+        }
+        Course course = createCourse(actor, title, "Launched from an approved Vid2Knowledge package", correlationId);
+        Module module = addModule(actor, course.id(), "Nội dung chính", 1, correlationId);
+        Lesson lesson = addLesson(actor, module.id(), packageId, title, 1, correlationId);
+        Cohort cohort = createCohort(actor, title, availableAt, dueAt, correlationId);
+        learnerIds.forEach(learnerId -> addCohortMember(actor, cohort.id(), learnerId, correlationId));
+        Assignment assignment = createAssignment(
+                actor, cohort.id(), lesson.id(), title, availableAt, dueAt, correlationId
+        );
+        assignment = publishAssignment(actor, assignment.id(), correlationId);
+        jdbc.update(
+                """
+                INSERT INTO program_launches(
+                    id, organization_id, idempotency_key, request_hash, course_id,
+                    cohort_id, assignment_id, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                UuidV7Generator.generate(), actor.organizationId(), idempotencyKey, fingerprint, course.id(),
+                cohort.id(), assignment.id(), actor.userId(), Timestamp.from(clock.instant())
+        );
+        return new ProgramLaunch(course.id(), cohort.id(), assignment.id());
+    }
+
     @Transactional
     public Course createCourse(CurrentActor actor, String title, String description, String correlationId) {
         UUID id = UuidV7Generator.generate();
@@ -47,7 +194,7 @@ public class CatalogService {
                 actor.userId(), Timestamp.from(now), Timestamp.from(now)
         );
         audit(actor, "COURSE_CREATED", "Course", id, correlationId, now);
-        return new Course(id, title.trim(), description == null ? "" : description.trim(), "DRAFT", 0);
+        return new Course(id, title.trim(), description == null ? "" : description.trim(), "DRAFT", 0, 0, 0);
     }
 
     @Transactional
@@ -114,7 +261,7 @@ public class CatalogService {
                 Timestamp.from(now), Timestamp.from(now)
         );
         audit(actor, "COHORT_CREATED", "Cohort", id, correlationId, now);
-        return new Cohort(id, name.trim(), "ACTIVE", startsAt, endsAt);
+        return new Cohort(id, name.trim(), "ACTIVE", startsAt, endsAt, 0);
     }
 
     @Transactional
@@ -281,7 +428,19 @@ public class CatalogService {
         return value == null ? null : Timestamp.from(value);
     }
 
-    public record Course(UUID id, String title, String description, String state, long version) {
+    private static String resultString(java.sql.ResultSet result, String column) {
+        try { return result.getString(column); } catch (java.sql.SQLException exception) { throw new IllegalStateException(exception); }
+    }
+
+    private static int resultInt(java.sql.ResultSet result, String column) {
+        try { return result.getInt(column); } catch (java.sql.SQLException exception) { throw new IllegalStateException(exception); }
+    }
+
+    private static Instant instant(Timestamp value) { return value == null ? null : value.toInstant(); }
+
+    public record Course(
+            UUID id, String title, String description, String state, long version, int moduleCount, int lessonCount
+    ) {
     }
 
     public record Module(UUID id, UUID courseId, String title, int position) {
@@ -290,7 +449,30 @@ public class CatalogService {
     public record Lesson(UUID id, UUID moduleId, UUID packageId, String title, int position) {
     }
 
-    public record Cohort(UUID id, String name, String status, Instant startsAt, Instant endsAt) {
+    public record CourseDetail(Course course, List<ModuleDetail> modules) {}
+
+    public record ModuleDetail(UUID id, UUID courseId, String title, int position, List<Lesson> lessons) {}
+
+    private static final class ModuleAccumulator {
+        private final UUID id;
+        private final UUID courseId;
+        private final String title;
+        private final int position;
+        private final List<Lesson> lessons = new java.util.ArrayList<>();
+
+        private ModuleAccumulator(UUID id, UUID courseId, String title, int position) {
+            this.id = id;
+            this.courseId = courseId;
+            this.title = title;
+            this.position = position;
+        }
+
+        private ModuleDetail view() { return new ModuleDetail(id, courseId, title, position, List.copyOf(lessons)); }
+    }
+
+    public record Cohort(
+            UUID id, String name, String status, Instant startsAt, Instant endsAt, int memberCount
+    ) {
     }
 
     public record Assignment(
@@ -298,4 +480,8 @@ public class CatalogService {
             String title, String state, Instant availableAt, Instant dueAt
     ) {
     }
+
+    public record ProgramLaunch(UUID courseId, UUID cohortId, UUID assignmentId) {}
+
+    private record StoredLaunch(String requestHash, UUID courseId, UUID cohortId, UUID assignmentId) {}
 }

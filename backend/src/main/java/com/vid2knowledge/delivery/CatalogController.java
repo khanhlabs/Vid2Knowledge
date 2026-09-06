@@ -9,10 +9,12 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.NotEmpty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -33,6 +35,38 @@ public class CatalogController {
     public CatalogController(TenantAccessService access, CatalogService catalog) {
         this.access = access;
         this.catalog = catalog;
+    }
+
+    @GetMapping("/courses")
+    public java.util.List<CatalogService.Course> courses(
+            @PathVariable UUID organizationId, Authentication authentication
+    ) {
+        reader(organizationId, authentication);
+        return catalog.courses(organizationId);
+    }
+
+    @GetMapping("/courses/{courseId}")
+    public CatalogService.CourseDetail course(
+            @PathVariable UUID organizationId, @PathVariable UUID courseId, Authentication authentication
+    ) {
+        reader(organizationId, authentication);
+        return catalog.course(organizationId, courseId);
+    }
+
+    @GetMapping("/cohorts")
+    public java.util.List<CatalogService.Cohort> cohorts(
+            @PathVariable UUID organizationId, Authentication authentication
+    ) {
+        reader(organizationId, authentication);
+        return catalog.cohorts(organizationId);
+    }
+
+    @GetMapping("/assignments")
+    public java.util.List<CatalogService.Assignment> assignments(
+            @PathVariable UUID organizationId, Authentication authentication
+    ) {
+        reader(organizationId, authentication);
+        return catalog.assignments(organizationId);
     }
 
     @PostMapping("/courses")
@@ -132,10 +166,32 @@ public class CatalogController {
         );
     }
 
+    @PostMapping("/program-launches")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CatalogService.ProgramLaunch launchProgram(
+            @PathVariable UUID organizationId,
+            @RequestHeader("Idempotency-Key") @Size(min = 8, max = 160) String idempotencyKey,
+            @Valid @RequestBody LaunchProgramRequest request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        return catalog.launchProgram(
+                author(organizationId, authentication), request.title(), request.packageId(), request.learnerIds(),
+                request.availableAt(), request.dueAt(), idempotencyKey, correlation(servletRequest)
+        );
+    }
+
     private CurrentActor author(UUID organizationId, Authentication authentication) {
         return access.require(
                 organizationId, authentication,
                 CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN, CurrentActor.Role.INSTRUCTOR
+        );
+    }
+
+    private CurrentActor reader(UUID organizationId, Authentication authentication) {
+        return access.require(
+                organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN,
+                CurrentActor.Role.INSTRUCTOR, CurrentActor.Role.REVIEWER
         );
     }
 
@@ -183,4 +239,12 @@ public class CatalogController {
             Instant dueAt
     ) {
     }
+
+    public record LaunchProgramRequest(
+            @NotBlank @Size(max = 240) String title,
+            @NotNull UUID packageId,
+            @NotEmpty @Size(max = 2000) java.util.List<@NotNull UUID> learnerIds,
+            @NotNull Instant availableAt,
+            Instant dueAt
+    ) {}
 }

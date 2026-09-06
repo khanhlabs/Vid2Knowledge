@@ -35,6 +35,17 @@ public class PackageController {
         this.packages = packages;
     }
 
+    @GetMapping
+    public java.util.List<PackageWorkflowService.PackageSummary> list(
+            @PathVariable UUID organizationId, Authentication authentication
+    ) {
+        access.require(
+                organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN,
+                CurrentActor.Role.INSTRUCTOR, CurrentActor.Role.REVIEWER
+        );
+        return packages.list(organizationId);
+    }
+
     @GetMapping("/{packageId}")
     public ResponseEntity<PackageWorkflowService.PackageView> get(
             @PathVariable UUID organizationId,

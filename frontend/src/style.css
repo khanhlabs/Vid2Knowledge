@@ -532,6 +532,42 @@ button:disabled {
 .member-list small {
   display: block;
 }
+.catalog-page select {
+  width: 100%;
+  padding: 0.85rem;
+  border: 1px solid #b8bdb5;
+  border-radius: 8px;
+  background: white;
+}
+.catalog-page fieldset {
+  margin: 1.2rem 0;
+  padding: 1rem;
+  border: 1px solid #d1d5ca;
+  border-radius: 8px;
+}
+.catalog-page legend {
+  font-weight: 750;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+.check-row input {
+  flex: 0 0 auto;
+}
+.catalog-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid #dde0d8;
+}
+.catalog-row span {
+  color: #687169;
+  font-size: 0.82rem;
+}
 .member-list small {
   margin-top: 0.2rem;
   color: #687169;
