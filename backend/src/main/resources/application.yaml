@@ -93,3 +93,13 @@ commercial:
   trial-processed-video-seconds: ${TRIAL_PROCESSED_VIDEO_SECONDS:3600}
   trial-duration: ${TRIAL_DURATION:14d}
   invitation-ttl: ${INVITATION_TTL:7d}
+
+payos:
+  enabled: ${PAYOS_ENABLED:false}
+  client-id: ${PAYOS_CLIENT_ID:}
+  api-key: ${PAYOS_API_KEY:}
+  checksum-key: ${PAYOS_CHECKSUM_KEY:}
+  base-url: ${PAYOS_BASE_URL:https://api-merchant.payos.vn}
+  return-url: ${PAYOS_RETURN_URL:}
+  cancel-url: ${PAYOS_CANCEL_URL:}
+  checkout-ttl: ${PAYOS_CHECKOUT_TTL:30m}

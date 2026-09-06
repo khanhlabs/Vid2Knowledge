@@ -28,3 +28,6 @@ features:
 
 task-queue:
   mode: CLOUD_TASKS
+
+payos:
+  enabled: true

@@ -23,6 +23,10 @@ import com.vid2knowledge.delivery.OutcomeAnalyticsService;
 import com.vid2knowledge.delivery.PackageWorkflowService;
 import com.vid2knowledge.analysis.application.LearningPackageCodec;
 import jakarta.validation.Validation;
+import com.vid2knowledge.billing.BillingService;
+import com.vid2knowledge.billing.PaymentGateway;
+import com.vid2knowledge.billing.PayOsSignature;
+import com.vid2knowledge.config.PayOsProperties;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.domain.QuotaExceededException;
 import com.vid2knowledge.usage.domain.UsageMetric;
@@ -47,6 +51,8 @@ import java.time.Instant;
 import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.net.URI;
+import java.util.concurrent.atomic.AtomicInteger;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -359,6 +365,66 @@ class JdbcUsageQuotaIntegrationTest {
         assertThatThrownBy(() -> transactions.execute(status -> invitations.accept(
                 invitation.token(), "new-learner-subject", "new-learner@example.com", "New Learner", "invite-4"
         ))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    void checkoutUsesImmutableServerPriceAndVerifiedWebhookGrantsEntitlementOnce() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        AtomicInteger gatewayCalls = new AtomicInteger();
+        PaymentGateway gateway = (orderCode, amount, description) -> {
+            gatewayCalls.incrementAndGet();
+            assertThat(amount).isEqualTo(790_000);
+            return new PaymentGateway.CheckoutLink("pay-link-1", URI.create("https://pay.payos.vn/web/pay-link-1"));
+        };
+        var properties = new PayOsProperties(
+                true, "client", "api", "secret", URI.create("https://api-merchant.payos.vn"),
+                URI.create("https://app.example/success"), URI.create("https://app.example/cancel"),
+                Duration.ofMinutes(30)
+        );
+        var billing = new BillingService(jdbc, transactions, gateway, properties, new ObjectMapper());
+        UUID planId = UUID.fromString("00000000-0000-7000-8000-000000000101");
+
+        var checkout = billing.checkout(owner, planId, "checkout-key-1");
+        var replay = billing.checkout(owner, planId, "checkout-key-1");
+
+        assertThat(replay.orderId()).isEqualTo(checkout.orderId());
+        assertThat(gatewayCalls).hasValue(1);
+        var mapper = new ObjectMapper();
+        var data = mapper.createObjectNode()
+                .put("orderCode", checkout.orderCode())
+                .put("amount", checkout.amountVnd())
+                .put("description", "V2K " + checkout.orderCode())
+                .put("accountNumber", "123")
+                .put("reference", "bank-reference-1")
+                .put("transactionDateTime", "2026-09-06 10:00:00")
+                .put("currency", "VND")
+                .put("paymentLinkId", "pay-link-1")
+                .put("code", "00")
+                .put("desc", "success");
+        var envelope = mapper.createObjectNode()
+                .put("code", "00")
+                .put("desc", "success")
+                .put("success", true)
+                .set("data", data);
+        envelope.put("signature", PayOsSignature.signWebhook(data, "secret"));
+
+        billing.processWebhook(envelope);
+        billing.processWebhook(envelope);
+
+        assertThat(jdbc.queryForObject("SELECT state FROM billing_orders WHERE id = ?", String.class, checkout.orderId()))
+                .isEqualTo("PAID");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM payments WHERE billing_order_id = ?", Long.class, checkout.orderId()))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM subscriptions WHERE billing_order_id = ?", Long.class, checkout.orderId()))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT allowance FROM entitlements WHERE organization_id = ? ORDER BY period_start DESC LIMIT 1",
+                Long.class, organizationId
+        )).isEqualTo(18_000L);
     }
 
     @Test
