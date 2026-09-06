@@ -1,107 +1,147 @@
-# Vid2Knowledge — Phạm vi sản phẩm & lộ trình MVP
+# Vid2Knowledge — Product Strategy and Target Scope
 
-## 1. Mục tiêu sản phẩm
+## 1. Product thesis
 
-> Người dùng dán một link YouTube công khai, hệ thống dùng Gemini để hiểu trực tiếp nội dung video và tạo học liệu giúp người dùng ôn tập chủ động.
+Vid2Knowledge helps a learner turn a long educational YouTube video into a verifiable study loop: understand the material, practise it, identify weak areas, and return to review it. It is not positioned as a generic AI video summarizer.
 
-**Đầu ra chính:** tóm tắt có cấu trúc, kiến thức trọng tâm, flashcard và câu hỏi ôn tập có đáp án.
+### Initial buyer, user, and job to be done
 
-**Đối tượng ban đầu:** sinh viên, người tự học, người xem bài giảng/podcast/video dài muốn học lại hiệu quả hơn.
+**Primary buyer:** Vietnamese small training providers and cohort-based academies with 2–20 instructors, paying learners, and an owned or authorised library of educational videos. They have clearer budgets, recurring cohorts, measurable completion problems, and higher expansion potential than individual learners.
 
-**Mục tiêu giai đoạn đầu:** xác minh chất lượng đầu ra và nhu cầu thật của người dùng với chi phí thấp; chỉ mở rộng hạ tầng và thanh toán khi đã có tín hiệu sử dụng/quay lại ổn định.
+**Secondary buyer:** Educational creators and independent instructors with an existing paid community. This segment uses the same product but does not dilute the first sales message.
 
----
+**Initial user:** The buyer's learners. Individual learners are users of the learning experience, but are not the primary payer during the first commercial validation.
 
-## 2. Nguyên tắc kỹ thuật
+**Buyer job to be done:** “Turn my existing video library into verifiable, interactive learning material without repeatedly writing notes, cards, and quizzes by hand, then show me whether learners complete and understand it.”
 
-- Backend gửi trực tiếp **YouTube URL công khai** đến Gemini API để Gemini hiểu cả âm thanh và hình ảnh của video.
-- Không tải, lưu hoặc tự lấy transcript/video từ YouTube. Hệ thống chỉ lưu URL, metadata cần thiết và học liệu đã sinh.
-- Gemini API key chỉ tồn tại ở backend; không đưa key ra frontend.
-- Kết quả AI phải tuân thủ một JSON schema cố định để giao diện hiển thị ổn định, dễ lưu lịch sử và xuất file sau này.
-- Một lần xử lý tạo đủ các sản phẩm học tập; không gọi Gemini riêng lẻ cho từng tab nếu không cần thiết.
-- Cache theo `videoId + cấu hình đầu ra` để tránh xử lý lại cùng một video và tiết kiệm quota/chi phí.
+**Learner job to be done:** “Help me understand, practise, and retain the material in a long lesson, with a quick path back to the relevant source.”
 
-### Giới hạn cần chấp nhận ở MVP
+The first commercial beta must recruit this buyer profile only. A broad self-serve student product remains a later expansion bet. This choice is intended to improve willingness to pay, recurring usage, content permission, and distribution through each buyer's existing audience.
 
-- Chỉ hỗ trợ video YouTube **công khai**; không cam kết hỗ trợ private/unlisted video.
-- Khả năng truyền URL YouTube trực tiếp của Gemini đang ở preview, vì vậy cần đo tỷ lệ thành công và có xử lý lỗi rõ ràng.
-- Kết quả AI có thể sai hoặc thiếu; giao diện cần hiển thị cảnh báo ngắn và cho phép người dùng mở video gốc để đối chiếu.
+### Value proposition
 
----
+- Buyers reduce the time required to turn an existing video into usable learning material.
+- Learners receive structured notes, source links, and active-recall practice.
+- Buyers can assign a package and see completion and comprehension signals.
+- The product gains distribution through buyers who already reach learners.
 
-## 3. Knowledge package (đầu ra chuẩn)
+## 2. Product principles
 
-Mỗi yêu cầu thành công sinh một gói học liệu gồm:
+- **Evidence over fluent text.** Any timestamp is a claim about the source and must be shown as a link to that source. The UI must state when a timestamp or answer is unavailable or uncertain.
+- **Learning outcome over content generation.** Build features that increase comprehension, recall, and return learning; do not prioritise cosmetic export features over those outcomes.
+- **Cost is a product constraint.** Every paid or free entitlement has a measurable AI cost, a hard limit, and a user-visible explanation.
+- **One stable contract.** AI output is versioned JSON, validated before storage or display, and never treated as factual without source context.
+- **Least data and clear rights.** Store only data needed to deliver the service. Cached material is scoped by an explicit sharing policy; it is never silently exposed to another user.
+
+## 3. Product outcome and delivery strategy
+
+The product succeeds when an authorised buyer can turn a supported video library into assignable learning programmes, learners measurably improve, and the buyer renews or expands at a positive contribution margin.
+
+The target product is deliberately complete for the chosen market. Delivery remains phased so each investment is informed by evidence, but time-to-build is not used to remove capabilities that materially improve revenue, retention, expansion, defensibility, or operating margin.
+
+The platform does not become a generic LMS. Every major capability must strengthen the authorised video-to-learning workflow, buyer outcome measurement, learner mastery, or commercial operations.
+
+## 4. Learning package contract
+
+The package must include source-verification metadata and schema versioning:
 
 ```json
 {
-  "video": { "youtubeUrl": "https://www.youtube.com/watch?v=...", "title": "...", "language": "vi" },
-  "summary": {
-    "overview": "...",
-    "sections": [{ "title": "...", "timestamp": "00:00", "content": ["..."] }]
-  },
+  "schemaVersion": "1.0",
+  "video": { "youtubeUrl": "https://www.youtube.com/watch?v=...", "videoId": "...", "title": "...", "detectedLanguage": "vi" },
+  "summary": { "overview": "...", "sections": [{ "title": "...", "content": ["..."], "sourceReference": { "timestampSeconds": 0, "verificationStatus": "unverified" } }] },
   "keyTakeaways": ["..."],
-  "flashcards": [{ "question": "...", "answer": "...", "timestamp": "00:00" }],
-  "quiz": [{ "question": "...", "options": ["...", "...", "...", "..."], "correctAnswerIndex": 0, "explanation": "...", "timestamp": "00:00" }]
+  "flashcards": [{ "id": "...", "question": "...", "answer": "...", "timestampSeconds": 0 }],
+  "quiz": [{ "id": "...", "question": "...", "options": ["...", "...", "...", "..."], "correctAnswerIndex": 0, "explanation": "...", "timestampSeconds": 0 }],
+  "generation": { "model": "...", "promptVersion": "..." }
 }
 ```
 
-Schema thực tế sẽ được validate ở backend trước khi lưu/trả về frontend.
+The actual schema must specify required/optional fields, max sizes, enum values, validation errors, and migration rules. `verificationStatus` is assigned by a system or human verification process, not by model self-confidence. The client must not assume a timestamp exists merely because a card or section exists.
 
----
+## 5. Scope by priority
 
-## 4. Scope MVP
+### MVP baseline
 
-### Must-have
+| Capability | User outcome | Acceptance criterion |
+|---|---|---|
+| Supported YouTube URL intake | Learner knows immediately whether a video can be processed. | Canonical ID validation and actionable errors for unsupported, unavailable, or over-limit videos. |
+| Durable analysis job | Learner can leave and return without losing work. | Idempotent creation, queued/processing/completed/failed/cancelled states, bounded retries, and recoverable failures. |
+| Evidence-linked notes | Learner can verify material against the source. | Every returned timestamp opens the original video; uncertainty is visible. |
+| Flashcards and quiz | Learner practises recall. | Answers are graded, explanations shown, and completion recorded. |
+| History and feedback | Learner returns; team can learn from failure. | Packages reopen without regeneration; helpful/not-helpful and report-error feedback are stored. |
+| Authentication and entitlements | Usage is attributable and costs are protected. | Quota check is atomic before job reservation; rate limits protect account and IP. |
+| Buyer ownership and assignment | A buyer can organise and give a package to a defined learner cohort. | Buyer attests content rights; package access is permissioned; assignment link and completion state work end to end. |
+| Outcome dashboard | Buyer can judge whether the package was used. | Shows assigned, started, completed, quiz score, and learner feedback without inventing YouTube-derived metrics. |
 
-| STT | Chức năng | Mô tả | Tiêu chí hoàn thành |
+### Learner retention system
+
+1. **Spaced-repetition review:** known/again state, next review date, adaptive review queue, streak, reminder preferences, and mastery history.
+2. **Exam mode:** practice sets filtered by topic/difficulty, weak-area results, source-linked explanations, retakes, and delayed recall.
+3. **Learning paths:** playlists and video libraries become ordered modules with prerequisites, progress, deadlines, and completion rules.
+4. **Ask Video/Course:** source-grounded answers with timestamps, citations, uncertainty handling, usage limits, and teacher controls.
+
+All four belong to the target product. Evidence determines implementation order, entitlement, and packaging—not whether profitable retention capabilities are permanently excluded.
+
+### Buyer and commercial platform
+
+- Multi-tenant organisations, workspaces, roles, audit log, content ownership, approval workflow, reusable templates, branding, cohort management, assignments, deadlines, and learner invitations.
+- Editable AI output with version history, human approval, regeneration controls, quality reports, duplicate detection, and reusable question banks.
+- Outcome dashboards for activation, completion, attempts, topic mastery, delayed recall, cohort comparison, and exportable reports.
+- Self-serve trial, subscription billing, invoicing, credits/overages, coupons, proration, tax-ready records, dunning, cancellation, refund, entitlement, and revenue analytics.
+- Integrations through API/webhooks plus evidence-led LMS/SSO connections for higher-value accounts.
+- In-app onboarding, sample course, templates, lifecycle email, notifications, referral/partner attribution, support tooling, and upgrade surfaces.
+- Markdown/PDF/Word and controlled sharing/export where they improve buyer workflow or close commercial deals.
+
+### Supported-source boundary
+
+Private and unlisted YouTube videos remain unsupported while the provider does not support them. The full product adds compliant buyer-provided transcripts, documents, audio, or video through supported input paths, subject to rights attestation, storage policy, and processing cost. It never circumvents YouTube access controls.
+
+Native mobile remains evidence-led because it adds a separate distribution and maintenance surface; responsive/PWA learner use is required first.
+
+## 6. Monetisation hypotheses
+
+Learners access assigned material without paying. Revenue initially comes from a paid concierge pilot and then from the buyer account. No plan promises unlimited generation; entitlements use credits or processed video minutes.
+
+| Offer | Outcome sold | Entitlements to test | Guardrail |
 |---|---|---|---|
-| 1 | Nhận link YouTube | Kiểm tra URL, chuẩn hoá video ID và chỉ nhận video công khai. | Báo lỗi rõ ràng với link sai/không hỗ trợ. |
-| 2 | Xử lý bằng Gemini | Backend gọi Gemini với YouTube URL và prompt/schema chuẩn. | Có trạng thái `queued`, `processing`, `completed`, `failed`. |
-| 3 | Tóm tắt có cấu trúc | Tóm tắt theo phần, bullet points và timestamp khi Gemini trả được. | Người dùng đọc được ý chính không cần xem lại toàn bộ video. |
-| 4 | Flashcard | Sinh 10 cặp hỏi–đáp từ nội dung video. | Có thể lật thẻ và xem đáp án. |
-| 5 | Quiz | Sinh 5 câu trắc nghiệm, đáp án và giải thích. | Người dùng làm bài, xem điểm và đáp án. |
-| 6 | Trang kết quả | Tabs/sections rõ ràng cho summary, flashcard, quiz. | Copy được nội dung; có link quay lại video gốc. |
-| 7 | Đăng nhập | Google sign-in hoặc email/password. | Dữ liệu gắn với người dùng. |
-| 8 | Lịch sử | Xem và mở lại các learning package đã tạo. | Không gọi Gemini lại khi mở lại kết quả. |
-| 9 | Quota & chống lạm dụng | Free: 3 video/tháng/người dùng; rate limit theo user/IP. | Vượt quota được chặn trước khi gọi Gemini. |
+| Paid concierge pilot | Prove buyer ROI before productising administration | Team manually converts an agreed small library and supports one learner cohort | Fixed scope, upfront payment or signed purchase commitment |
+| Creator | Repeatedly convert owned lessons and measure completion | Monthly processed-minute allowance, assignments, learner completion and quiz signals | Server-side entitlement and overage stop |
+| Training team | Operate several courses or instructors | Seats, shared library, roles, cohorts, aggregated outcomes | Annual or monthly contract with explicit usage ceiling |
+| Business/Enterprise | Standardise training and prove outcomes across teams | SSO, advanced roles, audit, retention controls, API/integrations, priority support | Annual contract, minimum commitment, scoped SLA |
+| Credit add-on | Process unusually expensive usage | Additional video minutes, regenerate, later playlist analysis | Price exceeds p95 marginal cost plus target contribution margin |
+| Individual Pro (later) | Retain material from public learning videos | Review queue, exam mode, personal history | Launch only after separate B2C CAC and retention validation |
 
-### Should-have (sau khi MVP lõi chạy ổn)
+Commercial validation starts before self-serve billing. Pricing is not approved until measured marginal cost, payment fees, support cost, sales/onboarding effort, cache-hit assumptions, and target contribution margin are documented. Export alone is not a paid value proposition.
 
-| STT | Chức năng | Ghi chú |
+Packaging follows a land-and-expand model: paid pilot → Creator/Training Team subscription → more processed minutes, cohorts, seats, courses, integrations, or enterprise controls. Discounts must be justified by lower churn, annual prepayment, lower service cost, or strategic distribution.
+
+## 7. Trust, privacy, and content policy requirements
+
+Before public beta, publish Terms of Service, Privacy Policy, acceptable-use rules, AI limitation notice, retention/deletion policy, and a content complaint process. Confirm the intended use of YouTube URLs and generated derivatives against applicable platform terms and counsel appropriate to target markets.
+
+Product requirements:
+
+- Users can delete their account and generated packages; retention windows are documented and enforced.
+- Feedback/reporting does not leak package contents to unrelated users.
+- Cache ownership, reuse consent, invalidation, and deletion behaviour are defined before cache sharing is enabled.
+- No API key, OAuth token, or personally identifying information appears in client payloads, logs, analytics, or error messages.
+
+## 8. Metrics and decision definitions
+
+| Metric | Definition | Why it matters |
 |---|---|---|
-| 10 | Copy nhanh | Copy từng section hoặc toàn bộ notes/flashcards. |
-| 11 | Xuất Markdown/PDF | Làm Markdown trước, PDF sau; Word chưa ưu tiên. |
-| 12 | Theo dõi tiến độ flashcard | Đánh dấu đã thuộc/chưa thuộc, lọc để ôn lại. |
-| 13 | Tuỳ chỉnh đầu ra | Chọn ngôn ngữ, độ chi tiết, số flashcard/quiz trong giới hạn quota. |
+| Analysis success rate | Completed valid packages / accepted jobs, segmented by video type | Core reliability |
+| Evidence accuracy | Human-audited factual and timestamp correctness | Product trust |
+| Activation | User completes first quiz or marks first card, not merely creates a job | First realised value |
+| D7 learning retention | Activated users who complete another review/study action on day 7 | Repeat value |
+| Cost per completed package | AI + infrastructure cost / completed package | Unit economics |
+| Gross margin by offer | Revenue less directly attributable costs | Monetisation viability |
+| Helpful-rate / report rate | Feedback on opened packages | Quality and support signal |
+| Qualified lead to paid pilot | Buyers paying or signing a purchase commitment / qualified leads | Willingness to pay |
+| CAC and CAC payback | Acquisition cost and months of contribution needed to recover it | Scalable distribution |
+| Contribution LTV/CAC | Contribution-value lifetime / acquisition cost | Sustainable growth |
+| Paid retention and expansion | Buyers retained and increasing seats/usage | Recurring business value |
+| Learning gain | Change between pre-test and delayed recall assessment | Outcome quality |
 
-### Out of scope ở MVP
-
-- Mobile app native.
-- Chat hỏi đáp riêng với video.
-- Workspace/team collaboration.
-- Thanh toán và gói Pro hoàn chỉnh.
-- Hỗ trợ video private/unlisted hoặc tải video lên.
-- Multi-language UI phức tạp (AI vẫn có thể xử lý nội dung Việt/Anh).
-
----
-
-## 5. Kiến trúc triển khai ban đầu
-
-| Thành phần | Lựa chọn | Vai trò |
-|---|---|---|
-| Frontend | React + Vite | Form nhập URL, tiến trình và giao diện học liệu. |
-| Backend | Spring Boot | Xác thực, quota, job, gọi Gemini, validate/lưu kết quả. |
-| AI | Gemini API | Hiểu trực tiếp video YouTube và tạo knowledge package. |
-| Database | PostgreSQL | Người dùng, quota, jobs và learning packages. |
-| Deploy frontend | Vercel Hobby | Triển khai web thử nghiệm nhanh. |
-| Deploy backend | Google Cloud Run | Scale-to-zero, kiểm soát chi phí giai đoạn đầu. |
-
-## 6. Chỉ số cần đo từ ngày đầu
-
-- Tỷ lệ job hoàn thành/thất bại theo loại video.
-- Thời gian từ lúc gửi URL đến lúc có kết quả.
-- Số learning package tạo trên mỗi người dùng.
-- Tỷ lệ người dùng quay lại sau 7 ngày.
-- Chi phí/quota Gemini cho mỗi video thành công.
-- Tỷ lệ người dùng copy, làm quiz hoặc mở lại flashcard.
+Target thresholds are set only after the feasibility baseline; each threshold, owner, measurement source, and decision consequence belongs in the delivery plan.

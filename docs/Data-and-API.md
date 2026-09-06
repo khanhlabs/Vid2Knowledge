@@ -1,0 +1,189 @@
+# Vid2Knowledge — Data model, API và event contract
+
+## 1. Quy ước dữ liệu
+
+- Primary key UUIDv7; external slug tách khỏi ID.
+- `created_at`, `updated_at` là UTC `timestamptz`; soft delete chỉ nơi cần audit/restore.
+- Mọi tenant table có `organization_id NOT NULL` và index bắt đầu bằng `organization_id` cho access path phổ biến.
+- JSONB dùng cho immutable AI payload/config/snapshot; quan hệ cần query, permission, billing hoặc constraint phải normalize.
+- Money là `amount_vnd BIGINT`; percentage/rate dùng numeric có scale rõ.
+- PII có data classification và retention; email normalized nhưng hiển thị giữ bản gốc khi cần.
+
+## 2. Nhóm bảng cốt lõi
+
+### Identity và tenant
+
+- `users(id, auth_subject, email, display_name, locale, status, last_login_at)`.
+- `organizations(id, name, slug, status, timezone, settings_json)`.
+- `memberships(organization_id, user_id, role, status, joined_at)`; unique org/user.
+- `invitations(id, organization_id, email, role, token_hash, expires_at, accepted_at, revoked_at)`.
+- `audit_logs(id, organization_id, actor_user_id, action, resource_type, resource_id, metadata_json, correlation_id, created_at)`; append-only.
+
+### Catalog và content
+
+- `courses`, `course_modules`, `lessons`; có position và publication state.
+- `sources(id, organization_id, type, canonical_uri, external_id, content_hash, rights_attestation_id, metadata_json)`.
+- `rights_attestations(id, organization_id, source_id, attested_by, basis, terms_version, attested_at)`.
+- `analysis_jobs(id, organization_id, source_id, profile_id, state, attempt, idempotency_key, provider_config_id, reserved_usage_id, error_code, version, timestamps...)`.
+- `generation_runs(id, job_id, provider, model, prompt_version, schema_version, request_fingerprint, usage_json, actual_cost, shadow_cost, latency_ms, output_json, created_at)`; immutable.
+- `learning_packages(id, organization_id, lesson_id, current_revision_id, publication_state)`.
+- `package_revisions(id, package_id, revision_no, based_on_generation_id, content_json, edited_by, verification_state, created_at)`; immutable revision.
+- `templates`, `question_bank_items`, `quality_issues`, `review_decisions`.
+
+### Learning và assignment
+
+- `cohorts`, `cohort_memberships`, `assignments`, `assignment_targets`.
+- `learner_progress(organization_id, user_id, assignment_id, state, started_at, completed_at, progress_percent, version)`.
+- `assessment_snapshots`, `attempts`, `attempt_answers`; snapshot giữ nguyên câu hỏi/option tại thời điểm làm.
+- `flashcard_states`, `flashcard_reviews`; review append-only, state là projection FSRS.
+- `mastery_states(organization_id, user_id, topic_key, score, evidence_count, updated_at)`.
+- `qa_threads`, `qa_messages`, `qa_citations`, `embedding_chunks` với pgvector và revision reference.
+- `learner_feedback`, `content_reports`.
+
+### Billing và operations
+
+- `products`, `plan_versions`, `prices`, `subscriptions`, `subscription_items`.
+- `invoices`, `invoice_lines`, `payments`, `refunds`, `billing_adjustments`.
+- `entitlements`, `usage_reservations`, `usage_ledger`, `cost_ledger`; ledger append-only.
+- `payment_webhook_inbox`, `outbox_events`, `idempotency_records`.
+- `notification_jobs`, `notification_deliveries`, `notification_preferences`.
+- `business_events`, `daily_organization_metrics`, `daily_course_metrics`.
+
+Chi tiết column/constraint của từng bảng phải được ghi trong migration design trước milestone liên quan. Không tạo toàn bộ bảng ở migration đầu tiên.
+
+## 3. State machines
+
+### Analysis job
+
+```text
+QUEUED → PROCESSING → VALIDATING → COMPLETED
+   └───────────────→ RETRY_SCHEDULED → PROCESSING
+   └───────────────→ FAILED
+QUEUED/RETRY_SCHEDULED → CANCELLED
+```
+
+Terminal state không quay lại; retry tạo attempt/run mới. Job completed luôn có valid package revision và committed usage.
+
+### Package
+
+```text
+DRAFT → GENERATED → IN_REVIEW → APPROVED → PUBLISHED → ARCHIVED
+                    └────────→ REJECTED → DRAFT
+```
+
+### Usage
+
+```text
+RESERVED → COMMITTED
+         → RELEASED
+         → EXPIRED
+```
+
+### Payment
+
+```text
+PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
+       ↘ EXPIRED/CANCELLED/FAILED
+```
+
+## 4. Public API v1
+
+### Identity/organization
+
+- `GET /api/v1/me`
+- `GET/POST /api/v1/organizations`
+- `GET/PATCH /api/v1/organizations/{orgId}`
+- `GET/POST /api/v1/organizations/{orgId}/members`
+- `PATCH/DELETE /api/v1/organizations/{orgId}/members/{userId}`
+- `POST /api/v1/organizations/{orgId}/invitations`
+- `POST /api/v1/invitations/{token}/accept`
+
+### Catalog/authoring
+
+- CRUD `/organizations/{orgId}/courses`, modules và lessons.
+- `POST .../sources` validate source và rights attestation.
+- `POST .../analyses` với `Idempotency-Key`; trả `202` + job URI.
+- `GET/POST .../analysis-jobs/{jobId}` cho status/cancel/retry hợp lệ.
+- `GET/PATCH .../packages/{packageId}/draft` dùng ETag/If-Match.
+- `POST .../packages/{packageId}/submit-review|approve|reject|publish|archive`.
+- CRUD templates và question-bank items.
+
+### Cohort/learner
+
+- CRUD cohorts, learner invitations và assignments.
+- `GET /api/v1/learner/assignments`
+- `GET /api/v1/learner/assignments/{id}`
+- `POST .../start`, `POST .../progress`, `POST .../complete` idempotent.
+- `POST .../attempts`, `PUT .../answers/{questionId}`, `POST .../submit`.
+- `GET /api/v1/learner/reviews/due`, `POST .../flashcards/{id}/reviews`.
+- `POST .../qa/messages`; response có citations và usage.
+- `POST .../feedback` và `POST .../reports`.
+
+### Billing
+
+- `GET /api/v1/billing/plans`, `GET .../usage`, `GET .../invoices`.
+- `POST .../checkout-sessions` tạo payOS link từ server-side price.
+- `POST .../subscriptions/{id}/cancel` và purchase top-up.
+- `POST /api/v1/webhooks/payos` là public webhook riêng, không dùng user auth nhưng bắt buộc signature/inbox dedupe.
+
+### Analytics/export/integration
+
+- `GET .../analytics/courses|cohorts|costs` với filter có limit.
+- `POST .../exports`, `GET .../exports/{id}` trả presigned URL khi ready.
+- CRUD API keys/webhooks cho plan cho phép.
+
+## 5. Internal API
+
+- `POST /internal/tasks/analysis/{jobId}`.
+- `POST /internal/tasks/outbox/dispatch`.
+- `POST /internal/tasks/notifications/dispatch`.
+- `POST /internal/tasks/billing/reconcile`.
+- `POST /internal/tasks/reviews/schedule`.
+- `POST /internal/tasks/retention/cleanup`.
+
+Chỉ Cloud Tasks/Scheduler service account được gọi; kiểm tra OIDC audience/issuer/service-account email. Handler luôn idempotent và trả 2xx cho event đã xử lý.
+
+## 6. HTTP contract
+
+- Cursor pagination, không offset cho bảng tăng liên tục.
+- Filter/sort allowlist; page size có hard maximum.
+- `ETag/If-Match` cho editable resource.
+- `Idempotency-Key` bắt buộc cho tạo analysis, checkout, publish, submit attempt và export.
+- Correlation ID trả response và propagate đến task/provider.
+- OpenAPI là contract; generated TypeScript client hoặc schema-derived types để tránh DTO drift.
+- Version API bằng URL cho breaking contract; package/schema/model version độc lập.
+
+## 7. Domain events tối thiểu
+
+- `OrganizationCreated`, `MemberInvited`, `InvitationAccepted`.
+- `SourceRegistered`, `AnalysisRequested`, `AnalysisCompleted`, `AnalysisFailed`.
+- `PackageApproved`, `PackagePublished`, `QualityIssueReported`.
+- `AssignmentPublished`, `LearnerStarted`, `AssessmentSubmitted`, `AssignmentCompleted`, `FlashcardReviewed`.
+- `PaymentReceived`, `PaymentRefunded`, `SubscriptionActivated`, `SubscriptionPastDue`, `EntitlementChanged`.
+- `UsageReserved`, `UsageCommitted`, `UsageReleased`, `BudgetThresholdReached`.
+
+Event envelope: `eventId`, `eventType`, `eventVersion`, `occurredAt`, `organizationId`, `actorId`, `aggregateType`, `aggregateId`, `correlationId`, `causationId`, `payload`. Consumer phải hỗ trợ duplicate.
+
+## 8. Product analytics events
+
+- `signup_completed`, `organization_created`, `source_submitted`.
+- `analysis_completed|failed`, `package_edited|approved|published`.
+- `learner_invited|activated`, `assignment_started|completed`.
+- `quiz_started|submitted`, `flashcard_reviewed`, `delayed_review_completed`.
+- `qa_asked`, `citation_opened`, `content_reported`.
+- `pricing_viewed`, `checkout_started`, `payment_completed`, `plan_upgraded|downgraded|cancelled`.
+
+Mỗi event có schema, owner, purpose, allowed properties, retention và metric consumers. Không gửi PII hoặc raw learning content.
+
+## 9. Test matrix
+
+- Unit: domain transition, quota, money, FSRS, prompt/schema validator.
+- Repository: Testcontainers + real Flyway/PostgreSQL/pgvector.
+- API: auth/role/tenant negative cases, idempotency, ETag, pagination và Problem Details.
+- Contract: WireMock cho Gemini/payOS/Resend; fixture cho signature và malformed response.
+- Workflow: Awaitility cho outbox/task/job; duplicate/out-of-order webhook; retry/circuit breaker.
+- Frontend: MSW happy/error/loading/empty/permission states; accessibility axe.
+- E2E Playwright: creator publish, learner complete, payment activate, tenant isolation.
+- Performance: k6 cho API read, job creation, webhook burst; worker soak test theo DB connection/provider limit.
+- Security: dependency/container scan, secret scan, IDOR/tenant suite, upload validation, prompt injection và webhook replay.
+- Recovery: backup restore, migration rollback compatibility, provider outage và task backlog drill.

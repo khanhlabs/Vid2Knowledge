@@ -1,247 +1,364 @@
-# Vid2Knowledge — Kế hoạch triển khai
+# Vid2Knowledge — Kế hoạch triển khai chi tiết
 
-## 1. Mục tiêu triển khai
+## 1. Quyết định đã chốt
 
-Xác minh nhanh liệu Gemini có thể nhận trực tiếp YouTube URL công khai và tạo học liệu đủ tốt cho người tự học hay không. Nếu khả thi, phát triển thành MVP có người dùng thật với chi phí vận hành thấp.
+- Thị trường đầu tiên: Việt Nam.
+- Buyer chính: đơn vị đào tạo/cohort academy nhỏ tại Việt Nam có 2–20 giảng viên, học viên trả phí và thư viện video hợp pháp; creator độc lập là phân khúc thứ hai.
+- User: học viên của buyer; learner không phải người trả tiền chính ở giai đoạn đầu.
+- Mô hình: B2B2C, land-and-expand từ paid pilot lên Creator, Training Team và Enterprise.
+- Kiến trúc: modular monolith; không tách microservice khi chưa có bằng chứng tải hoặc ownership bắt buộc.
+- Frontend: React 19 + TypeScript + Vite 8 trên Cloudflare Pages.
+- Backend: Java 25 + Spring Boot 4.1 trên Google Cloud Run tại Singapore.
+- Job nền: Google Cloud Tasks gọi một Cloud Run worker riêng; Cloud Scheduler phục hồi outbox và tác vụ định kỳ.
+- Database/Auth: Supabase PostgreSQL + Supabase Auth tại Singapore.
+- Object storage: Cloudflare R2 cho export và nguồn upload hợp pháp; không tải hoặc lưu video YouTube.
+- Thanh toán Việt Nam: payOS/VietQR, webhook ký HMAC, subscription được mô hình hóa nội bộ; ưu tiên trả trước theo năm.
+- AI: Gemini sau một `AiProvider` port, model/prompt/schema được version hóa; không phụ thuộc vào mức giá preview bằng 0.
 
-Phạm vi sản phẩm, cấu trúc dữ liệu đầu ra và các giới hạn kỹ thuật được mô tả tại [Features.md](./Features.md).
+Chi tiết kiến trúc nằm tại `Technical-Architecture.md`; data model, API và event contract nằm tại `Data-and-API.md`.
 
----
+## 2. Nguyên tắc thực thi
 
-## 2. Nguyên tắc thực hiện
+1. Mỗi phase phải có migration, API contract, telemetry, test, runbook và rollback tương ứng.
+2. Mọi bảng nghiệp vụ đa tenant có `organization_id`; mọi truy vấn và command phải qua authorization service.
+3. Mọi side effect quan trọng phải idempotent: tạo job, dispatch task, Gemini call, webhook thanh toán, gửi email và cấp entitlement.
+4. Không dùng frontend hoặc redirect URL làm nguồn sự thật cho payment, entitlement, quiz answer hay quota.
+5. Không log token, nội dung riêng tư, prompt chứa dữ liệu người dùng hoặc payload thanh toán đầy đủ.
+6. Tính năng chỉ được phát hành sau khi có metric, cost attribution và feature flag.
+7. “Xây đầy đủ” là target scope; thứ tự vẫn dựa trên dependency, độ an toàn và khả năng tạo doanh thu.
 
-- Xây dựng theo lát cắt dọc: một luồng hoàn chỉnh từ dán link đến nhận kết quả, rồi mới mở rộng.
-- Không xây thanh toán, PDF/Word hoặc tính năng phức tạp trước khi xác minh chất lượng học liệu.
-- Không để Gemini API key ở frontend.
-- Mỗi lần gọi Gemini phải được ghi log trạng thái, thời gian và lỗi để đánh giá feasibility và chi phí.
-- Ưu tiên output có schema JSON ổn định thay vì văn bản Markdown tự do.
+## 3. Phase 0 — Paid demand và profit baseline
 
----
+### 3.1 Buyer research
 
-## 3. Phase 0 — Chuẩn bị dự án
+- Lập danh sách 100 đơn vị đào tạo/cohort academy tại Việt Nam đúng ICP; xác định founder/academic manager/operations manager là economic buyer.
+- Thực hiện tối thiểu 20 discovery interview; ghi workflow hiện tại, giờ công soạn bài, số video/phút nguồn, số cohort/learner, completion, churn, công cụ thay thế, quyền nội dung, ngân sách và buying process.
+- Tách dữ liệu primary training buyer khỏi creator secondary; không trộn kết quả hai segment.
+- Lập competitor/substitute matrix và win/loss log; kiểm tra trực tiếp vì sao buyer không dùng ChatGPT, LMS hoặc nhân sự soạn bài.
 
-### Mục tiêu
+### 3.2 Paid pilot sales
 
-Chuẩn bị môi trường local và quy ước kỹ thuật để có thể phát triển, kiểm thử và bảo mật cấu hình.
+- Dùng chính video của prospect tạo demo có watermark; không xây dashboard riêng cho demo.
+- Đề xuất pilot 5–15 triệu VNĐ với scope 300–600 phút, một cohort, human QA và outcome report.
+- Proposal ghi success metric, content rights, dữ liệu xử lý, support boundary, thời hạn và điều kiện chuyển recurring plan.
+- Thu tiền/cam kết mua trước khi coi pilot là valid; lời khen, signup và survey intent không thay thế payment evidence.
 
-### Công việc
+### 3.3 Profit model
 
-1. Xác nhận frontend chạy với React + Vite và backend chạy với Spring Boot.
-2. Thiết lập biến môi trường local:
-   - `GEMINI_API_KEY`;
-   - cấu hình PostgreSQL;
-   - URL frontend/backend cho CORS.
-3. Thêm file `.env.example` (không chứa secret) và cập nhật `.gitignore` cho file môi trường thực tế.
-4. Chuẩn hoá cấu trúc backend theo các lớp: `controller`, `service`, `client`, `domain`, `repository`, `dto`.
-5. Thống nhất format lỗi API và cấu hình logging không làm lộ API key.
+- Tạo spreadsheet P&L theo account cho base/adverse/high-usage: revenue, payment, AI/shadow AI, infra, storage, email, founder onboarding/support time, refund, tax reserve và CAC.
+- Gắn mọi entitlement với processed minutes, active learners, seats/cohorts và cost driver.
+- Chốt provisional price/allowance từ `Business-Model.md`; ghi giả định và sensitivity khi provider cost tăng 2×, 5× và 10×.
 
-### Đầu ra
+### Gate
 
-- Frontend và backend chạy local độc lập.
-- API key được đọc từ biến môi trường, không xuất hiện trong Git hoặc frontend bundle.
+- Có ít nhất 3 paid pilot hoặc purchase commitment đủ tin cậy từ primary buyer.
+- Ít nhất 2 buyer cung cấp cohort và source hợp pháp để chạy pilot.
+- Adverse-case contribution margin có đường đạt ≥ 60% sau onboarding.
+- Không đạt thì thay buyer/problem/offer/pricing; không dùng thêm code để che demand yếu.
 
-### Tiêu chí hoàn thành
+## 4. Phase 1 — Chuẩn hóa nền móng
 
-- Có endpoint health check trả về thành công.
-- Một lập trình viên mới có thể chạy local theo hướng dẫn mà không cần sửa mã nguồn.
+### 4.1 Repository và local development
 
----
+- Chuyển frontend sang TypeScript strict; thêm ESLint, Prettier và import-boundary rules.
+- Giữ monorepo hiện tại; chuẩn hóa `frontend`, `backend`, `infra`, `docs` và thêm ADR.
+- Local dùng Docker Compose cho PostgreSQL; thêm Mailpit và LocalStack chỉ khi có test cần thiết. Cloud Tasks được giả lập bằng adapter synchronous/local queue, không cố mô phỏng toàn bộ GCP.
+- Tạo `.env.example`; rotate mọi secret từng xuất hiện trong file `.env`; xác nhận `.env` bị ignore.
+- Tạo Makefile hoặc PowerShell task wrapper cho `dev`, `test`, `lint`, `build`, `db-migrate`, `smoke`.
 
-## 4. Phase 1 — Proof of feasibility với Gemini
+### 4.2 Backend baseline
 
-### Mục tiêu
+- Dependencies: Spring MVC, Validation, Data JPA, Security Resource Server, OAuth2 Client nếu cần admin login, Actuator, Flyway, PostgreSQL driver, Resilience4j, springdoc-openapi, Micrometer/OpenTelemetry.
+- Test: JUnit 5, AssertJ, Testcontainers PostgreSQL, WireMock, Awaitility, Spring Security Test, ArchUnit.
+- Package theo bounded context: `identity`, `organization`, `catalog`, `analysis`, `learning`, `assignment`, `billing`, `usage`, `notification`, `analytics`, `audit`, `common`.
+- Mỗi context có `api`, `application`, `domain`, `infrastructure`; cấm controller gọi repository trực tiếp.
+- Chuẩn lỗi RFC 9457 Problem Details với `type`, `title`, `status`, `code`, `detail`, `correlationId`, `fieldErrors`.
+- ID dùng UUIDv7; timestamp UTC `timestamptz`; amount dùng integer VND; không dùng floating point cho tiền.
 
-Chứng minh Gemini hiểu được YouTube URL và có thể trả về learning package đúng schema.
+### 4.3 Frontend baseline
 
-### Công việc backend
+- React Router cho routing; TanStack Query cho server state; React Hook Form + Zod cho form/validation; shadcn/ui + Radix primitives + Tailwind CSS cho accessible UI; i18next với tiếng Việt mặc định và namespace sẵn cho tiếng Anh.
+- MSW cho API mocks; Vitest + Testing Library cho component; Playwright cho E2E.
+- Không thêm Redux khi chưa có client-state phức tạp; auth, organization và feature flags đi qua providers nhỏ.
+- Route groups: public/auth, learner, creator/admin, billing và internal support.
 
-1. Tạo `POST /api/v1/analysis/preview` chỉ dùng cho môi trường phát triển.
-2. Nhận và validate YouTube URL:
-   - chấp nhận dạng `youtube.com/watch`, `youtu.be`, `youtube.com/shorts`;
-   - chuẩn hoá thành canonical URL và video ID;
-   - từ chối URL không phải YouTube.
-3. Tạo Gemini client ở backend:
-   - truyền trực tiếp canonical YouTube URL;
-   - dùng model Gemini phù hợp tại thời điểm triển khai;
-   - đặt timeout, retry có giới hạn và phân loại lỗi.
-4. Viết prompt yêu cầu Gemini trả JSON theo schema trong `Features.md`:
-   - tóm tắt theo sections;
-   - key takeaways;
-   - 10 flashcards;
-   - 5 quiz questions có đáp án/giải thích;
-   - timestamp nếu có đủ căn cứ.
-5. Parse và validate JSON trước khi trả về client.
-6. Trả lỗi dễ hiểu cho các trường hợp video private/unavailable, Gemini timeout, quota exceeded hoặc output không hợp lệ.
-7. Ghi log correlation ID, thời gian Gemini call, mã lỗi, model và mức dùng quota/token cho mỗi lần gọi.
+### 4.4 CI và supply-chain
 
-### Kiểm thử API bằng Postman
+- GitHub Actions: frontend lint/typecheck/unit/build; backend format/test/integration/package; migration validation; Playwright smoke; Docker build; Trivy image scan; dependency review.
+- Dùng GitHub OIDC để deploy GCP; không lưu service-account JSON trong GitHub secrets.
+- Dependabot/Renovate theo lịch; tạo SBOM CycloneDX cho backend và frontend production build.
 
-1. Gọi `POST /api/v1/analysis/preview` với các YouTube URL đại diện.
-2. Xác minh URL hợp lệ trả learning package đúng schema.
-3. Xác minh URL không hợp lệ, video private/unavailable, Gemini timeout, quota exceeded và output không hợp lệ trả lỗi chuẩn, dễ hiểu.
-4. Xác minh API key và dữ liệu nhạy cảm không xuất hiện trong response hoặc log.
+### Definition of done
 
-### Bộ kiểm thử feasibility
+- Một lệnh chạy được local stack; CI xanh từ clean checkout.
+- Testcontainers xác nhận Flyway chạy từ database trống.
+- Không còn secret trong Git history hiện hành hoặc bundle.
+- ADR-001 chốt modular monolith; ADR-002 chốt intentional multi-provider low-cost architecture.
 
-Chuẩn bị 15–20 video công khai gồm:
+## 5. Phase 2 — Feasibility, AI quality và cost engine
 
-- bài giảng tiếng Việt;
-- bài giảng tiếng Anh;
-- podcast dài;
-- video ngắn;
-- video có slide/màn hình minh hoạ;
-- video ít lời thoại;
-- video không có transcript công khai.
+### 5.1 Provider abstraction
 
-Ghi nhận cho từng video: thành công/thất bại, thời gian xử lý, lỗi, chất lượng summary, độ đúng flashcard/quiz và mức dùng quota/token.
+- Định nghĩa `AiProvider.analyze(SourceDescriptor, OutputProfile, GenerationContext)` và `AiProvider.answer(...)`.
+- `GeminiAiProvider` là adapter đầu tiên; HTTP client có connect/read timeout, retry chỉ cho lỗi transient, exponential backoff + jitter và circuit breaker.
+- Không retry lỗi validation, unsupported source, safety rejection hoặc quota cứng.
+- Lưu `provider`, `model`, `modelVersion`, `promptVersion`, `schemaVersion`, usage tokens, latency, retry count và estimated/shadow cost.
 
-Gọi lặp một số video đại diện để đánh giá độ ổn định của schema, số lượng flashcard/quiz, timestamp và tỷ lệ lỗi.
+### 5.2 Pipeline tạo học liệu
 
-### Tiêu chí hoàn thành
+1. Validate và canonicalize URL/video ID.
+2. Reserve quota theo organization trong transaction.
+3. Tạo `analysis_job` và outbox event.
+4. Cloud Tasks gọi worker bằng OIDC; worker claim job bằng optimistic locking.
+5. Gemini tạo source map có section, factual claim và timestamp.
+6. Từ source map sinh summary, flashcard và quiz; ưu tiên two-pass nếu benchmark chứng minh chất lượng tăng đủ so với chi phí.
+7. Validate JSON Schema và domain rules: số option, index đáp án, duplicate, độ dài, timestamp range, empty content.
+8. Cho phép tối đa một repair call; sau đó fail có mã lỗi, không loop vô hạn.
+9. Persist immutable generation và version editable riêng.
+10. Commit usage ledger; release phần quota không dùng; phát event hoàn thành.
 
-- Ít nhất 80% bộ video test sinh được learning package hợp lệ.
-- Các lần gọi lặp lại vẫn trả về output đúng schema, với đủ flashcard và quiz theo cấu hình prompt.
-- Nội dung đủ hữu ích khi đối chiếu thủ công với video gốc.
-- Có số liệu về thời gian xử lý và mức dùng Gemini để quyết định quota miễn phí.
+### 5.3 Benchmark
 
----
+- Ít nhất 50 video phân tầng theo tiếng Việt/Anh, độ dài, lecture/podcast/screen demo/slide, transcript availability và chất lượng âm thanh.
+- So sánh static-low, static-high và agentic processing nếu model hỗ trợ.
+- Đo schema success, factual accuracy, timestamp accuracy, serious-defect rate, p50/p95 latency, actual cost, shadow cost và repeat variance.
+- 10–15 nội dung có pre-test, immediate post-test và delayed recall 3–7 ngày.
+- Kết quả ghi vào dataset CSV/JSON có version; `feasibility-result.md` chỉ là report và decision record.
 
-## 5. Phase 2 — Luồng MVP hoàn chỉnh
+### Gate
 
-### Mục tiêu
+- Valid package ≥ 95% trên nhóm video được hỗ trợ.
+- Serious factual/timestamp defect ≤ 2% item được audit.
+- Quiz không có đáp án sai/ambiguous ≥ 95% item.
+- p95 job hoàn thành trong giới hạn công bố.
+- Contribution margin dương trong adverse shadow-price model.
+- Không đạt thì thu hẹp input/profile hoặc đổi pipeline trước khi phát triển UI lớn.
 
-Biến proof of feasibility thành luồng sản phẩm sử dụng được từ dán link đến học lại.
+## 6. Phase 3 — Identity, organization và tenant security
 
-### Thiết kế dữ liệu
+### 6.1 Authentication
 
-Tạo migration Flyway và các bảng tối thiểu:
+- Supabase Auth: Google OAuth cho creator; email magic link cho learner; password chỉ bật nếu có nhu cầu bắt buộc.
+- Frontend giữ session theo SDK chính thức; backend verify JWT qua JWKS, kiểm tra issuer, audience, expiry và clock skew.
+- User local được provision idempotently từ `sub`; không tin email/role gửi từ client.
 
-| Bảng | Nội dung chính |
-|---|---|
-| `users` | Tài khoản và thông tin xác thực cần thiết. |
-| `video_analyses` | YouTube video ID, canonical URL, trạng thái xử lý, lỗi, thời điểm tạo. |
-| `learning_packages` | JSON kết quả đã validate, liên kết với analysis và user. |
-| `usage_records` | Lượt xử lý theo user/tháng, dùng để áp quota. |
+### 6.2 Authorization
 
-### Công việc backend
+- Roles: `OWNER`, `ADMIN`, `INSTRUCTOR`, `REVIEWER`, `LEARNER`, `SUPPORT_READONLY`.
+- Permission service kiểm tra membership + resource organization; controller dùng method authorization.
+- Composite FK hoặc constraint đảm bảo child resource cùng tenant với parent.
+- Support impersonation không triển khai; support access dùng explicit grant, read-only mặc định và audit bắt buộc.
 
-1. Tạo migration Flyway và persistence cho các bảng trên.
-2. Thêm đăng nhập Google trước; email/password chỉ thêm nếu thực sự cần.
-3. Thay endpoint preview bằng API chính:
-   - `POST /api/v1/analyses` tạo job;
-   - `GET /api/v1/analyses/{id}` lấy trạng thái/kết quả;
-   - `GET /api/v1/analyses` lấy lịch sử.
-4. Xử lý bất đồng bộ:
-   - tạo job ở trạng thái `queued`;
-   - worker/service gọi Gemini và cập nhật `processing`, `completed` hoặc `failed`;
-   - frontend polling trạng thái ban đầu; SSE có thể thêm sau.
-5. Lưu kết quả JSON đã validate và metadata xử lý.
-6. Cache theo `videoId + outputConfig`:
-   - nếu kết quả cache hợp lệ, trả lại kết quả có sẵn;
-   - chỉ tái sử dụng khi phù hợp quyền truy cập và không rò rỉ dữ liệu người dùng.
-7. Mở rộng observability với chỉ số job thành công/thất bại và thời gian xử lý end-to-end.
+### 6.3 Organization lifecycle
 
-### Công việc frontend
+- Tạo organization, invitation, accept/revoke, đổi role, ownership transfer, deactivate member.
+- Một user có thể thuộc nhiều organization; active organization nằm trong URL/context, không ghi cố định vào JWT.
+- Tenant-isolation integration tests cho mọi repository/API; test negative path là bắt buộc.
 
-1. Trang nhập URL, hiển thị tiến trình xử lý, trạng thái loading và lỗi.
-2. Trang kết quả có các khu vực:
-   - overview và summary theo section;
-   - key takeaways;
-   - flashcards lật mặt;
-   - quiz chấm điểm tại client;
-   - link mở video gốc tại timestamp (nếu có).
-3. Trang lịch sử và mở lại một learning package.
-4. Responsive cho desktop và mobile browser.
-5. Ghi nhận các sự kiện tạo analysis, job hoàn thành/thất bại, mở kết quả, lật flashcard, làm quiz và copy nội dung.
-6. Thiết lập CI cơ bản: lint/build frontend, test/build backend trước khi deploy.
+### Gate
 
-### Tiêu chí hoàn thành
+- Không thể đọc/ghi resource chéo tenant qua ID enumeration.
+- Invitation dùng token hash, expiry, single-use và revoke được.
+- Audit log ghi actor, organization, action, resource, timestamp, correlation ID.
 
-- Người dùng có thể gửi một video, rời trang/refresh và quay lại xem kết quả sau khi job hoàn thành.
-- Mở lại lịch sử không gọi Gemini lần nữa.
-- Không có API key hoặc dữ liệu nhạy cảm trong frontend/network response.
+## 7. Phase 4 — Creator authoring và content lifecycle
 
----
+### 7.1 Catalog
 
-## 6. Phase 3 — Quota và bảo vệ chi phí
+- Course → Module → Lesson → Source → Learning Package Version.
+- Import một URL hoặc playlist public; playlist metadata chỉ dùng API/path tuân thủ YouTube policy.
+- Rights attestation bắt buộc trước processing; lưu version điều khoản được đồng ý.
 
-### Mục tiêu
+### 7.2 Authoring studio
 
-Cho phép mở thử nghiệm công khai mà vẫn kiểm soát spam và chi phí Gemini.
+- TipTap editor cho overview/section; card/quiz có structured editor, reorder, duplicate, delete và preview.
+- Draft → generated → in_review → approved → published → archived.
+- Optimistic concurrency bằng `version`; conflict UI không silently overwrite.
+- Generation immutable; edit tạo content revision và audit diff.
+- Reusable output templates theo audience, language, difficulty, counts và brand voice.
+- Question bank có tags, difficulty, source reference, validation status và usage history.
 
-### Công việc
+### 7.3 Quality workflow
 
-1. Áp quota Free: 3 video/tháng/tài khoản.
-2. Kiểm tra quota trước khi tạo job, không phải sau khi gọi Gemini.
-3. Rate limit theo tài khoản và IP cho endpoint tạo job.
-4. Đặt giới hạn thời lượng/loại URL hợp lý nếu kết quả test cho thấy video dài gây chi phí hoặc thất bại cao.
-5. Hiển thị số lượt còn lại và lý do khi từ chối xử lý.
-6. Thêm giới hạn ngân sách/alert cho Gemini và hạ tầng deploy.
+- Auto rules: duplicate similarity, empty distractor, answer-index mismatch, timestamp out of range, prohibited content và excessive length.
+- Reviewer có queue; approve/reject với reason; package chưa approved không được publish nếu organization bật approval-required.
+- Learner report tạo quality issue liên kết exact revision.
 
-### Tiêu chí hoàn thành
+### Gate
 
-- Không thể tạo job vượt quota bằng refresh/retry song song.
-- Các lỗi quota/rate limit có phản hồi rõ ràng.
-- Có thể xem lượng dùng theo ngày/tháng để phát hiện bất thường.
+- Creator hoàn thành URL → approved package → publish mà không cần database/manual fix.
+- Autosave không mất dữ liệu; concurrent edit tạo conflict rõ ràng.
+- Mọi learner-visible item truy ngược được source và revision.
 
----
+## 8. Phase 5 — Learner delivery và retention
 
-## 7. Phase 4 — Deploy thử nghiệm
+### 8.1 Assignment
 
-### Mục tiêu
+- Cohort, membership, assignment, deadline, availability window, completion rule và attempt policy.
+- Invitation bằng magic link; buyer chọn yêu cầu account hoặc access token giới hạn.
+- Progress events idempotent và server-timestamped.
 
-Đưa MVP lên môi trường công khai với chi phí thấp và quy trình triển khai lặp lại được.
+### 8.2 Learning experience
 
-### Công việc
+- YouTube IFrame Player API đồng bộ timestamp; notes và claim mở đúng thời điểm.
+- Quiz grading ở server; frontend chỉ hiển thị kết quả được server trả.
+- Flashcard dùng FSRS-compatible scheduler; lưu review rating, stability/difficulty, due date và history.
+- Exam mode tạo assessment từ approved question bank, randomize option an toàn, attempt snapshot và delayed-recall assignment.
+- Learning path hỗ trợ prerequisite, progress và completion certificate nội bộ; không tuyên bố chứng chỉ được công nhận.
 
-1. Deploy frontend lên Vercel Hobby.
-2. Docker hoá backend Spring Boot và deploy lên Google Cloud Run, cấu hình scale-to-zero.
-3. Dùng PostgreSQL managed có free tier phù hợp trong giai đoạn đầu.
-4. Lưu secrets bằng nền tảng deploy/secret manager, không commit vào repository.
-5. Cấu hình biến môi trường production, CORS, HTTPS và health check.
-6. Test smoke trên production: login, tạo job, mở kết quả, quota và lịch sử.
+### 8.3 Ask Video/Course
 
-### Tiêu chí hoàn thành
+- RAG index từ approved source map, notes và buyer-provided transcript; dùng PostgreSQL `pgvector`.
+- Chunk có source lesson, timestamp/page và revision; embedding được version hóa.
+- Answer phải trả citation; thiếu evidence thì từ chối hoặc đề nghị mở nguồn.
+- Premium fallback gọi lại video provider chỉ khi entitlement cho phép; có per-user/day budget.
+- Prompt-injection filtering cho source content; không cho source override system policy hoặc exfiltrate data.
 
-- Người dùng ngoài mạng local truy cập và dùng được luồng chính.
-- Deploy lại không làm mất dữ liệu và không cần sửa cấu hình thủ công.
-- Có log để điều tra lỗi production.
+### 8.4 Notifications
 
----
+- Resend cho invitation, assignment, reminder, payment/dunning; queue mọi email và dedupe bằng notification key.
+- User preference + unsubscribe cho email không bắt buộc; transactional và marketing tách biệt.
 
-## 8. Phase 5 — Đo lường, cải thiện và quyết định mở rộng
+### Gate
 
-### Mục tiêu
+- Mobile responsive đạt WCAG 2.2 AA cho critical flow.
+- Resume đúng trạng thái giữa thiết bị.
+- Không lộ correct answer trước submit.
+- Retention và learning-gain events đối soát được với database.
 
-Xác minh người dùng có thực sự học lại và quay lại sản phẩm trước khi đầu tư tính năng trả phí/hạ tầng cao hơn.
+## 9. Phase 6 — Analytics và buyer ROI
 
-### Công việc
+### 9.1 Canonical events
 
-1. Phân tích các sự kiện đã ghi nhận: tạo analysis, job hoàn thành/thất bại, mở kết quả, lật flashcard, làm quiz, copy nội dung và quay lại sau 7 ngày.
-2. Thu thập phản hồi ngắn trong app: học liệu có hữu ích không, lỗi nào, họ muốn xuất file hay học lại bằng flashcard.
-3. Theo dõi tỷ lệ thành công, thời gian xử lý, chi phí Gemini/video thành công và tỷ lệ dùng hết quota.
-4. Cải thiện prompt/schema từ các lỗi thực tế; thêm evaluation set khi có mẫu video đại diện.
-5. Ưu tiên Markdown export, sau đó PDF; chỉ thêm Word nếu phản hồi người dùng chứng minh nhu cầu.
-6. Chỉ thiết kế pricing/Pro khi có retention và nhu cầu vượt quota rõ ràng.
+- Business events ghi transactionally vào PostgreSQL/outbox; PostHog dùng cho product exploration, không phải nguồn sự thật cho billing.
+- Event schema versioned; không gửi raw notes, quiz answer, email hoặc token sang analytics.
+- Các funnel: invite → open → start → quiz complete → delayed review → completion.
 
-### Các chỉ số quyết định
+### 9.2 Dashboards
 
-| Chỉ số | Ý nghĩa |
-|---|---|
-| Tỷ lệ job thành công | Độ tin cậy của Gemini + hệ thống. |
-| Thời gian tạo kết quả | Ảnh hưởng trực tiếp activation. |
-| Lượt tạo/user | Mức độ sử dụng. |
-| Retention 7 ngày | Người dùng có quay lại học tiếp không. |
-| Tỷ lệ làm quiz/lật flashcard | Học liệu có được dùng, không chỉ đọc summary. |
-| Chi phí mỗi video thành công | Cơ sở để đặt quota và giá Pro. |
+- Creator: course/cohort activation, completion, attempt, score distribution, weak topics, delayed recall, feedback và content defects.
+- Commercial: qualified lead, pilot, recurring conversion, GRR, NRR, expansion/contraction MRR, churn, CAC, payback và margin.
+- Cost: provider/model/profile, video-minute, retry, repair, Ask usage, cache hit và organization cost.
+- Metric definitions cố định trong metric registry; dashboard ghi timezone và denominator.
 
----
+### Gate
 
-## 9. Thứ tự bắt tay vào code
+- Tổng hợp dashboard đối soát với raw DB sample.
+- Buyer xuất được CSV/PDF report permissioned.
+- Không mô tả metric nội bộ là YouTube metric hoặc trộn nguồn mà không gắn nhãn.
 
-1. Hoàn tất Phase 0: cấu hình local và bảo mật secrets.
-2. Làm Phase 1: API preview, Postman, bộ test feasibility và đo độ ổn định.
-3. Nếu đạt tiêu chí, làm Phase 2: database, xác thực, job, lịch sử, cache và trang kết quả.
-4. Ghi nhận observability và các sự kiện sản phẩm ngay khi từng phần của Phase 2 được hoàn thành.
-5. Thêm Phase 3 trước khi public link.
-6. Deploy Phase 4, sau đó phân tích và cải thiện ở Phase 5.
+## 10. Phase 7 — Billing và entitlement
+
+### 10.1 Payment architecture
+
+- `PaymentProvider` port; `PayOsPaymentProvider` adapter đầu tiên.
+- Tạo payment order/link ở backend; `orderCode` unique; amount lấy từ price catalog server-side.
+- Webhook verify HMAC trên raw payload, store inbox event trước xử lý, idempotent theo provider event/reference.
+- Redirect success chỉ là UX; chỉ webhook verified hoặc reconciliation API được cấp entitlement.
+- Renewal monthly qua invoice/payment link và dunning; ưu tiên annual prepay để cải thiện cash flow. Không giả định payOS hỗ trợ recurring card debit.
+
+### 10.2 Billing domain
+
+- Product, Price, PlanVersion, Subscription, Invoice, InvoiceLine, Payment, Refund, CreditGrant, UsageLedger, Entitlement và BillingAdjustment.
+- Plan/price immutable sau khi active; đổi giá tạo version mới.
+- Entitlement có effective window; usage reservation/commit/release atomic.
+- Billing period theo timezone contract nhưng lưu UTC; invoice number/order code không tái sử dụng.
+- Reconciliation job so sánh pending payment với payOS và cảnh báo mismatch.
+
+### 10.3 Packaging
+
+- Pilot: fixed scope, manual contract.
+- Creator: base platform + included processed minutes/cohort; top-up credits.
+- Training Team: seats/courses/cohorts + higher allowance + roles/analytics.
+- Enterprise: annual minimum, SSO, audit, retention, integration, SLA và priority support.
+
+### Gate
+
+- Webhook duplicate/out-of-order không cấp trùng credit.
+- Không thể sửa amount/plan từ client.
+- Refund/cancel/dunning/expiry có integration tests và audit.
+- Revenue, entitlement và cash receipt reconciliation khớp.
+
+## 11. Phase 8 — Production infrastructure
+
+### 11.1 Environments
+
+- Local: Docker PostgreSQL, fake auth/payment/provider.
+- Development: Cloud Run dev + Supabase free Singapore; không chứa dữ liệu khách thật.
+- Production: Cloud Run production + Supabase Pro Singapore trước khi nhận khách trả tiền; có daily backup và không pause.
+- PR dùng Testcontainers, MSW và ephemeral build; không tạo database cloud cho mỗi PR.
+
+### 11.2 Deploy topology
+
+- Cloudflare Pages: static frontend, custom domain, CSP/security headers và preview deploy.
+- Cloud Run `api`: request-based billing, min instances 0 lúc đầu, 1 vCPU/1 GiB, concurrency khởi điểm 20, max instances 3, timeout 60s.
+- Cloud Run `worker`: min 0, concurrency 1–2, max instances theo DB/provider quota, timeout phù hợp job nhưng task có lease/idempotency.
+- Cloud Tasks: queue theo workload `analysis`, `notification`, `webhook-retry`; payload chỉ chứa ID, không chứa content lớn.
+- Cloud Scheduler: outbox recovery, reconciliation, due-review dispatch và cleanup; gom tác vụ để nằm trong số job free khi có thể.
+- Supabase Singapore: PostgreSQL, Auth; dùng Supavisor pooled connection và giới hạn Hikari pool theo tổng Cloud Run max instances.
+- Cloudflare R2: private bucket, presigned URL, malware/type/size validation, lifecycle deletion.
+- GCP Secret Manager: Gemini, payOS, Resend, Supabase service secrets; workload service account least privilege.
+
+### 11.3 Observability
+
+- Structured JSON logs với trace/correlation/job/org ID đã pseudonymize.
+- OpenTelemetry traces, Micrometer metrics và Cloud Monitoring alerts.
+- Sentry frontend/backend cho error grouping và release tracking; scrub PII.
+- Alerts: error rate, task oldest age, job p95, DB connection saturation, payment webhook failure, budget anomaly và provider circuit open.
+
+### 11.4 Backup, recovery và SLO
+
+- Supabase Pro daily backup; định kỳ logical export mã hóa sang private object storage; quarterly restore test.
+- RPO ban đầu 24h, RTO 4h; nâng theo hợp đồng.
+- SLO: API availability 99.5% ban đầu, verified payment processing 99.9%, accepted job completion theo supported profile ≥ 95%.
+- Runbook: provider outage, DB outage, task backlog, secret leak, payment mismatch, data deletion và rollback.
+
+## 12. Phase 9 — Security, privacy và compliance Việt Nam
+
+- Threat model theo boundary auth, tenant, upload, AI prompt, payment webhook và support tooling.
+- OWASP ASVS L2 checklist cho critical controls; dependency/image scanning và annual penetration test trước enterprise.
+- CSP, HSTS, secure cookies, CSRF cho cookie flow, CORS allowlist, rate limit account/IP/org và bot protection trên signup/generation.
+- Encryption in transit/at rest; field-level encryption cho secret-like integration credentials.
+- Data inventory, purpose, lawful basis/consent, retention schedule, export/delete workflow và processor register.
+- Đánh giá chuyển dữ liệu ra nước ngoài và nghĩa vụ theo Luật Bảo vệ dữ liệu cá nhân 91/2025/QH15; thuê tư vấn pháp lý trước public production/enterprise contract.
+- Terms, Privacy, Acceptable Use, AI limitation, content-rights attestation, takedown/complaint và subprocessor list.
+- Không đưa trẻ em thành target ban đầu; nếu buyer phục vụ người chưa thành niên phải mở compliance project riêng trước khi enable.
+
+## 13. Phase 10 — Enterprise và integrations
+
+- API keys hash-at-rest, scoped permission, expiry/rotation, rate limit và audit.
+- Signed webhooks với retry, delivery log, replay protection và secret rotation.
+- LMS integration ưu tiên theo hợp đồng: LTI 1.3 trước nếu buyer cần; không tích hợp hàng loạt theo suy đoán.
+- SSO SAML/OIDC, SCIM chỉ khi enterprise contract bù chi phí vận hành.
+- Custom domain/branding, data retention control, legal hold/export, SLA report và support priority.
+- Mọi custom feature phải có reusable product path, margin model và support boundary.
+
+## 14. Phase 11 — Profit và scale optimisation
+
+- Model routing theo output profile và quality tier; batch cho non-interactive; cache prompt/context khi có lợi.
+- Cost ledger đến organization/job/feature; cảnh báo margin âm theo account.
+- Pricing review hàng quý: allowance, overage, annual discount, service cost và provider price.
+- Tự động onboarding/support; knowledge base và in-app diagnostics giảm ticket.
+- Scale từng acquisition channel khi contribution LTV/CAC ≥ 3 và CAC payback ≤ 12 tháng.
+- Theo dõi revenue concentration; không để một account tạo phần lớn doanh thu mà không có contract/SLA tương ứng.
+- Provider contingency drill và migration test định kỳ.
+
+## 15. Thứ tự milestone có thể giao
+
+| Milestone | Kết quả bàn giao | Điều kiện chuyển bước |
+|---|---|---|
+| M-1 | 3 paid pilot + P&L baseline | Demand/profit gate đạt |
+| M0 | Local/CI/ADR/security baseline | Build và test lặp lại được |
+| M1 | Benchmark + cost engine | Quality/cost gate đạt |
+| M2 | Auth + tenant + organization | Tenant isolation đạt |
+| M3 | Creator URL-to-approved-package | Authoring E2E đạt |
+| M4 | Assignment + learner + retention | Learning E2E đạt |
+| M5 | Buyer ROI analytics | Metric reconciliation đạt |
+| M6 | payOS + entitlement + revenue ledger | Payment audit/reconciliation đạt |
+| M7 | Production launch controls | SLO/backup/runbook/legal readiness đạt |
+| M8 | Full learning paths/Q&A/enterprise | Contract-driven acceptance đạt |
+| M9 | Margin optimisation và channel scale | Commercial gates đạt |
+
+## 16. Quy tắc bắt đầu code
+
+Trước mỗi milestone phải có: user stories, acceptance criteria, API/OpenAPI diff, migration plan, threat-model delta, telemetry, test matrix, rollout flag và rollback. Nếu một quyết định liên quan pricing, quyền nội dung, dữ liệu cá nhân, SLA hoặc contract chưa rõ, dừng và hỏi product owner trước khi code.

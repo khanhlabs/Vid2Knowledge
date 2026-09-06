@@ -1,8 +1,8 @@
 # Vid2Knowledge
 
-Vid2Knowledge is a web application that turns public YouTube videos into active-learning materials. A user submits a YouTube URL, and the backend will use Gemini to generate structured summaries, key takeaways, flashcards, and quizzes.
+Vid2Knowledge is a web application that turns supported public YouTube videos into evidence-linked active-learning materials. A user submits a YouTube URL, and the backend uses Gemini to generate structured notes, key takeaways, flashcards, and quizzes.
 
-The project is currently in the early development stage. Its first product goal is to validate the quality and reliability of Gemini's direct YouTube URL understanding before expanding into a full MVP.
+The project is currently in the early development stage. Its first product goal is to validate the quality, reliability, and unit economics of Gemini's direct YouTube URL understanding before expanding into a full MVP.
 
 ## Technology Stack
 
@@ -17,9 +17,9 @@ The project is currently in the early development stage. Its first product goal 
 - Docker
 - GitHub Actions
 - Terraform
-- AWS
+- Cloud provider selection pending the Phase 0 operating decision
 
-## Product Features
+## Product Direction
 
 This list is updated as the product evolves.
 
@@ -29,10 +29,11 @@ This list is updated as the product evolves.
 - Key takeaways
 - Flashcards
 - Multiple-choice quizzes with explanations
-- Analysis history
-- User authentication
-- Usage quota and rate limiting
-- Markdown, PDF, and Word export
+- Evidence links to original-video timestamps when available
+- Analysis history, feedback, authentication, usage quota, and rate limiting
+- Multi-tenant courses, cohorts, assignments, learner mastery and buyer outcome analytics
+- Spaced repetition, exam mode, learning paths, and source-grounded course Q&A
+- Usage-based subscriptions, expansion entitlements, integrations, and enterprise controls
 
 ## Project Structure
 
@@ -100,8 +101,12 @@ Vid2Knowledge/
 │   ├── package.json                       # Frontend scripts and dependencies
 │   └── package-lock.json                  # Locked npm dependency versions
 ├── docs/
-│   ├── features.md                        # Product scope and feature definition
-│   └── plan.md                            # Delivery plan and implementation phases
+│   ├── Features.md                        # Product strategy, scope, and monetisation hypotheses
+│   ├── Plan.md                            # Gated implementation and investment plan
+│   ├── Business-Model.md                  # Buyer, go-to-market, unit economics, and profit gates
+│   ├── Technical-Architecture.md           # Target stack, boundaries, security, deployment, and cost controls
+│   ├── Data-and-API.md                     # Data model, state machines, APIs, events, and test matrix
+│   └── feasibility-result.md              # Gemini benchmark protocol and decision record
 ├── infra/
 │   ├── cloud-run/                         # Cloud Run deployment resources
 │   ├── docker/                            # Docker-related resources
@@ -121,8 +126,12 @@ There is no public deployment URL yet. This section will be updated when the app
 
 ## Documentation
 
-- [Product Scope and Features](docs/features.md)
-- [Implementation Plan](docs/plan.md)
+- [Product Strategy and Target Scope](docs/Features.md)
+- [Business Model and Profitability Gates](docs/Business-Model.md)
+- [Detailed Implementation Plan](docs/Plan.md)
+- [Technical Architecture](docs/Technical-Architecture.md)
+- [Data Model and API Contracts](docs/Data-and-API.md)
+- [Gemini Feasibility Benchmark](docs/feasibility-result.md)
 
 ## Author
 
