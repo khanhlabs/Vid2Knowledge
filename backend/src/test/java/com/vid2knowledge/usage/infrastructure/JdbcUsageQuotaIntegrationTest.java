@@ -16,6 +16,12 @@ import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.auth.TenantAccessService;
 import com.vid2knowledge.auth.IdentityService;
 import com.vid2knowledge.config.CommercialProperties;
+import com.vid2knowledge.delivery.CatalogService;
+import com.vid2knowledge.delivery.LearnerService;
+import com.vid2knowledge.delivery.OutcomeAnalyticsService;
+import com.vid2knowledge.delivery.PackageWorkflowService;
+import com.vid2knowledge.analysis.application.LearningPackageCodec;
+import jakarta.validation.Validation;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.domain.QuotaExceededException;
 import com.vid2knowledge.usage.domain.UsageMetric;
@@ -244,6 +250,79 @@ class JdbcUsageQuotaIntegrationTest {
                 "SELECT EXTRACT(EPOCH FROM (period_end - period_start))::bigint FROM entitlements WHERE organization_id = ?",
                 Long.class, organization.id()
         )).isEqualTo(Duration.ofDays(14).toSeconds());
+    }
+
+    @Test
+    void buyerCanPublishAssignmentAndObserveServerGradedLearnerOutcome() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        UUID learnerId = seedLearner(organizationId);
+        CurrentActor learner = new CurrentActor(learnerId, organizationId, CurrentActor.Role.LEARNER);
+        UUID packageId = seedPublishedPackage(organizationId, ownerId);
+        var catalog = new CatalogService(jdbc);
+        var course = catalog.createCourse(owner, "Sales onboarding", "Core course", "catalog-1");
+        var module = catalog.addModule(owner, course.id(), "Module one", 1, "catalog-2");
+        var lesson = catalog.addLesson(owner, module.id(), packageId, "Lesson one", 1, "catalog-3");
+        var cohort = catalog.createCohort(owner, "September", Instant.now(), Instant.now().plus(Duration.ofDays(30)), "catalog-4");
+        catalog.addCohortMember(owner, cohort.id(), learnerId, "catalog-5");
+        var assignment = catalog.createAssignment(
+                owner, cohort.id(), lesson.id(), "Watch and practise",
+                Instant.now().minusSeconds(1), Instant.now().plus(Duration.ofDays(7)), "catalog-6"
+        );
+        catalog.publishAssignment(owner, assignment.id(), "catalog-7");
+
+        var learnerService = new LearnerService(jdbc, new ObjectMapper());
+        var view = learnerService.start(learner, assignment.id());
+        var result = learnerService.submit(
+                learner, assignment.id(), java.util.List.of(1, 2), "attempt-key-123", "learner-1"
+        );
+        var replay = learnerService.submit(
+                learner, assignment.id(), java.util.List.of(1, 2), "attempt-key-123", "learner-2"
+        );
+        var outcome = new OutcomeAnalyticsService(jdbc).summary(organizationId, cohort.id());
+
+        assertThat(view.content().path("quiz").get(0).has("correctAnswerIndex")).isFalse();
+        assertThat(view.content().path("quiz").get(0).has("explanation")).isFalse();
+        assertThat(result.scorePercent()).isEqualTo(100);
+        assertThat(replay.attemptId()).isEqualTo(result.attemptId());
+        assertThatThrownBy(() -> learnerService.submit(
+                learner, assignment.id(), java.util.List.of(0, 0), "attempt-key-123", "learner-3"
+        )).isInstanceOf(IdempotencyConflictException.class);
+        assertThat(outcome.assigned()).isEqualTo(1);
+        assertThat(outcome.completed()).isEqualTo(1);
+        assertThat(outcome.averageScorePercent()).isEqualTo(100);
+    }
+
+    @Test
+    void packageReviewWorkflowIsTenantScopedAndAudited() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        UUID packageId = seedPackage(organizationId, ownerId, "GENERATED");
+        var packages = new PackageWorkflowService(
+                jdbc,
+                new LearningPackageCodec(new ObjectMapper(), Validation.buildDefaultValidatorFactory().getValidator()),
+                new ObjectMapper()
+        );
+
+        packages.transition(owner, packageId, PackageWorkflowService.Transition.SUBMIT_REVIEW, "package-1");
+        packages.transition(owner, packageId, PackageWorkflowService.Transition.APPROVE, "package-2");
+        var published = packages.transition(
+                owner, packageId, PackageWorkflowService.Transition.PUBLISH, "package-3"
+        );
+
+        assertThat(published.state()).isEqualTo("PUBLISHED");
+        assertThat(published.verificationState()).isEqualTo("HUMAN_VERIFIED");
+        assertThatThrownBy(() -> packages.get(UUID.randomUUID(), packageId))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM audit_logs WHERE resource_id = ?", Long.class, packageId
+        )).isEqualTo(3L);
     }
 
     @Test
@@ -504,6 +583,56 @@ class JdbcUsageQuotaIntegrationTest {
                 ownerId
         );
         return sourceId;
+    }
+
+    private UUID seedLearner(UUID orgId) {
+        UUID id = UuidV7Generator.generate();
+        String unique = id.toString();
+        jdbc.update(
+                "INSERT INTO users(id, auth_subject, email, normalized_email, display_name) VALUES (?, ?, ?, ?, ?)",
+                id, "learner-" + unique, unique + "@learner.test", unique + "@learner.test", "Learner"
+        );
+        jdbc.update(
+                "INSERT INTO memberships(organization_id, user_id, role) VALUES (?, ?, 'LEARNER')",
+                orgId, id
+        );
+        return id;
+    }
+
+    private UUID seedPublishedPackage(UUID orgId, UUID ownerId) {
+        return seedPackage(orgId, ownerId, "PUBLISHED");
+    }
+
+    private UUID seedPackage(UUID orgId, UUID ownerId, String state) {
+        UUID sourceId = seedSourceWithRights(orgId);
+        UUID packageId = UuidV7Generator.generate();
+        UUID revisionId = UuidV7Generator.generate();
+        String content = """
+                {"video":{"youtubeUrl":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","title":"Test","language":"vi"},
+                 "summary":{"overview":"Overview","sections":[{"title":"One","content":["Text"]}]},
+                 "keyTakeaways":["One"],"flashcards":[],
+                 "quiz":[
+                   {"question":"Q1","options":["A","B","C","D"],"correctAnswerIndex":1,"explanation":"E1"},
+                   {"question":"Q2","options":["A","B","C","D"],"correctAnswerIndex":2,"explanation":"E2"}
+                 ]}
+                """;
+        jdbc.update(
+                "INSERT INTO learning_packages(id, organization_id, source_id, publication_state) VALUES (?, ?, ?, 'GENERATED')",
+                packageId, orgId, sourceId
+        );
+        jdbc.update(
+                """
+                INSERT INTO package_revisions(
+                    id, organization_id, package_id, revision_no, content_json, edited_by, verification_state
+                ) VALUES (?, ?, ?, 1, CAST(? AS jsonb), ?, 'HUMAN_VERIFIED')
+                """,
+                revisionId, orgId, packageId, content, ownerId
+        );
+        jdbc.update(
+                "UPDATE learning_packages SET current_revision_id = ?, publication_state = ? WHERE id = ?",
+                revisionId, state, packageId
+        );
+        return packageId;
     }
 
     private static AiGenerationResult generation(String output) {

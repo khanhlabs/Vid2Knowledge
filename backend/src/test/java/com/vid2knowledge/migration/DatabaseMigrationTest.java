@@ -23,7 +23,7 @@ class DatabaseMigrationTest {
                 .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                 .load();
 
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(6);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(7);
         flyway.validate();
 
         try (var connection = DriverManager.getConnection(
@@ -53,7 +53,16 @@ class DatabaseMigrationTest {
                     "analysis_jobs",
                     "generation_runs",
                     "learning_packages",
-                    "package_revisions"
+                    "package_revisions",
+                    "courses",
+                    "course_modules",
+                    "lessons",
+                    "cohorts",
+                    "assignments",
+                    "assignment_recipients",
+                    "learner_progress",
+                    "quiz_attempts",
+                    "quality_feedback"
             ));
         }
     }
