@@ -10,6 +10,7 @@ import { CatalogPage } from '../features/workspace/CatalogPage'
 import { AnalyticsPage } from '../features/workspace/AnalyticsPage'
 import { AuthoringPage } from '../features/workspace/AuthoringPage'
 import { LandingPage } from './LandingPage'
+import { LegalDocumentPlaceholder } from './LegalDocumentPlaceholder'
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/preview" element={<PreviewPage />} />
+      <Route path="/legal/:policy" element={<LegalDocumentPlaceholder />} />
       <Route
         path="/app"
         element={

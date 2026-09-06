@@ -48,6 +48,20 @@ management:
 
 features:
   analysis-preview-enabled: false
+  legal-acceptance-required: false
+
+legal:
+  policy-set-version: ${LEGAL_POLICY_SET_VERSION:2026-09-draft}
+  terms-version: ${LEGAL_TERMS_VERSION:2026-09-draft}
+  terms-url: ${LEGAL_TERMS_URL:/legal/terms}
+  privacy-version: ${LEGAL_PRIVACY_VERSION:2026-09-draft}
+  privacy-url: ${LEGAL_PRIVACY_URL:/legal/privacy}
+  acceptable-use-version: ${LEGAL_ACCEPTABLE_USE_VERSION:2026-09-draft}
+  acceptable-use-url: ${LEGAL_ACCEPTABLE_USE_URL:/legal/acceptable-use}
+  ai-notice-version: ${LEGAL_AI_NOTICE_VERSION:2026-09-draft}
+  ai-notice-url: ${LEGAL_AI_NOTICE_URL:/legal/ai-notice}
+  reviewed: ${LEGAL_REVIEWED:false}
+  require-production-readiness: ${LEGAL_REQUIRE_PRODUCTION_READINESS:false}
 
 #--------------AI-------------------------------
 

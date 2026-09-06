@@ -322,6 +322,8 @@ Chi tiết kiến trúc nằm tại `Technical-Architecture.md`; data model, API
 - Data inventory, purpose, lawful basis/consent, retention schedule, export/delete workflow và processor register.
 - Đánh giá chuyển dữ liệu ra nước ngoài và nghĩa vụ theo Luật Bảo vệ dữ liệu cá nhân 91/2025/QH15; thuê tư vấn pháp lý trước public production/enterprise contract.
 - Terms, Privacy, Acceptable Use, AI limitation, content-rights attestation, takedown/complaint và subprocessor list.
+- Policy manifest và immutable acceptance ledger theo exact version; production fail startup nếu owner chưa
+  xác nhận legal review/HTTPS URLs, và business API trả 428 cho user chưa accept current policy set.
 - Không đưa trẻ em thành target ban đầu; nếu buyer phục vụ người chưa thành niên phải mở compliance project riêng trước khi enable.
 
 ## 13. Phase 10 — Enterprise và integrations

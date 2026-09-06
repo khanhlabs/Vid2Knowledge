@@ -60,6 +60,34 @@ variable "notification_from" {
   default     = ""
 }
 
+variable "legal_policies" {
+  description = "Versioned public legal documents. Production must use counsel-reviewed HTTPS URLs."
+  type = object({
+    policy_set_version     = string
+    terms_version          = string
+    terms_url              = string
+    privacy_version        = string
+    privacy_url            = string
+    acceptable_use_version = string
+    acceptable_use_url     = string
+    ai_notice_version      = string
+    ai_notice_url          = string
+    reviewed               = bool
+  })
+  default = {
+    policy_set_version     = "2026-09-draft"
+    terms_version          = "2026-09-draft"
+    terms_url              = "/legal/terms"
+    privacy_version        = "2026-09-draft"
+    privacy_url            = "/legal/privacy"
+    acceptable_use_version = "2026-09-draft"
+    acceptable_use_url     = "/legal/acceptable-use"
+    ai_notice_version      = "2026-09-draft"
+    ai_notice_url          = "/legal/ai-notice"
+    reviewed               = false
+  }
+}
+
 variable "secret_ids" {
   description = "Secret Manager IDs. Add secret versions out-of-band so values never enter Terraform state."
   type = object({

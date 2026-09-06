@@ -63,6 +63,11 @@ public class PrivacyService {
                     'qaThreads', COALESCE((SELECT jsonb_agg(jsonb_build_object(
                         'id', t.id, 'assignmentId', t.assignment_id, 'createdAt', t.created_at
                     ) ORDER BY t.created_at) FROM qa_threads t WHERE t.user_id = ?), '[]'::jsonb),
+                    'legalAcceptances', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                        'policySetVersion', l.policy_set_version, 'termsVersion', l.terms_version,
+                        'privacyVersion', l.privacy_version, 'acceptableUseVersion', l.acceptable_use_version,
+                        'aiNoticeVersion', l.ai_notice_version, 'acceptedAt', l.accepted_at
+                    ) ORDER BY l.accepted_at) FROM legal_acceptances l WHERE l.user_id = ?), '[]'::jsonb),
                     'deletionRequests', COALESCE((SELECT jsonb_agg(jsonb_build_object(
                         'id', d.id, 'state', d.state, 'requestedAt', d.requested_at,
                         'scheduledFor', d.scheduled_for, 'cancelledAt', d.cancelled_at,
@@ -70,7 +75,7 @@ public class PrivacyService {
                     ) ORDER BY d.requested_at) FROM privacy_deletion_requests d WHERE d.user_id = ?), '[]'::jsonb)
                 )::text
                 """,
-                String.class, userId, userId, userId, userId, userId, userId, userId
+                String.class, userId, userId, userId, userId, userId, userId, userId, userId
         );
         try {
             return mapper.readTree(json);

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { supabase } from '../../shared/lib/supabase'
 import { AuthContext, type AuthContextValue, useAuth } from './auth-context'
+import { LegalGate } from './LegalGate'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
@@ -49,5 +50,5 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       />
     )
   }
-  return children
+  return <LegalGate identityKey={auth.session.user.id}>{children}</LegalGate>
 }

@@ -11,3 +11,15 @@ payos_return_url = "https://staging.example.com/app?payment=success"
 payos_cancel_url = "https://staging.example.com/app?payment=cancelled"
 notifications_enabled = false
 notification_from     = "Vid2Knowledge <hello@example.com>"
+legal_policies = {
+  policy_set_version     = "2026-09-staging"
+  terms_version          = "2026-09-staging"
+  terms_url              = "https://staging.example.com/legal/terms"
+  privacy_version        = "2026-09-staging"
+  privacy_url            = "https://staging.example.com/legal/privacy"
+  acceptable_use_version = "2026-09-staging"
+  acceptable_use_url     = "https://staging.example.com/legal/acceptable-use"
+  ai_notice_version      = "2026-09-staging"
+  ai_notice_url          = "https://staging.example.com/legal/ai-notice"
+  reviewed               = false
+}

@@ -103,6 +103,40 @@ body {
   min-width: 320px;
 }
 
+.legal-gate {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 1.5rem;
+}
+.legal-card {
+  width: min(620px, 100%);
+  padding: clamp(1.5rem, 5vw, 3rem);
+  border: 1px solid #d1d5ca;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(42, 57, 47, 0.08);
+}
+.legal-card h1 {
+  font-family: Georgia, serif;
+  font-size: clamp(2rem, 5vw, 3.2rem);
+}
+.legal-policy-list {
+  margin: 1.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+.legal-policy-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid #d8dbd2;
+}
+.legal-policy-list small {
+  color: #687169;
+}
+
 button,
 input,
 select {

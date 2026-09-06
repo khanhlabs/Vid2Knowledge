@@ -26,9 +26,13 @@ features:
   analysis-preview-enabled: false
   auth-enabled: true
   outbox-poller-enabled: ${OUTBOX_POLLER_ENABLED:false}
+  legal-acceptance-required: true
 
 task-queue:
   mode: CLOUD_TASKS
 
 payos:
   enabled: ${PAYOS_ENABLED:false}
+
+legal:
+  require-production-readiness: ${LEGAL_REQUIRE_PRODUCTION_READINESS:true}

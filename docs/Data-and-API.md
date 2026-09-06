@@ -193,6 +193,16 @@ bị xóa bởi operational cleanup này. Billing reconciliation gọi cùng cle
 - Việc xóa identity trong Supabase Auth vẫn là bước operator bắt buộc sau khi local request hoàn tất;
   application block bảo đảm identity còn sót ở IdP không lấy lại quyền truy cập.
 
+### Legal acceptance
+
+- `GET /api/v1/legal/manifest` công khai type/version/URL của Terms, Privacy, AUP và AI notice.
+- `GET /api/v1/legal/status` và `POST /api/v1/legal/acceptances` provision authenticated identity,
+  kiểm tra exact policy set và ghi immutable acceptance với hashed request evidence; retry là idempotent.
+- Production chặn mọi authenticated business API bằng HTTP 428 cho tới khi current version set được
+  chấp nhận; vẫn cho phép `/me`, legal, privacy, public certificate, health và signed webhook flows.
+- Đổi bất kỳ policy version nào tự động yêu cầu re-consent. Production từ chối boot nếu policies chưa
+  được owner đánh dấu legal-reviewed hoặc URL không phải HTTPS; placeholder trong frontend chỉ dùng dev.
+
 Chỉ Cloud Tasks/Scheduler service account được gọi; kiểm tra OIDC audience/issuer/service-account email. Handler luôn idempotent và trả 2xx cho event đã xử lý.
 
 ## 6. HTTP contract

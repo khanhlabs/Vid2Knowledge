@@ -9,6 +9,8 @@ Không nhận dữ liệu hoặc tiền thật cho tới khi owner xác nhận b
 - Cloudflare TLS, WAF/rate limit và Pages security headers đã bật; origin Cloud Run chỉ nhận frontend origin qua CORS.
 - Resend domain xác thực, invitation/receipt/renewal test gửi thành công; encryption key có bản sao trong secret recovery process.
 - Terms, Privacy, AUP, AI limitation, subprocessor list và complaint/takedown contacts đã được counsel duyệt với đúng pháp nhân vận hành.
+- Các URL `LEGAL_*_URL` trỏ đúng bản HTTPS đã duyệt, version khớp nội dung, và chỉ sau đó mới đặt
+  `LEGAL_REVIEWED=true`; thay nội dung phải tăng version để buộc re-consent.
 - Có ít nhất hai người/địa chỉ nhận alert vận hành; không để production phụ thuộc duy nhất vào inbox cá nhân của founder.
 
 ## Backup and restore

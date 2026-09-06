@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -73,6 +74,7 @@ public class SecurityConfig {
                             .requestMatchers(
                                     "/actuator/health/**", "/api/v1/webhooks/**", "/api/v1/certificates/**"
                             ).permitAll()
+                            .requestMatchers(HttpMethod.GET, "/api/v1/legal/manifest").permitAll()
                             .anyRequest().authenticated()
                     )
                     .oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> {}));

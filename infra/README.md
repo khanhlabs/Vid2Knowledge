@@ -11,6 +11,7 @@ The Terraform stack provisions the low-idle-cost GCP half of Vid2Knowledge: two 
 5. Configure Cloudflare Pages with root `frontend`, build command `npm ci && npm run build`, output `dist`, the two public Supabase variables from `frontend/.env.example`, and the server-only Pages Functions variable `BACKEND_ORIGIN=${api_url}`. The checked-in `/api/*` function keeps browser requests same-origin and rejects non-HTTPS upstreams.
 6. Register exact Supabase OAuth redirect URLs and the payOS webhook URL `${api_url}/api/v1/webhooks/payos`. Keep `payos_enabled=false` until the merchant account, secrets, return URL, cancellation URL, and signed webhook test are all ready.
 7. Verify the sending domain in Resend, set `notification_from`, then enable `notifications_enabled`. Send an invitation in staging and confirm delivery before enabling it in production. Notification payloads are encrypted at rest and redacted after delivery; keep the encryption key available until every pending job has completed.
+8. Replace every `legal_policies` draft value with the exact counsel-reviewed document version and HTTPS URL. Set `reviewed=true` only after approval; a production Cloud Run revision otherwise fails startup by design. Any policy-content change requires a version bump and user re-consent.
 
 Production deletion protection is on. Secret versions, DNS, Supabase, payOS merchant activation, billing budgets, and GitHub OIDC trust intentionally require account-owner decisions and are not fabricated by this repository.
 

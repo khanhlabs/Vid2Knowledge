@@ -23,6 +23,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(properties = {
         "features.auth-enabled=false",
         "features.outbox-poller-enabled=false",
+        "legal.reviewed=true",
+        "legal.terms-url=https://example.com/legal/terms",
+        "legal.privacy-url=https://example.com/legal/privacy",
+        "legal.acceptable-use-url=https://example.com/legal/acceptable-use",
+        "legal.ai-notice-url=https://example.com/legal/ai-notice",
         "payos.enabled=false",
         "notifications.enabled=true",
         "notifications.api-key=re_test",

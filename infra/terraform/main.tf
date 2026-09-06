@@ -28,20 +28,31 @@ locals {
     var.notifications_enabled ? local.notification_secret_env : {}
   )
   worker_plain_env = {
-    SPRING_PROFILES_ACTIVE     = "prod"
-    TASK_QUEUE_MODE            = "INLINE"
-    OUTBOX_POLLER_ENABLED      = "false"
-    AUTH_ISSUER_URI            = var.auth_issuer_uri
-    AUTH_AUDIENCE              = var.auth_audience
-    TASK_SERVICE_ACCOUNT_EMAIL = google_service_account.task_invoker.email
-    TASK_OIDC_AUDIENCE         = local.internal_audience
-    PAYOS_ENABLED              = tostring(var.payos_enabled)
-    PAYOS_RETURN_URL           = var.payos_return_url
-    PAYOS_CANCEL_URL           = var.payos_cancel_url
-    NOTIFICATIONS_ENABLED      = tostring(var.notifications_enabled)
-    NOTIFICATION_FROM          = var.notification_from
-    FRONTEND_BASE_URL          = var.frontend_origin
-    DB_POOL_MAX_SIZE           = "4"
+    SPRING_PROFILES_ACTIVE             = "prod"
+    TASK_QUEUE_MODE                    = "INLINE"
+    OUTBOX_POLLER_ENABLED              = "false"
+    AUTH_ISSUER_URI                    = var.auth_issuer_uri
+    AUTH_AUDIENCE                      = var.auth_audience
+    TASK_SERVICE_ACCOUNT_EMAIL         = google_service_account.task_invoker.email
+    TASK_OIDC_AUDIENCE                 = local.internal_audience
+    PAYOS_ENABLED                      = tostring(var.payos_enabled)
+    PAYOS_RETURN_URL                   = var.payos_return_url
+    PAYOS_CANCEL_URL                   = var.payos_cancel_url
+    NOTIFICATIONS_ENABLED              = tostring(var.notifications_enabled)
+    NOTIFICATION_FROM                  = var.notification_from
+    FRONTEND_BASE_URL                  = var.frontend_origin
+    LEGAL_POLICY_SET_VERSION           = var.legal_policies.policy_set_version
+    LEGAL_TERMS_VERSION                = var.legal_policies.terms_version
+    LEGAL_TERMS_URL                    = var.legal_policies.terms_url
+    LEGAL_PRIVACY_VERSION              = var.legal_policies.privacy_version
+    LEGAL_PRIVACY_URL                  = var.legal_policies.privacy_url
+    LEGAL_ACCEPTABLE_USE_VERSION       = var.legal_policies.acceptable_use_version
+    LEGAL_ACCEPTABLE_USE_URL           = var.legal_policies.acceptable_use_url
+    LEGAL_AI_NOTICE_VERSION            = var.legal_policies.ai_notice_version
+    LEGAL_AI_NOTICE_URL                = var.legal_policies.ai_notice_url
+    LEGAL_REVIEWED                     = tostring(var.legal_policies.reviewed)
+    LEGAL_REQUIRE_PRODUCTION_READINESS = tostring(var.environment == "prod")
+    DB_POOL_MAX_SIZE                   = "4"
   }
   api_plain_env = merge(local.worker_plain_env, {
     TASK_QUEUE_MODE      = "CLOUD_TASKS"
