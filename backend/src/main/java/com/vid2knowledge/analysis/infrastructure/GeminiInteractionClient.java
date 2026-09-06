@@ -3,12 +3,15 @@ package com.vid2knowledge.analysis.infrastructure;
 import com.vid2knowledge.analysis.application.port.VideoAnalysisProvider;
 import com.vid2knowledge.analysis.application.port.AiGenerationResult;
 import com.vid2knowledge.config.GeminiProperties;
+import com.vid2knowledge.analysis.application.AiProviderException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.ResourceAccessException;
 import tools.jackson.databind.JsonNode;
 import java.util.List;
 import java.util.Map;
@@ -18,10 +21,12 @@ public class GeminiInteractionClient implements VideoAnalysisProvider {
 
     private final RestClient restClient;
     private final GeminiProperties properties;
+    private final AiProviderCircuitBreaker circuitBreaker;
     private static final Logger log = LoggerFactory.getLogger(GeminiInteractionClient.class);
 
-    public GeminiInteractionClient(GeminiProperties properties){
+    public GeminiInteractionClient(GeminiProperties properties, AiProviderCircuitBreaker circuitBreaker){
         this.properties = properties;
+        this.circuitBreaker = circuitBreaker;
 
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.timeout());
@@ -39,6 +44,7 @@ public class GeminiInteractionClient implements VideoAnalysisProvider {
             String prompt,
             String canonicalYoutubeUrl
     ) {
+        circuitBreaker.beforeCall();
         long startedAt = System.nanoTime();
 
         Map<String, Object> requestBody = Map.of(
@@ -50,21 +56,33 @@ public class GeminiInteractionClient implements VideoAnalysisProvider {
                 )
         );
 
-        JsonNode response = restClient.post()
-                .uri("/interactions")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(requestBody)
-                .retrieve()
-                .body(JsonNode.class);
+        JsonNode response;
+        try {
+            response = restClient.post()
+                    .uri("/interactions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientResponseException exception) {
+            int status = exception.getStatusCode().value();
+            boolean retryable = status == 408 || status == 429 || status >= 500;
+            if (retryable) circuitBreaker.transientFailure();
+            throw new AiProviderException("Gemini request failed with HTTP " + status, retryable, exception);
+        } catch (ResourceAccessException exception) {
+            circuitBreaker.transientFailure();
+            throw new AiProviderException("Gemini request timed out or could not connect", true, exception);
+        }
 
         if (response == null) {
-            throw new IllegalStateException("Gemini returned an empty response");
+            throw new AiProviderException("Gemini returned an empty response", false);
         }
 
         if (!"completed".equals(response.path("status").asText())) {
-            throw new IllegalStateException(
+            throw new AiProviderException(
                     "Gemini interaction did not complete. status="
-                            + response.path("status").asText()
+                            + response.path("status").asText(),
+                    false
             );
         }
 
@@ -97,8 +115,10 @@ public class GeminiInteractionClient implements VideoAnalysisProvider {
         }
 
         if (output.isEmpty()) {
-            throw new IllegalStateException("Gemini returned no text output");
+            throw new AiProviderException("Gemini returned no text output", false);
         }
+
+        circuitBreaker.success();
 
         return new AiGenerationResult(
                 "GOOGLE_GEMINI",

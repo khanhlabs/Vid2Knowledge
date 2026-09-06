@@ -96,6 +96,27 @@ class AnalysisWorkerTest {
         );
     }
 
+    @Test
+    void terminalProviderFailureIsNotRetried() {
+        AnalysisJobStore jobs = mock(AnalysisJobStore.class);
+        AnalysisCompletionService completion = mock(AnalysisCompletionService.class);
+        AnalysisWorkItem item = item(1);
+        when(jobs.claim(item.job().id(), "worker-1", Duration.ofMinutes(5), NOW))
+                .thenReturn(Optional.of(item));
+        VideoAnalysisProvider provider = (prompt, uri) -> {
+            throw new AiProviderException("Gemini request failed with HTTP 400", false);
+        };
+
+        assertThat(worker(jobs, provider, codec(), completion).process(item.job().id(), "worker-1"))
+                .isEqualTo(AnalysisWorker.WorkResult.FAILED);
+
+        verify(completion).fail(
+                eq(item), eq("worker-1"), eq(null), eq("PROVIDER_ERROR"),
+                eq("Gemini request failed with HTTP 400"), eq(true), eq(NOW),
+                eq("learning-package-v2"), eq("learning-package-v2"), eq(NOW)
+        );
+    }
+
     private static AnalysisWorker worker(
             AnalysisJobStore jobs,
             VideoAnalysisProvider provider,

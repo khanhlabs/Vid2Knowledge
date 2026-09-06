@@ -73,10 +73,13 @@ public class AnalysisWorker {
         try {
             generation = provider.generateLearningPackage(promptFactory.create(), item.sourceUri());
         } catch (RuntimeException exception) {
-            boolean terminal = item.job().attempt() >= costProperties.maxAttempts();
+            boolean retryable = !(exception instanceof AiProviderException providerError)
+                    || providerError.retryable();
+            boolean terminal = !retryable || item.job().attempt() >= costProperties.maxAttempts();
+            java.time.Instant now = clock.instant();
             completion.fail(
                     item, workerId, null, "PROVIDER_ERROR", safeMessage(exception), terminal,
-                    retryAt(item), PROMPT_VERSION, SCHEMA_VERSION, clock.instant()
+                    terminal ? now : retryAt(item), PROMPT_VERSION, SCHEMA_VERSION, now
             );
             return terminal ? WorkResult.FAILED : WorkResult.RETRY_SCHEDULED;
         }
