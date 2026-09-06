@@ -3,6 +3,7 @@ package com.vid2knowledge.auth;
 import com.vid2knowledge.common.id.RequestFingerprint;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.config.CommercialProperties;
+import com.vid2knowledge.notification.NotificationQueue;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -28,16 +29,19 @@ public class InvitationService {
     private final JdbcTemplate jdbc;
     private final IdentityService identities;
     private final CommercialProperties commercial;
+    private final NotificationQueue notifications;
     private final Clock clock;
 
     public InvitationService(
             JdbcTemplate jdbc,
             IdentityService identities,
-            CommercialProperties commercial
+            CommercialProperties commercial,
+            NotificationQueue notifications
     ) {
         this.jdbc = jdbc;
         this.identities = identities;
         this.commercial = commercial;
+        this.notifications = notifications;
         this.clock = Clock.systemUTC();
     }
 
@@ -79,6 +83,7 @@ public class InvitationService {
         );
         audit(actor.organizationId(), actor.userId(), "MEMBER_INVITED", id, correlationId, now);
         outbox(actor.organizationId(), "MemberInvited", id, correlationId, now);
+        notifications.invitation(actor.organizationId(), id, email.trim(), role, token, expiresAt);
         return new InvitationCreated(id, token, email.trim(), role, expiresAt);
     }
 

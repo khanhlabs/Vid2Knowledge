@@ -2,6 +2,9 @@ package com.vid2knowledge;
 
 import com.vid2knowledge.analysis.application.port.AnalysisJobStore;
 import com.vid2knowledge.common.outbox.OutboxStore;
+import com.vid2knowledge.notification.JdbcNotificationQueue;
+import com.vid2knowledge.notification.NotificationDispatcher;
+import com.vid2knowledge.notification.NotificationQueue;
 import com.vid2knowledge.usage.application.UsageQuota;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +24,11 @@ import static org.assertj.core.api.Assertions.assertThat;
         "features.auth-enabled=false",
         "features.outbox-poller-enabled=false",
         "payos.enabled=false",
+        "notifications.enabled=true",
+        "notifications.api-key=re_test",
+        "notifications.from=Vid2Knowledge <hello@example.com>",
+        "notifications.frontend-base-url=https://app.example.com",
+        "notifications.encryption-key=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         "task-queue.mode=INLINE",
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.example.com",
         "spring.security.oauth2.resourceserver.jwt.jwk-set-uri=https://issuer.example.com/jwks"
@@ -46,10 +54,18 @@ class ProductionContextIntegrationTest {
     @Autowired
     OutboxStore outbox;
 
+    @Autowired
+    NotificationQueue notificationQueue;
+
+    @Autowired
+    NotificationDispatcher notificationDispatcher;
+
     @Test
     void bootsThePersistenceEnabledApplicationWithAllCriticalStores() {
         assertThat(analysisJobs).isNotNull();
         assertThat(usageQuota).isNotNull();
         assertThat(outbox).isNotNull();
+        assertThat(notificationQueue).isInstanceOf(JdbcNotificationQueue.class);
+        assertThat(notificationDispatcher).isNotNull();
     }
 }

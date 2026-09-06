@@ -4,6 +4,7 @@ import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.common.id.RequestFingerprint;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.config.PayOsProperties;
+import com.vid2knowledge.notification.NotificationQueue;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.domain.UsageMetric;
 import org.slf4j.Logger;
@@ -35,18 +36,21 @@ public class BillingService {
     private final TransactionTemplate transactions;
     private final PaymentGateway gateway;
     private final PayOsProperties payOs;
+    private final NotificationQueue notifications;
     private final Clock clock;
 
     public BillingService(
             JdbcTemplate jdbc,
             TransactionTemplate transactions,
             PaymentGateway gateway,
-            PayOsProperties payOs
+            PayOsProperties payOs,
+            NotificationQueue notifications
     ) {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.gateway = gateway;
         this.payOs = payOs;
+        this.notifications = notifications;
         this.clock = Clock.systemUTC();
     }
 
@@ -187,6 +191,7 @@ public class BillingService {
                 subscriptionId, periodEnds.getFirst().toString(),
                 Timestamp.from(now), Timestamp.from(now)
         );
+        notifications.cancellationScheduled(actor.organizationId(), subscriptionId, periodEnds.getFirst());
     }
 
     public Checkout checkout(CurrentActor actor, UUID planId, String idempotencyKey) {
@@ -436,7 +441,9 @@ public class BillingService {
                 UuidV7Generator.generate(), order.organizationId(), subscription.subscriptionId(), order.id(),
                 Timestamp.from(subscription.periodStart()), Timestamp.from(subscription.periodEnd()), Timestamp.from(now)
         );
-        Long invoiceNumber = jdbc.queryForObject("SELECT nextval('invoice_number_seq')", Long.class);
+        Long invoiceSequence = jdbc.queryForObject("SELECT nextval('invoice_number_seq')", Long.class);
+        UUID invoiceId = UuidV7Generator.generate();
+        String invoiceNumber = "V2K-" + invoiceSequence;
         jdbc.update(
                 """
                 INSERT INTO invoices(
@@ -444,10 +451,11 @@ public class BillingService {
                     state, amount_due_vnd, amount_paid_vnd, due_at, paid_at, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, 'PAID', ?, ?, ?, ?, ?, ?)
                 """,
-                UuidV7Generator.generate(), order.organizationId(), subscription.subscriptionId(), order.id(),
-                "V2K-" + invoiceNumber, order.amountVnd(), order.amountVnd(), Timestamp.from(now),
+                invoiceId, order.organizationId(), subscription.subscriptionId(), order.id(),
+                invoiceNumber, order.amountVnd(), order.amountVnd(), Timestamp.from(now),
                 Timestamp.from(now), Timestamp.from(now), Timestamp.from(now)
         );
+        notifications.paymentReceipt(order.organizationId(), invoiceId, invoiceNumber, order.amountVnd(), now);
         jdbc.update(
                 """
                 INSERT INTO outbox_events(

@@ -103,3 +103,14 @@ payos:
   return-url: ${PAYOS_RETURN_URL:}
   cancel-url: ${PAYOS_CANCEL_URL:}
   checkout-ttl: ${PAYOS_CHECKOUT_TTL:30m}
+
+notifications:
+  enabled: ${NOTIFICATIONS_ENABLED:false}
+  api-key: ${RESEND_API_KEY:}
+  from: ${NOTIFICATION_FROM:}
+  resend-base-url: ${RESEND_BASE_URL:https://api.resend.com}
+  frontend-base-url: ${FRONTEND_BASE_URL:}
+  encryption-key: ${NOTIFICATION_ENCRYPTION_KEY:}
+  batch-size: ${NOTIFICATION_BATCH_SIZE:25}
+  max-attempts: ${NOTIFICATION_MAX_ATTEMPTS:8}
+  lease-duration: ${NOTIFICATION_LEASE_DURATION:2m}

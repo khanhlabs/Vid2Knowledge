@@ -28,6 +28,7 @@ import com.vid2knowledge.billing.BillingService;
 import com.vid2knowledge.billing.PaymentGateway;
 import com.vid2knowledge.billing.PayOsSignature;
 import com.vid2knowledge.config.PayOsProperties;
+import com.vid2knowledge.notification.DisabledNotificationQueue;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.domain.QuotaExceededException;
 import com.vid2knowledge.usage.domain.UsageMetric;
@@ -388,7 +389,7 @@ class JdbcUsageQuotaIntegrationTest {
         CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
         var commercial = new CommercialProperties(3_600, Duration.ofDays(14), Duration.ofDays(7));
         var identities = new IdentityService(jdbc, commercial);
-        var invitations = new InvitationService(jdbc, identities, commercial);
+        var invitations = new InvitationService(jdbc, identities, commercial, new DisabledNotificationQueue());
         var invitation = transactions.execute(status -> invitations.invite(
                 owner, "new-learner@example.com", CurrentActor.Role.LEARNER, "invite-1"
         ));
@@ -480,7 +481,7 @@ class JdbcUsageQuotaIntegrationTest {
                 URI.create("https://app.example/success"), URI.create("https://app.example/cancel"),
                 Duration.ofMinutes(30)
         );
-        var billing = new BillingService(jdbc, transactions, gateway, properties);
+        var billing = new BillingService(jdbc, transactions, gateway, properties, new DisabledNotificationQueue());
         UUID planId = UUID.fromString("00000000-0000-7000-8000-000000000101");
 
         var checkout = billing.checkout(owner, planId, "checkout-key-1");
@@ -987,7 +988,7 @@ class JdbcUsageQuotaIntegrationTest {
                 URI.create("https://app.example/success"), URI.create("https://app.example/cancel"),
                 Duration.ofMinutes(30)
         );
-        return new BillingService(jdbc, transactions, gateway, properties);
+        return new BillingService(jdbc, transactions, gateway, properties, new DisabledNotificationQueue());
     }
 
     private static void pay(

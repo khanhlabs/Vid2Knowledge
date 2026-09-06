@@ -6,3 +6,5 @@ frontend_origin  = "https://staging.example.com"
 payos_enabled    = false
 payos_return_url = "https://staging.example.com/app?payment=success"
 payos_cancel_url = "https://staging.example.com/app?payment=cancelled"
+notifications_enabled = false
+notification_from     = "Vid2Knowledge <hello@example.com>"

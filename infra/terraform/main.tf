@@ -18,7 +18,15 @@ locals {
     PAYOS_API_KEY      = var.secret_ids.payos_api_key
     PAYOS_CHECKSUM_KEY = var.secret_ids.payos_checksum_key
   }
-  secret_env = merge(local.core_secret_env, var.payos_enabled ? local.payos_secret_env : {})
+  notification_secret_env = {
+    RESEND_API_KEY              = var.secret_ids.resend_api_key
+    NOTIFICATION_ENCRYPTION_KEY = var.secret_ids.notification_encryption_key
+  }
+  secret_env = merge(
+    local.core_secret_env,
+    var.payos_enabled ? local.payos_secret_env : {},
+    var.notifications_enabled ? local.notification_secret_env : {}
+  )
   worker_plain_env = {
     SPRING_PROFILES_ACTIVE     = "prod"
     TASK_QUEUE_MODE            = "INLINE"
@@ -30,6 +38,9 @@ locals {
     PAYOS_ENABLED              = tostring(var.payos_enabled)
     PAYOS_RETURN_URL           = var.payos_return_url
     PAYOS_CANCEL_URL           = var.payos_cancel_url
+    NOTIFICATIONS_ENABLED      = tostring(var.notifications_enabled)
+    NOTIFICATION_FROM          = var.notification_from
+    FRONTEND_BASE_URL          = var.frontend_origin
     DB_POOL_MAX_SIZE           = "4"
   }
   api_plain_env = merge(local.worker_plain_env, {
@@ -278,6 +289,30 @@ resource "google_cloud_scheduler_job" "billing_reconciliation" {
   http_target {
     http_method = "POST"
     uri         = "${google_cloud_run_v2_service.api.uri}/internal/tasks/billing/reconcile"
+    headers     = { "Content-Type" = "application/json" }
+    oidc_token {
+      service_account_email = google_service_account.task_invoker.email
+      audience              = local.internal_audience
+    }
+  }
+  depends_on = [google_cloud_run_v2_service_iam_member.public_api]
+}
+
+resource "google_cloud_scheduler_job" "notification_dispatch" {
+  count            = var.notifications_enabled ? 1 : 0
+  name             = "${local.prefix}-notification-dispatch"
+  region           = var.region
+  schedule         = "* * * * *"
+  time_zone        = "Etc/UTC"
+  attempt_deadline = "60s"
+  retry_config {
+    retry_count          = 2
+    min_backoff_duration = "10s"
+    max_backoff_duration = "30s"
+  }
+  http_target {
+    http_method = "POST"
+    uri         = "${google_cloud_run_v2_service.api.uri}/internal/tasks/notifications/dispatch"
     headers     = { "Content-Type" = "application/json" }
     oidc_token {
       service_account_email = google_service_account.task_invoker.email
