@@ -324,6 +324,75 @@ button:disabled {
   max-width: 1280px;
   margin: auto;
 }
+
+.learner-home {
+  display: grid;
+  gap: 2rem;
+}
+
+.review-dashboard {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.review-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.review-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.review-stats span {
+  background: #fff;
+  border: 1px solid #d1d5ca;
+  border-radius: 0.8rem;
+  padding: 0.7rem 0.9rem;
+}
+
+.review-card {
+  background: linear-gradient(145deg, #fff, #f2f7ff);
+  border: 1px solid #d1d5ca;
+  border-radius: 1rem;
+  box-shadow: 0 16px 40px rgba(23, 32, 25, 0.08);
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.4rem;
+}
+
+.review-card h2,
+.review-card p {
+  margin: 0;
+}
+
+.review-answer {
+  border-top: 1px solid #d9d9cc;
+  display: grid;
+  gap: 0.9rem;
+  padding-top: 1rem;
+}
+
+.rating-grid {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 700px) {
+  .review-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rating-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .app-header,
 .learner-header {
   min-height: 76px;

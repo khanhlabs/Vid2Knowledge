@@ -35,7 +35,7 @@
 - `cohorts`, `cohort_memberships`, `assignments`, `assignment_targets`.
 - `learner_progress(organization_id, user_id, assignment_id, state, started_at, completed_at, progress_percent, version)`.
 - `assessment_snapshots`, `attempts`, `attempt_answers`; snapshot giữ nguyên câu hỏi/option tại thời điểm làm.
-- `flashcard_states`, `flashcard_reviews`; review append-only, state là projection FSRS.
+- `flashcard_memory_states`, `flashcard_review_log`; review append-only, state là projection theo FSRS-6, lưu algorithm version để reschedule/migrate có kiểm soát.
 - `mastery_states(organization_id, user_id, topic_key, score, evidence_count, updated_at)`.
 - `qa_threads`, `qa_messages`, `qa_citations`, `embedding_chunks` với pgvector và revision reference.
 - `learner_feedback`, `content_reports`.
@@ -115,7 +115,7 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `GET /api/v1/learner/assignments/{id}`
 - `POST .../start`, `POST .../progress`, `POST .../complete` idempotent.
 - `POST .../attempts`, `PUT .../answers/{questionId}`, `POST .../submit`.
-- `GET /api/v1/learner/reviews/due`, `POST .../flashcards/{id}/reviews`.
+- `GET .../learner/reviews/due|summary`, `POST .../assignments/{assignmentId}/flashcards/{cardId}/reviews`; rating bắt buộc idempotent và tenant-scoped.
 - `POST .../qa/messages`; response có citations và usage.
 - `POST .../feedback` và `POST .../reports`.
 

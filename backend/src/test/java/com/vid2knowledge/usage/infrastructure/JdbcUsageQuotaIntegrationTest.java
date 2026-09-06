@@ -20,6 +20,8 @@ import com.vid2knowledge.auth.OrganizationAdminService;
 import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.delivery.CatalogService;
 import com.vid2knowledge.delivery.LearnerService;
+import com.vid2knowledge.delivery.FlashcardReviewService;
+import com.vid2knowledge.delivery.FsrsScheduler;
 import com.vid2knowledge.delivery.OutcomeAnalyticsService;
 import com.vid2knowledge.delivery.PackageWorkflowService;
 import com.vid2knowledge.analysis.application.LearningPackageCodec;
@@ -311,6 +313,65 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(outcome.assigned()).isEqualTo(1);
         assertThat(outcome.completed()).isEqualTo(1);
         assertThat(outcome.averageScorePercent()).isEqualTo(100);
+    }
+
+    @Test
+    void learnerGetsAdaptiveFlashcardQueueWithIdempotentReviewHistory() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        UUID learnerId = seedLearner(organizationId);
+        CurrentActor learner = new CurrentActor(learnerId, organizationId, CurrentActor.Role.LEARNER);
+        UUID packageId = seedPublishedPackage(organizationId, ownerId);
+        var launch = new CatalogService(jdbc).launchProgram(
+                owner, "Ôn tập thích ứng", packageId, java.util.List.of(learnerId),
+                Instant.now().minusSeconds(1), Instant.now().plus(Duration.ofDays(7)),
+                "flashcard-launch", "flashcard-launch-correlation"
+        );
+        var reviews = new FlashcardReviewService(jdbc, transactions, new ObjectMapper());
+
+        assertThat(reviews.due(learner)).extracting(FlashcardReviewService.DueCard::cardId)
+                .containsExactly("flash-1", "flash-2");
+        var first = reviews.review(
+                learner, launch.assignmentId(), "flash-1", FsrsScheduler.Rating.GOOD, "flash-review-1"
+        );
+        var replay = reviews.review(
+                learner, launch.assignmentId(), "flash-1", FsrsScheduler.Rating.GOOD, "flash-review-1"
+        );
+        assertThat(replay).isEqualTo(first);
+        assertThatThrownBy(() -> reviews.review(
+                learner, launch.assignmentId(), "flash-1", FsrsScheduler.Rating.EASY, "flash-review-1"
+        )).isInstanceOf(IdempotencyConflictException.class);
+        jdbc.update(
+                """
+                UPDATE flashcard_memory_states SET last_reviewed_at = ?, due_at = ?
+                WHERE assignment_id = ? AND user_id = ? AND card_id = 'flash-1'
+                """,
+                Timestamp.from(Instant.now().minus(Duration.ofDays(3))),
+                Timestamp.from(Instant.now().minusSeconds(1)), launch.assignmentId(), learnerId
+        );
+        var forgotten = reviews.review(
+                learner, launch.assignmentId(), "flash-1", FsrsScheduler.Rating.AGAIN, "flash-review-2"
+        );
+        var summary = reviews.summary(learner);
+
+        assertThat(forgotten.state()).isEqualTo("RELEARNING");
+        assertThat(forgotten.lapseCount()).isEqualTo(1);
+        assertThat(summary.totalCards()).isEqualTo(2);
+        assertThat(summary.dueCards()).isEqualTo(1);
+        assertThat(summary.reviewsToday()).isEqualTo(2);
+        assertThat(summary.currentStreakDays()).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM flashcard_review_log WHERE assignment_id = ?", Long.class,
+                launch.assignmentId()
+        )).isEqualTo(2L);
+        CurrentActor otherTenant = new CurrentActor(learnerId, UUID.randomUUID(), CurrentActor.Role.LEARNER);
+        assertThat(reviews.due(otherTenant)).isEmpty();
+        assertThatThrownBy(() -> reviews.review(
+                otherTenant, launch.assignmentId(), "flash-1", FsrsScheduler.Rating.GOOD, "cross-tenant-review"
+        )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
     }
 
     @Test
@@ -1020,7 +1081,11 @@ class JdbcUsageQuotaIntegrationTest {
         String content = """
                 {"video":{"youtubeUrl":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","title":"Test","language":"vi"},
                  "summary":{"overview":"Overview","sections":[{"title":"One","content":["Text"]}]},
-                 "keyTakeaways":["One"],"flashcards":[],
+                 "keyTakeaways":["One"],
+                 "flashcards":[
+                   {"id":"flash-1","question":"F1?","answer":"A1","source":{"timestampSeconds":10,"verificationStatus":"verified"}},
+                   {"id":"flash-2","question":"F2?","answer":"A2","source":{"timestampSeconds":20,"verificationStatus":"verified"}}
+                 ],
                  "quiz":[
                    {"question":"Q1","options":["A","B","C","D"],"correctAnswerIndex":1,"explanation":"E1"},
                    {"question":"Q2","options":["A","B","C","D"],"correctAnswerIndex":2,"explanation":"E2"}

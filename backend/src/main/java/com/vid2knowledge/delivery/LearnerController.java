@@ -30,10 +30,16 @@ public class LearnerController {
 
     private final TenantAccessService access;
     private final LearnerService learners;
+    private final FlashcardReviewService reviews;
 
-    public LearnerController(TenantAccessService access, LearnerService learners) {
+    public LearnerController(
+            TenantAccessService access,
+            LearnerService learners,
+            FlashcardReviewService reviews
+    ) {
         this.access = access;
         this.learners = learners;
+        this.reviews = reviews;
     }
 
     @GetMapping("/assignments")
@@ -77,6 +83,37 @@ public class LearnerController {
         );
     }
 
+    @GetMapping("/reviews/due")
+    public List<FlashcardReviewService.DueCard> dueReviews(
+            @PathVariable UUID organizationId,
+            Authentication authentication
+    ) {
+        return reviews.due(learner(organizationId, authentication));
+    }
+
+    @GetMapping("/reviews/summary")
+    public FlashcardReviewService.ReviewSummary reviewSummary(
+            @PathVariable UUID organizationId,
+            Authentication authentication
+    ) {
+        return reviews.summary(learner(organizationId, authentication));
+    }
+
+    @PostMapping("/assignments/{assignmentId}/flashcards/{cardId}/reviews")
+    public FlashcardReviewService.ReviewResult reviewFlashcard(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID assignmentId,
+            @PathVariable String cardId,
+            @RequestHeader("Idempotency-Key") @Size(min = 8, max = 160) String idempotencyKey,
+            @Valid @RequestBody ReviewFlashcard request,
+            Authentication authentication
+    ) {
+        return reviews.review(
+                learner(organizationId, authentication), assignmentId, cardId,
+                request.rating(), idempotencyKey
+        );
+    }
+
     @PostMapping("/assignments/{assignmentId}/feedback")
     @ResponseStatus(NO_CONTENT)
     public void feedback(
@@ -109,5 +146,8 @@ public class LearnerController {
             @Size(max = 120) String itemId,
             @Size(max = 2000) String detail
     ) {
+    }
+
+    public record ReviewFlashcard(@jakarta.validation.constraints.NotNull FsrsScheduler.Rating rating) {
     }
 }
