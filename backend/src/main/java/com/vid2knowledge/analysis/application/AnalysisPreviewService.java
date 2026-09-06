@@ -2,6 +2,7 @@ package com.vid2knowledge.analysis.application;
 
 import com.vid2knowledge.analysis.domain.LearningPackage;
 import com.vid2knowledge.analysis.application.port.VideoAnalysisProvider;
+import com.vid2knowledge.analysis.application.port.AiGenerationResult;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import org.springframework.boot.json.JsonParseException;
@@ -31,12 +32,12 @@ public class AnalysisPreviewService {
     }
 
     public LearningPackage generate(String canonicalYoutubeUrl){
-        String rawOutput = videoAnalysisProvider.generateLearningPackage(
+        AiGenerationResult generation = videoAnalysisProvider.generateLearningPackage(
                 promptFactory.create(),
                 canonicalYoutubeUrl
         );
 
-        LearningPackage learningPackage = parse(rawOutput);
+        LearningPackage learningPackage = parse(generation.output());
         validate(learningPackage);
 
         return new LearningPackage(

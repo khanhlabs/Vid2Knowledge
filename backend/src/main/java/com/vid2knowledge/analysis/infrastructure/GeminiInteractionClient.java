@@ -1,6 +1,7 @@
 package com.vid2knowledge.analysis.infrastructure;
 
 import com.vid2knowledge.analysis.application.port.VideoAnalysisProvider;
+import com.vid2knowledge.analysis.application.port.AiGenerationResult;
 import com.vid2knowledge.config.GeminiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +35,7 @@ public class GeminiInteractionClient implements VideoAnalysisProvider {
     }
 
     @Override
-    public String generateLearningPackage(
+    public AiGenerationResult generateLearningPackage(
             String prompt,
             String canonicalYoutubeUrl
     ) {
@@ -99,7 +100,17 @@ public class GeminiInteractionClient implements VideoAnalysisProvider {
             throw new IllegalStateException("Gemini returned no text output");
         }
 
-        return output.toString();
+        return new AiGenerationResult(
+                "GOOGLE_GEMINI",
+                properties.model(),
+                response.path("modelVersion").asText("unknown"),
+                usage.path("total_input_tokens").asLong(),
+                usage.path("total_output_tokens").asLong(),
+                usage.path("total_thought_tokens").asLong(),
+                (System.nanoTime() - startedAt) / 1_000_000,
+                0,
+                output.toString()
+        );
     }
 
 }

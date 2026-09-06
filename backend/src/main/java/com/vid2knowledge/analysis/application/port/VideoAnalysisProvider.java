@@ -6,5 +6,5 @@ package com.vid2knowledge.analysis.application.port;
  */
 public interface VideoAnalysisProvider {
 
-    String generateLearningPackage(String prompt, String canonicalYoutubeUrl);
+    AiGenerationResult generateLearningPackage(String prompt, String canonicalYoutubeUrl);
 }
