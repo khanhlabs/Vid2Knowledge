@@ -484,6 +484,58 @@ button:disabled {
 .learner-shortcut {
   text-align: right;
 }
+.member-panel {
+  margin-top: 2rem;
+}
+.invite-row {
+  display: grid;
+  grid-template-columns: 1fr 160px auto;
+  gap: 0.6rem;
+}
+.invite-row select {
+  padding: 0.8rem;
+  border: 1px solid #b8bdb5;
+  border-radius: 8px;
+  background: white;
+}
+.invite-link {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.8rem;
+  padding: 0.8rem;
+  border-radius: 8px;
+  background: #e5f3eb;
+  overflow: hidden;
+}
+.invite-link span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+.member-list {
+  margin-top: 1.5rem;
+  border-top: 1px solid #dde0d8;
+}
+.member-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid #dde0d8;
+  font-size: 0.82rem;
+}
+.member-list strong,
+.member-list small {
+  display: block;
+}
+.member-list small {
+  margin-top: 0.2rem;
+  color: #687169;
+}
 
 .review-toolbar {
   display: flex;
@@ -731,6 +783,16 @@ aside span {
     flex-direction: column;
   }
   .assignment-list > article button {
+    width: 100%;
+  }
+  .invite-row {
+    grid-template-columns: 1fr;
+  }
+  .invite-link {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .invite-link .small-button {
     width: 100%;
   }
 }

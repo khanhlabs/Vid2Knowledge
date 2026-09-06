@@ -41,7 +41,13 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (auth.loading)
     return <div className="screen-message">Đang mở phiên làm việc…</div>
   if (!auth.session) {
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />
+    return (
+      <Navigate
+        to="/login"
+        state={{ from: `${location.pathname}${location.search}` }}
+        replace
+      />
+    )
   }
   return children
 }

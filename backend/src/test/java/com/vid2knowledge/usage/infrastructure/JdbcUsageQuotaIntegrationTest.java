@@ -16,6 +16,7 @@ import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.auth.TenantAccessService;
 import com.vid2knowledge.auth.IdentityService;
 import com.vid2knowledge.auth.InvitationService;
+import com.vid2knowledge.auth.OrganizationAdminService;
 import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.delivery.CatalogService;
 import com.vid2knowledge.delivery.LearnerService;
@@ -365,6 +366,52 @@ class JdbcUsageQuotaIntegrationTest {
         assertThatThrownBy(() -> transactions.execute(status -> invitations.accept(
                 invitation.token(), "new-learner-subject", "new-learner@example.com", "New Learner", "invite-4"
         ))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    void ownerCanManageMembersWithoutRemovingTheLastOwner() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        UUID learnerId = seedLearner(organizationId);
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        var admin = new OrganizationAdminService(jdbc);
+
+        var changed = admin.changeRole(owner, learnerId, CurrentActor.Role.INSTRUCTOR, "member-1");
+
+        assertThat(changed.role()).isEqualTo(CurrentActor.Role.INSTRUCTOR);
+        assertThatThrownBy(() -> admin.changeRole(
+                owner, ownerId, CurrentActor.Role.ADMIN, "member-2"
+        )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> admin.deactivate(owner, ownerId, "member-3"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+
+        admin.deactivate(owner, learnerId, "member-4");
+        assertThat(admin.members(organizationId)).filteredOn(member -> member.id().equals(learnerId))
+                .extracting(OrganizationAdminService.Member::status)
+                .containsExactly("SUSPENDED");
+    }
+
+    @Test
+    void ownershipTransferIsAtomicAndLeavesExactlyOneOwner() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        UUID nextOwnerId = seedLearner(organizationId);
+        var owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+
+        new OrganizationAdminService(jdbc).transferOwnership(owner, nextOwnerId, "owner-transfer-1");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM memberships WHERE organization_id = ? AND role = 'OWNER' AND status = 'ACTIVE'",
+                Long.class, organizationId
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT role FROM memberships WHERE organization_id = ? AND user_id = ?",
+                String.class, organizationId, nextOwnerId
+        )).isEqualTo("OWNER");
     }
 
     @Test

@@ -1,15 +1,24 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import logo from '../../assets/logo/full_horizontal.png'
 import { supabase } from '../../shared/lib/supabase'
 import { useAuth } from './auth-context'
 
 export function LoginPage() {
   const auth = useAuth()
+  const location = useLocation()
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
   const [pending, setPending] = useState(false)
-  if (auth.session) return <Navigate to="/app" replace />
+  const requestedDestination = (location.state as { from?: string } | null)
+    ?.from
+  const invitationToken = new URLSearchParams(location.search).get('invitation')
+  const destination =
+    requestedDestination ??
+    (invitationToken
+      ? `/accept-invitation?token=${encodeURIComponent(invitationToken)}`
+      : '/app')
+  if (auth.session) return <Navigate to={destination} replace />
 
   const magicLink = async (event: FormEvent) => {
     event.preventDefault()
@@ -17,7 +26,7 @@ export function LoginPage() {
     setPending(true)
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/app` },
+      options: { emailRedirectTo: `${window.location.origin}${destination}` },
     })
     setPending(false)
     setMessage(
@@ -31,7 +40,7 @@ export function LoginPage() {
     if (!supabase) return
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/app` },
+      options: { redirectTo: `${window.location.origin}${destination}` },
     })
   }
 

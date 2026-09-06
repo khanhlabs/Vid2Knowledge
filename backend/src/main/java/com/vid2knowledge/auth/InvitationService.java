@@ -140,6 +140,23 @@ public class InvitationService {
         );
     }
 
+    @Transactional
+    public void revoke(CurrentActor actor, UUID invitationId, String correlationId) {
+        Instant now = clock.instant();
+        int updated = jdbc.update(
+                """
+                UPDATE invitations SET revoked_at = ?
+                WHERE id = ? AND organization_id = ? AND accepted_at IS NULL AND revoked_at IS NULL
+                """,
+                Timestamp.from(now), invitationId, actor.organizationId()
+        );
+        if (updated != 1) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Pending invitation not found");
+        }
+        audit(actor.organizationId(), actor.userId(), "INVITATION_REVOKED", invitationId, correlationId, now);
+        outbox(actor.organizationId(), "InvitationRevoked", invitationId, correlationId, now);
+    }
+
     private void audit(UUID organizationId, UUID actorId, String action, UUID invitationId, String correlationId, Instant now) {
         jdbc.update(
                 """

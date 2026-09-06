@@ -12,6 +12,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,15 +29,18 @@ public class IdentityController {
     private final IdentityService identities;
     private final InvitationService invitations;
     private final TenantAccessService access;
+    private final OrganizationAdminService organizationAdmin;
 
     public IdentityController(
             IdentityService identities,
             InvitationService invitations,
-            TenantAccessService access
+            TenantAccessService access,
+            OrganizationAdminService organizationAdmin
     ) {
         this.identities = identities;
         this.invitations = invitations;
         this.access = access;
+        this.organizationAdmin = organizationAdmin;
     }
 
     @GetMapping("/me")
@@ -89,6 +94,76 @@ public class IdentityController {
         );
     }
 
+    @GetMapping("/organizations/{organizationId}/members")
+    public java.util.List<OrganizationAdminService.Member> members(
+            @PathVariable java.util.UUID organizationId, Authentication authentication
+    ) {
+        access.require(organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN);
+        return organizationAdmin.members(organizationId);
+    }
+
+    @GetMapping("/organizations/{organizationId}/invitations")
+    public java.util.List<OrganizationAdminService.Invitation> invitations(
+            @PathVariable java.util.UUID organizationId, Authentication authentication
+    ) {
+        access.require(organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN);
+        return organizationAdmin.invitations(organizationId);
+    }
+
+    @DeleteMapping("/organizations/{organizationId}/invitations/{invitationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void revokeInvitation(
+            @PathVariable java.util.UUID organizationId,
+            @PathVariable java.util.UUID invitationId,
+            Authentication authentication,
+            HttpServletRequest request
+    ) {
+        CurrentActor actor = access.require(
+                organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN
+        );
+        invitations.revoke(actor, invitationId, correlation(request));
+    }
+
+    @PatchMapping("/organizations/{organizationId}/members/{userId}")
+    public OrganizationAdminService.Member changeRole(
+            @PathVariable java.util.UUID organizationId,
+            @PathVariable java.util.UUID userId,
+            @Valid @RequestBody ChangeRoleRequest request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        CurrentActor actor = access.require(organizationId, authentication, CurrentActor.Role.OWNER);
+        return organizationAdmin.changeRole(actor, userId, request.role(), correlation(servletRequest));
+    }
+
+    @DeleteMapping("/organizations/{organizationId}/members/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deactivateMember(
+            @PathVariable java.util.UUID organizationId,
+            @PathVariable java.util.UUID userId,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        CurrentActor actor = access.require(organizationId, authentication, CurrentActor.Role.OWNER);
+        organizationAdmin.deactivate(actor, userId, correlation(servletRequest));
+    }
+
+    @PostMapping("/organizations/{organizationId}/ownership-transfers")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void transferOwnership(
+            @PathVariable java.util.UUID organizationId,
+            @Valid @RequestBody TransferOwnershipRequest request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        CurrentActor actor = access.require(organizationId, authentication, CurrentActor.Role.OWNER);
+        organizationAdmin.transferOwnership(actor, request.userId(), correlation(servletRequest));
+    }
+
+    private static String correlation(HttpServletRequest request) {
+        return request.getAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE).toString();
+    }
+
     private static String email(Jwt jwt) {
         Boolean verified = jwt.getClaim("email_verified");
         if (Boolean.FALSE.equals(verified)) {
@@ -110,4 +185,8 @@ public class IdentityController {
 
     public record AcceptInvitationRequest(@NotBlank String token) {
     }
+
+    public record ChangeRoleRequest(@NotNull CurrentActor.Role role) {}
+
+    public record TransferOwnershipRequest(@NotNull java.util.UUID userId) {}
 }

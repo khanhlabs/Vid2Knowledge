@@ -30,6 +30,9 @@ export function WorkspacePage() {
   const [organizationName, setOrganizationName] = useState('')
   const [youtubeUrl, setYoutubeUrl] = useState('')
   const [job, setJob] = useState<AnalysisJob | null>(null)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState('LEARNER')
+  const [inviteLink, setInviteLink] = useState('')
   const me = useQuery({ queryKey: ['me'], queryFn: workspaceApi.me })
   const plans = useQuery({ queryKey: ['plans'], queryFn: workspaceApi.plans })
 
@@ -50,6 +53,18 @@ export function WorkspacePage() {
     queryKey: ['usage', activeOrganizationId],
     queryFn: () => workspaceApi.usage(activeOrganizationId),
     enabled: Boolean(activeOrganizationId),
+  })
+  const canManageMembers =
+    organization?.role === 'OWNER' || organization?.role === 'ADMIN'
+  const members = useQuery({
+    queryKey: ['members', activeOrganizationId],
+    queryFn: () => workspaceApi.members(activeOrganizationId),
+    enabled: Boolean(activeOrganizationId && canManageMembers),
+  })
+  const invitations = useQuery({
+    queryKey: ['invitations', activeOrganizationId],
+    queryFn: () => workspaceApi.invitations(activeOrganizationId),
+    enabled: Boolean(activeOrganizationId && canManageMembers),
   })
   const jobQuery = useQuery({
     queryKey: ['analysis-job', activeOrganizationId, job?.id],
@@ -100,6 +115,27 @@ export function WorkspacePage() {
     mutationFn: (planId: string) =>
       workspaceApi.checkout(activeOrganizationId, planId),
     onSuccess: ({ checkoutUrl }) => window.location.assign(checkoutUrl),
+  })
+  const invite = useMutation({
+    mutationFn: () =>
+      workspaceApi.invite(activeOrganizationId, inviteEmail, inviteRole),
+    onSuccess: async (created) => {
+      setInviteEmail('')
+      setInviteLink(
+        `${window.location.origin}/accept-invitation?token=${encodeURIComponent(created.token)}`,
+      )
+      await queryClient.invalidateQueries({
+        queryKey: ['invitations', activeOrganizationId],
+      })
+    },
+  })
+  const revokeInvitation = useMutation({
+    mutationFn: (id: string) =>
+      workspaceApi.revokeInvitation(activeOrganizationId, id),
+    onSuccess: async () =>
+      queryClient.invalidateQueries({
+        queryKey: ['invitations', activeOrganizationId],
+      }),
   })
 
   const submitOrganization = (event: FormEvent) => {
@@ -305,6 +341,94 @@ export function WorkspacePage() {
             Đang học trong tổ chức này?{' '}
             <Link to={`/learn/${activeOrganizationId}`}>Mở cổng học viên</Link>
           </p>
+          {canManageMembers && (
+            <section className="panel member-panel">
+              <div>
+                <p className="eyebrow">ĐỘI NGŨ & HỌC VIÊN</p>
+                <h2>Mời đúng người, đúng quyền</h2>
+                <p>
+                  Link mời gắn với đúng email, hết hạn và chỉ dùng được một lần.
+                </p>
+              </div>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  invite.mutate()
+                }}
+              >
+                <label htmlFor="invite-email">Email người nhận</label>
+                <div className="invite-row">
+                  <input
+                    id="invite-email"
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(event) => setInviteEmail(event.target.value)}
+                    required
+                  />
+                  <select
+                    aria-label="Vai trò"
+                    value={inviteRole}
+                    onChange={(event) => setInviteRole(event.target.value)}
+                  >
+                    <option value="LEARNER">Học viên</option>
+                    <option value="INSTRUCTOR">Giảng viên</option>
+                    <option value="REVIEWER">Kiểm duyệt</option>
+                    <option value="ADMIN">Quản trị</option>
+                  </select>
+                  <button disabled={invite.isPending}>Tạo link mời</button>
+                </div>
+                {inviteLink && (
+                  <div className="invite-link">
+                    <span>{inviteLink}</span>
+                    <button
+                      type="button"
+                      className="small-button"
+                      onClick={() =>
+                        void navigator.clipboard.writeText(inviteLink)
+                      }
+                    >
+                      Sao chép
+                    </button>
+                  </div>
+                )}
+              </form>
+              <div className="member-list">
+                {members.data?.map((member) => (
+                  <div key={member.id}>
+                    <span>
+                      <strong>{member.displayName}</strong>
+                      <small>{member.email}</small>
+                    </span>
+                    <span>
+                      {member.role} · {member.status}
+                    </span>
+                  </div>
+                ))}
+                {invitations.data
+                  ?.filter((item) => item.state === 'PENDING')
+                  .map((item) => (
+                    <div key={item.id}>
+                      <span>
+                        <strong>{item.email}</strong>
+                        <small>Lời mời đang chờ · {item.role}</small>
+                      </span>
+                      <button
+                        className="text-button"
+                        disabled={revokeInvitation.isPending}
+                        onClick={() => revokeInvitation.mutate(item.id)}
+                      >
+                        Thu hồi
+                      </button>
+                    </div>
+                  ))}
+              </div>
+              {(invite.isError || revokeInvitation.isError) && (
+                <p className="form-error">
+                  Không thể cập nhật lời mời. Vui lòng thử lại.
+                </p>
+              )}
+            </section>
+          )}
         </>
       )}
     </main>

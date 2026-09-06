@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { LoginPage } from '../features/auth/LoginPage'
 import { RequireAuth } from '../features/auth/AuthProvider'
+import { AcceptInvitationPage } from '../features/auth/AcceptInvitationPage'
 import { PreviewPage } from '../features/analysis/PreviewPage'
 import { LearnerPage } from '../features/learner/LearnerPage'
 import { PackageReviewPage } from '../features/workspace/PackageReviewPage'
@@ -26,6 +27,14 @@ export default function App() {
         element={
           <RequireAuth>
             <PackageReviewPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/accept-invitation"
+        element={
+          <RequireAuth>
+            <AcceptInvitationPage />
           </RequireAuth>
         }
       />

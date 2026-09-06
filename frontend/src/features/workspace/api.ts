@@ -52,6 +52,32 @@ export interface LearningPackage {
   content: Record<string, unknown>
 }
 
+export interface Member {
+  id: string
+  email: string
+  displayName: string
+  role: Membership['role']
+  status: string
+  joinedAt: string
+}
+
+export interface Invitation {
+  id: string
+  email: string
+  role: Membership['role']
+  state: string
+  expiresAt: string
+  createdAt: string
+}
+
+export interface InvitationCreated {
+  id: string
+  token: string
+  email: string
+  role: Membership['role']
+  expiresAt: string
+}
+
 export const workspaceApi = {
   me: () => api<Me>('/api/v1/me'),
   createOrganization: (name: string, slug: string) =>
@@ -99,6 +125,23 @@ export const workspaceApi = {
     api<LearningPackage>(
       `/api/v1/organizations/${organizationId}/packages/${packageId}/${action}`,
       { method: 'POST' },
+    ),
+  members: (organizationId: string) =>
+    api<Member[]>(`/api/v1/organizations/${organizationId}/members`),
+  invitations: (organizationId: string) =>
+    api<Invitation[]>(`/api/v1/organizations/${organizationId}/invitations`),
+  invite: (organizationId: string, email: string, role: string) =>
+    api<InvitationCreated>(
+      `/api/v1/organizations/${organizationId}/invitations`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ email, role }),
+      },
+    ),
+  revokeInvitation: (organizationId: string, invitationId: string) =>
+    api<void>(
+      `/api/v1/organizations/${organizationId}/invitations/${invitationId}`,
+      { method: 'DELETE' },
     ),
   checkout: (organizationId: string, planId: string) =>
     api<{ checkoutUrl: string }>(
