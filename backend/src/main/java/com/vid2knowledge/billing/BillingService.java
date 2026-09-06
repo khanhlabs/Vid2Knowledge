@@ -754,7 +754,7 @@ public class BillingService {
                         || payment.amountVnd() != candidate.amountVnd()
                         || !payment.providerId().equals(candidate.paymentLinkId())) {
                     failed++;
-                    log.error("payOS reconciliation mismatch. orderCode={}", candidate.orderCode());
+                    log.error("PAYOS_RECONCILIATION_MISMATCH provider=payos orderCode={}", candidate.orderCode());
                     continue;
                 }
                 if ("PAID".equals(payment.status()) && payment.amountPaidVnd() == candidate.amountVnd()) {

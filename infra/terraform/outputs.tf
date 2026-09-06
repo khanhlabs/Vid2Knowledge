@@ -9,5 +9,6 @@ output "operations_alert_policy_names" {
     worker_server_errors    = google_monitoring_alert_policy.worker_server_errors.name
     analysis_queue_backlog  = google_monitoring_alert_policy.analysis_queue_backlog.name
     analysis_queue_failures = google_monitoring_alert_policy.analysis_queue_failures.name
+    commercial_integrity    = google_monitoring_alert_policy.commercial_integrity_events.name
   }
 }

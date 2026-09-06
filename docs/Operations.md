@@ -44,7 +44,8 @@ RPO ban đầu 24 giờ, RTO 4 giờ. Nếu hợp đồng yêu cầu tốt hơn,
 
 Terraform dùng trực tiếp Cloud Monitoring metrics để không phải trả thêm APM vendor: API/worker 5xx lớn hơn
 5 trong 5 phút là critical; Cloud Tasks non-OK attempt lớn hơn 5 trong 5 phút là critical; queue depth lớn
-hơn 50 liên tục 10 phút là warning. Mỗi alert phải có tối thiểu hai email production đã xác thực.
+hơn 50 liên tục 10 phút là warning. Log-based metrics báo critical ngay khi AI circuit mở, payOS reconciliation
+lệch hoặc email hết retry. Mỗi alert phải có tối thiểu hai email production đã xác thực.
 
 Trước launch và mỗi quý, tạo lỗi có kiểm soát ở staging hoặc hạ threshold tạm thời bằng một reviewed
 Terraform change, xác nhận cả hai người nhận thấy alert và recovery notification, rồi apply lại threshold
@@ -57,8 +58,9 @@ AI cost, sửa nguyên nhân rồi resume với dispatch limit thấp. Khi backl
 tra worker instance cap, DB pool và provider latency; không tăng concurrency trước khi xác nhận headroom DB.
 
 Cloud Logging chỉ giữ INFO/WARN/ERROR ở production và không được log token, authorization header, provider
-raw response hay payment payload. Tạo log-based metric/APM trả phí chỉ khi native metrics không trả lời được
-một SLO có ảnh hưởng doanh thu; review ingestion cost hàng tháng cùng P&L dashboard.
+raw response hay payment payload. Production console dùng structured JSON để correlation ID và event marker
+có thể truy vấn không cần parse tự do. Chỉ thêm APM trả phí khi native metrics không trả lời được một SLO có
+ảnh hưởng doanh thu; review ingestion cost hàng tháng cùng P&L dashboard.
 
 ## Data retention operation
 

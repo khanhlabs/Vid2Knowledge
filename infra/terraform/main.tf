@@ -52,6 +52,7 @@ locals {
     LEGAL_AI_NOTICE_URL                = var.legal_policies.ai_notice_url
     LEGAL_REVIEWED                     = tostring(var.legal_policies.reviewed)
     LEGAL_REQUIRE_PRODUCTION_READINESS = tostring(var.environment == "prod")
+    DEBUG                              = "false"
     DB_POOL_MAX_SIZE                   = "4"
   }
   api_plain_env = merge(local.worker_plain_env, {
@@ -73,6 +74,7 @@ resource "google_project_service" "required" {
     "cloudtasks.googleapis.com",
     "cloudscheduler.googleapis.com",
     "iamcredentials.googleapis.com",
+    "logging.googleapis.com",
     "monitoring.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
@@ -421,6 +423,115 @@ resource "google_monitoring_alert_policy" "analysis_queue_failures" {
       filter          = "resource.type = \"cloud_tasks_queue\" AND resource.labels.location = \"${var.region}\" AND resource.labels.queue_id = \"${google_cloud_tasks_queue.analysis.name}\" AND metric.type = \"cloudtasks.googleapis.com/queue/task_attempt_count\" AND metric.labels.response_code != \"ok\""
       comparison      = "COMPARISON_GT"
       threshold_value = 5
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+      trigger { count = 1 }
+    }
+  }
+
+  alert_strategy { auto_close = "1800s" }
+  user_labels = local.labels
+  depends_on  = [google_project_service.required]
+}
+
+resource "google_logging_metric" "ai_provider_circuit_open" {
+  name        = "${local.prefix}-ai-provider-circuit-open"
+  description = "Counts transitions of the paid AI provider circuit into the open state."
+  filter      = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.worker.name}\" AND (jsonPayload.message : \"AI_PROVIDER_CIRCUIT_OPEN\" OR textPayload : \"AI_PROVIDER_CIRCUIT_OPEN\")"
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_logging_metric" "payos_reconciliation_mismatch" {
+  name        = "${local.prefix}-payos-reconciliation-mismatch"
+  description = "Counts verified payOS reconciliation mismatches that can block entitlement or revenue recognition."
+  filter      = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.api.name}\" AND (jsonPayload.message : \"PAYOS_RECONCILIATION_MISMATCH\" OR textPayload : \"PAYOS_RECONCILIATION_MISMATCH\")"
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_logging_metric" "notification_dead_letter" {
+  name        = "${local.prefix}-notification-dead-letter"
+  description = "Counts outbound emails that exhausted bounded delivery retries."
+  filter      = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.api.name}\" AND (jsonPayload.message : \"NOTIFICATION_DELIVERY_FAILED\" OR textPayload : \"NOTIFICATION_DELIVERY_FAILED\") AND (jsonPayload.message : \"deadLetter=true\" OR textPayload : \"deadLetter=true\")"
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_monitoring_alert_policy" "commercial_integrity_events" {
+  display_name = "${local.prefix}: commercial integrity event"
+  combiner     = "OR"
+  enabled      = true
+  severity     = "CRITICAL"
+  notification_channels = [
+    for channel in google_monitoring_notification_channel.operations_email : channel.name
+  ]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "A paid-provider circuit opened, payOS reconciliation mismatched, or an email reached dead-letter. Follow the corresponding runbook in docs/Operations.md."
+  }
+
+  conditions {
+    display_name = "AI provider circuit opened"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND metric.type = \"logging.googleapis.com/user/${google_logging_metric.ai_provider_circuit_open.name}\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+      trigger { count = 1 }
+    }
+  }
+
+  conditions {
+    display_name = "payOS reconciliation mismatch"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND metric.type = \"logging.googleapis.com/user/${google_logging_metric.payos_reconciliation_mismatch.name}\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+      trigger { count = 1 }
+    }
+  }
+
+  conditions {
+    display_name = "Notification reached dead-letter"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND metric.type = \"logging.googleapis.com/user/${google_logging_metric.notification_dead_letter.name}\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
       duration        = "0s"
       aggregations {
         alignment_period     = "300s"

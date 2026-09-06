@@ -20,6 +20,13 @@ logging:
   level:
     root: INFO
     com.vid2knowledge: INFO
+  structured:
+    format:
+      console: logstash
+    json:
+      rename:
+        level: severity
+      exclude: "@version,level_value"
 
 features:
   # This synchronous endpoint has no tenant quota and is intentionally local-only.

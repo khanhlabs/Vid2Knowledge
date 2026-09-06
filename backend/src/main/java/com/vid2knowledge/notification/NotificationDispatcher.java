@@ -218,7 +218,7 @@ public class NotificationDispatcher {
                 deadLetter ? "DEAD" : "PENDING", Timestamp.from(now.plus(backoff)), message,
                 deadLetter ? Timestamp.from(now) : null, Timestamp.from(now), job.id(), job.leaseOwner()
         );
-        log.warn("Notification delivery failed. notificationId={}, attempt={}, deadLetter={}, errorType={}",
+        log.warn("NOTIFICATION_DELIVERY_FAILED notificationId={}, attempt={}, deadLetter={}, errorType={}",
                 job.id(), job.attemptCount(), deadLetter, failure.getClass().getSimpleName());
     }
 
