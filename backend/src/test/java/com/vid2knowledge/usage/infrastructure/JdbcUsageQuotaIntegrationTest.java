@@ -1,6 +1,10 @@
 package com.vid2knowledge.usage.infrastructure;
 
+import com.vid2knowledge.analysis.application.RequestAnalysisCommand;
+import com.vid2knowledge.analysis.application.RequestAnalysisService;
+import com.vid2knowledge.analysis.infrastructure.JdbcAnalysisJobStore;
 import com.vid2knowledge.common.id.UuidV7Generator;
+import com.vid2knowledge.common.outbox.JdbcOutboxStore;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.domain.QuotaExceededException;
 import com.vid2knowledge.usage.domain.UsageMetric;
@@ -21,6 +25,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -33,6 +38,7 @@ class JdbcUsageQuotaIntegrationTest {
 
     private JdbcTemplate jdbc;
     private JdbcUsageQuota quota;
+    private TransactionTemplate transactions;
     private UUID organizationId;
 
     @BeforeAll
@@ -51,10 +57,8 @@ class JdbcUsageQuotaIntegrationTest {
                 postgres.getPassword()
         );
         jdbc = new JdbcTemplate(dataSource);
-        quota = new JdbcUsageQuota(
-                jdbc,
-                new TransactionTemplate(new DataSourceTransactionManager(dataSource))
-        );
+        transactions = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        quota = new JdbcUsageQuota(jdbc, transactions);
         organizationId = seedEntitlement(1_000);
     }
 
@@ -139,6 +143,113 @@ class JdbcUsageQuotaIntegrationTest {
         )).isInstanceOf(QuotaExceededException.class);
     }
 
+    @Test
+    void createsJobReservationAndOutboxAtomicallyAndReplaysSafely() {
+        UUID sourceId = seedSourceWithRights(organizationId);
+        var service = new RequestAnalysisService(
+                new JdbcAnalysisJobStore(jdbc),
+                quota,
+                new ObjectMapper()
+        );
+        var command = new RequestAnalysisCommand(
+                organizationId,
+                sourceId,
+                600,
+                "{\"language\":\"vi\",\"flashcards\":10}",
+                "request-job-1",
+                "GOOGLE_GEMINI",
+                "gemini-test",
+                "correlation-job-1"
+        );
+
+        var first = transactions.execute(status -> service.request(command));
+        var replay = transactions.execute(status -> service.request(command));
+
+        assertThat(replay).isEqualTo(first);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM analysis_jobs WHERE organization_id = ?", Long.class, organizationId))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outbox_events WHERE aggregate_id = ?", Long.class, first.id()))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM usage_reservations WHERE organization_id = ?", Long.class, organizationId))
+                .isEqualTo(1L);
+    }
+
+    @Test
+    void rollsBackQuotaWhenJobPersistenceFails() {
+        UUID sourceId = seedSourceWithRights(organizationId);
+        var service = new RequestAnalysisService(
+                new JdbcAnalysisJobStore(jdbc),
+                quota,
+                new ObjectMapper()
+        );
+        var invalid = new RequestAnalysisCommand(
+                organizationId,
+                sourceId,
+                600,
+                "{}",
+                "request-job-rollback",
+                "GOOGLE_GEMINI",
+                "x".repeat(121),
+                "correlation-job-rollback"
+        );
+
+        assertThatThrownBy(() -> transactions.execute(status -> service.request(invalid)))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM usage_reservations WHERE organization_id = ?", Long.class, organizationId))
+                .isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM usage_ledger WHERE organization_id = ?", Long.class, organizationId))
+                .isZero();
+    }
+
+    @Test
+    void workerClaimUsesLeaseAndAllowsRecoveryAfterExpiry() {
+        UUID sourceId = seedSourceWithRights(organizationId);
+        var store = new JdbcAnalysisJobStore(jdbc);
+        var service = new RequestAnalysisService(store, quota, new ObjectMapper());
+        var command = new RequestAnalysisCommand(
+                organizationId, sourceId, 300, "{}", "request-lease-1",
+                "GOOGLE_GEMINI", "gemini-test", "correlation-lease-1"
+        );
+        var job = transactions.execute(status -> service.request(command));
+        Instant firstClaimAt = Instant.now();
+
+        var first = store.claim(job.id(), "worker-1", Duration.ofMinutes(5), firstClaimAt);
+        var duplicate = store.claim(job.id(), "worker-2", Duration.ofMinutes(5), firstClaimAt.plusSeconds(1));
+        var recovered = store.claim(job.id(), "worker-2", Duration.ofMinutes(5), firstClaimAt.plus(Duration.ofMinutes(6)));
+
+        assertThat(first).get().extracting(com.vid2knowledge.analysis.domain.AnalysisJob::attempt).isEqualTo(1);
+        assertThat(duplicate).isEmpty();
+        assertThat(recovered).get().extracting(com.vid2knowledge.analysis.domain.AnalysisJob::attempt).isEqualTo(2);
+    }
+
+    @Test
+    void outboxLeasePreventsConcurrentDispatchAndRecoversAfterExpiry() {
+        UUID sourceId = seedSourceWithRights(organizationId);
+        var service = new RequestAnalysisService(new JdbcAnalysisJobStore(jdbc), quota, new ObjectMapper());
+        var job = transactions.execute(status -> service.request(new RequestAnalysisCommand(
+                organizationId, sourceId, 300, "{}", "request-outbox-1",
+                "GOOGLE_GEMINI", "gemini-test", "correlation-outbox-1"
+        )));
+        var outbox = new JdbcOutboxStore(jdbc, transactions);
+        Instant firstClaimAt = Instant.now();
+
+        var first = outbox.claim("dispatcher-1", 10, Duration.ofMinutes(5), firstClaimAt);
+        var duplicate = outbox.claim("dispatcher-2", 10, Duration.ofMinutes(5), firstClaimAt.plusSeconds(1));
+        var recovered = outbox.claim("dispatcher-2", 10, Duration.ofMinutes(5), firstClaimAt.plus(Duration.ofMinutes(6)));
+
+        assertThat(first).extracting(event -> event.aggregateId()).contains(job.id());
+        assertThat(duplicate).isEmpty();
+        assertThat(recovered).extracting(event -> event.id())
+                .containsExactlyInAnyOrderElementsOf(first.stream().map(event -> event.id()).toList());
+        UUID targetEventId = first.stream()
+                .filter(event -> event.aggregateId().equals(job.id()))
+                .findFirst()
+                .orElseThrow()
+                .id();
+        assertThat(outbox.markPublished(targetEventId, "dispatcher-1", Instant.now())).isFalse();
+        assertThat(outbox.markPublished(targetEventId, "dispatcher-2", Instant.now())).isTrue();
+    }
+
     private UUID seedEntitlement(long allowance) {
         UUID userId = UuidV7Generator.generate();
         UUID orgId = UuidV7Generator.generate();
@@ -171,5 +282,38 @@ class JdbcUsageQuotaIntegrationTest {
                 Timestamp.from(now.plus(Duration.ofDays(30)))
         );
         return orgId;
+    }
+
+    private UUID seedSourceWithRights(UUID orgId) {
+        UUID sourceId = UuidV7Generator.generate();
+        UUID attestationId = UuidV7Generator.generate();
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class,
+                orgId
+        );
+        jdbc.update(
+                """
+                INSERT INTO sources(id, organization_id, type, canonical_uri, external_id, created_by)
+                VALUES (?, ?, 'YOUTUBE', ?, ?, ?)
+                """,
+                sourceId,
+                orgId,
+                "https://www.youtube.com/watch?v=" + sourceId.toString().substring(0, 11),
+                sourceId.toString().substring(0, 11),
+                ownerId
+        );
+        jdbc.update(
+                """
+                INSERT INTO rights_attestations(
+                    id, organization_id, source_id, attested_by, basis, terms_version
+                ) VALUES (?, ?, ?, ?, 'OWNER', 'v1')
+                """,
+                attestationId,
+                orgId,
+                sourceId,
+                ownerId
+        );
+        return sourceId;
     }
 }

@@ -56,6 +56,11 @@ public class JdbcUsageQuota implements UsageQuota {
         }
 
         return Objects.requireNonNull(transactions.execute(status -> {
+            jdbc.queryForObject(
+                    "SELECT CAST(pg_advisory_xact_lock(hashtextextended(?, 0)) AS text)",
+                    String.class,
+                    organizationId + "|" + metric.name() + "|" + idempotencyKey
+            );
             List<UsageReservation> existing = jdbc.query(
                     """
                     SELECT id, organization_id, entitlement_id, metric, reserved_units,

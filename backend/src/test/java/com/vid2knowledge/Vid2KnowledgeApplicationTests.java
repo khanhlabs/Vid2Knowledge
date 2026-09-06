@@ -33,7 +33,8 @@ import static org.hamcrest.Matchers.not;
                 + "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration,"
                 + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
-        "gemini.api-key=test-key"
+        "gemini.api-key=test-key",
+        "features.persistence-enabled=false"
 })
 @AutoConfigureMockMvc
 @Import(Vid2KnowledgeApplicationTests.TestEndpointsConfiguration.class)

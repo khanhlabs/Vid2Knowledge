@@ -6,6 +6,7 @@ import com.vid2knowledge.common.api.CorrelationIdFilter;
 import com.vid2knowledge.usage.application.EntitlementNotFoundException;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.domain.QuotaExceededException;
+import com.vid2knowledge.analysis.application.SourceRightsRequiredException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -105,6 +106,20 @@ public class GlobalExceptionHandler {
         return response(
                 HttpStatus.CONFLICT,
                 "IDEMPOTENCY_CONFLICT",
+                exception.getMessage(),
+                List.of(),
+                request
+        );
+    }
+
+    @ExceptionHandler(SourceRightsRequiredException.class)
+    public ResponseEntity<ApiError> handleSourceRightsRequired(
+            SourceRightsRequiredException exception,
+            HttpServletRequest request
+    ) {
+        return response(
+                HttpStatus.NOT_FOUND,
+                "SOURCE_NOT_FOUND_OR_RIGHTS_REQUIRED",
                 exception.getMessage(),
                 List.of(),
                 request
