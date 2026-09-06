@@ -15,6 +15,8 @@ The Terraform stack provisions the low-idle-cost GCP half of Vid2Knowledge: two 
 
 Production deletion protection is on. Secret versions, DNS, Supabase, payOS merchant activation, billing budgets, and GitHub OIDC trust intentionally require account-owner decisions and are not fabricated by this repository.
 
+CI validates Terraform with the pinned CLI baseline. It also builds the actual backend container, rejects fixable high/critical image vulnerabilities, reviews pull-request dependency changes, and publishes CycloneDX SBOM artifacts for both applications. A scan exception must be narrow, expiry-dated, linked to a risk decision, and removed once an upstream fix is available.
+
 Set `billing_account_id` before production so Terraform creates a project-scoped monthly budget with alerts at 50%, 80%, and 100%. The default USD 25 budget is a guardrail, not a spending cap; provider consoles still need hard quota/cap settings where supported.
 
 Terraform creates critical alerts for API/worker 5xx bursts and analysis task failures, plus a warning when queue depth remains above 50 for ten minutes. Production planning fails with fewer than two alert recipients. Google sends a verification request when an email notification channel is created; an unverified address is not operational coverage. Run the alert drill in `docs/Operations.md` after every production bootstrap or recipient change.
