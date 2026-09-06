@@ -15,6 +15,7 @@ import com.vid2knowledge.common.outbox.JdbcOutboxStore;
 import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.auth.TenantAccessService;
 import com.vid2knowledge.auth.IdentityService;
+import com.vid2knowledge.auth.InvitationService;
 import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.delivery.CatalogService;
 import com.vid2knowledge.delivery.LearnerService;
@@ -224,7 +225,7 @@ class JdbcUsageQuotaIntegrationTest {
         Instant now = Instant.parse("2026-09-06T00:00:00Z");
         var identities = new IdentityService(
                 jdbc,
-                new CommercialProperties(3_600, Duration.ofDays(14)),
+                new CommercialProperties(3_600, Duration.ofDays(14), Duration.ofDays(7)),
                 Clock.fixed(now, ZoneOffset.UTC)
         );
 
@@ -323,6 +324,41 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM audit_logs WHERE resource_id = ?", Long.class, packageId
         )).isEqualTo(3L);
+    }
+
+    @Test
+    void invitationIsEmailBoundSingleUseAndCreatesLearnerMembership() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        var commercial = new CommercialProperties(3_600, Duration.ofDays(14), Duration.ofDays(7));
+        var identities = new IdentityService(jdbc, commercial);
+        var invitations = new InvitationService(jdbc, identities, commercial);
+        var invitation = transactions.execute(status -> invitations.invite(
+                owner, "new-learner@example.com", CurrentActor.Role.LEARNER, "invite-1"
+        ));
+
+        assertThatThrownBy(() -> transactions.execute(status -> invitations.accept(
+                invitation.token(), "wrong-subject", "wrong@example.com", "Wrong", "invite-2"
+        ))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+
+        var membership = transactions.execute(status -> invitations.accept(
+                invitation.token(), "new-learner-subject", "new-learner@example.com", "New Learner", "invite-3"
+        ));
+
+        assertThat(membership.role()).isEqualTo(CurrentActor.Role.LEARNER);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM memberships m JOIN users u ON u.id = m.user_id
+                WHERE m.organization_id = ? AND u.auth_subject = ? AND m.role = 'LEARNER' AND m.status = 'ACTIVE'
+                """,
+                Long.class, organizationId, "new-learner-subject"
+        )).isEqualTo(1L);
+        assertThatThrownBy(() -> transactions.execute(status -> invitations.accept(
+                invitation.token(), "new-learner-subject", "new-learner@example.com", "New Learner", "invite-4"
+        ))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
     }
 
     @Test

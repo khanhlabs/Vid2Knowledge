@@ -10,11 +10,15 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "commercial")
 public record CommercialProperties(
         @Min(0) long trialProcessedVideoSeconds,
-        Duration trialDuration
+        Duration trialDuration,
+        Duration invitationTtl
 ) {
     public CommercialProperties {
         if (trialDuration == null || trialDuration.isZero() || trialDuration.isNegative()) {
             throw new IllegalArgumentException("Trial duration must be positive");
+        }
+        if (invitationTtl == null || invitationTtl.isZero() || invitationTtl.isNegative()) {
+            throw new IllegalArgumentException("Invitation TTL must be positive");
         }
     }
 }

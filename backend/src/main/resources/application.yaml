@@ -92,3 +92,4 @@ task-queue:
 commercial:
   trial-processed-video-seconds: ${TRIAL_PROCESSED_VIDEO_SECONDS:3600}
   trial-duration: ${TRIAL_DURATION:14d}
+  invitation-ttl: ${INVITATION_TTL:7d}
