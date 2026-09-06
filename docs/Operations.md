@@ -12,6 +12,7 @@ Không nhận dữ liệu hoặc tiền thật cho tới khi owner xác nhận b
 - Các URL `LEGAL_*_URL` trỏ đúng bản HTTPS đã duyệt, version khớp nội dung, và chỉ sau đó mới đặt
   `LEGAL_REVIEWED=true`; thay nội dung phải tăng version để buộc re-consent.
 - Có ít nhất hai người/địa chỉ nhận alert vận hành; không để production phụ thuộc duy nhất vào inbox cá nhân của founder.
+- Cả hai notification channel đã xác thực email và alert drill API 5xx/queue backlog có bằng chứng nhận được thông báo.
 
 ## Backup and restore
 
@@ -38,6 +39,26 @@ RPO ban đầu 24 giờ, RTO 4 giờ. Nếu hợp đồng yêu cầu tốt hơn,
   audit logs và revoke các credential liên quan. Không commit secret đã lộ vào lịch sử.
 - Privacy deletion: task local pseudonymize và block subject; operator xóa Supabase Auth identity,
   ghi ticket/bằng chứng hoàn tất. Financial/audit ledger chỉ còn pseudonymous ID theo retention policy.
+
+## Monitoring and alert drill
+
+Terraform dùng trực tiếp Cloud Monitoring metrics để không phải trả thêm APM vendor: API/worker 5xx lớn hơn
+5 trong 5 phút là critical; Cloud Tasks non-OK attempt lớn hơn 5 trong 5 phút là critical; queue depth lớn
+hơn 50 liên tục 10 phút là warning. Mỗi alert phải có tối thiểu hai email production đã xác thực.
+
+Trước launch và mỗi quý, tạo lỗi có kiểm soát ở staging hoặc hạ threshold tạm thời bằng một reviewed
+Terraform change, xác nhận cả hai người nhận thấy alert và recovery notification, rồi apply lại threshold
+chuẩn. Lưu policy ID, thời điểm phát hiện, thời điểm acknowledge và thời gian xử lý. Không tạo traffic lỗi
+trên production chỉ để thử alert.
+
+Khi API/worker 5xx bắn: xem revision, request ID và deployment gần nhất; rollback revision nếu tương quan
+rõ. Khi task failures bắn: pause queue trước nếu lỗi deterministic/provider-wide để tránh retry làm tăng
+AI cost, sửa nguyên nhân rồi resume với dispatch limit thấp. Khi backlog bắn nhưng không có failures: kiểm
+tra worker instance cap, DB pool và provider latency; không tăng concurrency trước khi xác nhận headroom DB.
+
+Cloud Logging chỉ giữ INFO/WARN/ERROR ở production và không được log token, authorization header, provider
+raw response hay payment payload. Tạo log-based metric/APM trả phí chỉ khi native metrics không trả lời được
+một SLO có ảnh hưởng doanh thu; review ingestion cost hàng tháng cùng P&L dashboard.
 
 ## Data retention operation
 

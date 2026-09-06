@@ -73,11 +73,26 @@ resource "google_project_service" "required" {
     "cloudtasks.googleapis.com",
     "cloudscheduler.googleapis.com",
     "iamcredentials.googleapis.com",
+    "monitoring.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false
+}
+
+resource "terraform_data" "production_launch_guard" {
+  input = {
+    environment              = var.environment
+    alert_notification_count = length(var.alert_notification_emails)
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.environment != "prod" || length(var.alert_notification_emails) >= 2
+      error_message = "Production requires at least two independent alert_notification_emails recipients."
+    }
+  }
 }
 
 resource "google_artifact_registry_repository" "backend" {
@@ -267,6 +282,158 @@ resource "google_billing_budget" "project" {
   threshold_rules { threshold_percent = 1.0 }
 
   depends_on = [google_project_service.required]
+}
+
+resource "google_monitoring_notification_channel" "operations_email" {
+  for_each     = var.alert_notification_emails
+  display_name = "${local.prefix} operations - ${each.value}"
+  type         = "email"
+  enabled      = true
+  labels = {
+    email_address = each.value
+  }
+  user_labels = local.labels
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_monitoring_alert_policy" "api_server_errors" {
+  display_name = "${local.prefix}: API 5xx burst"
+  combiner     = "OR"
+  enabled      = true
+  severity     = "CRITICAL"
+  notification_channels = [
+    for channel in google_monitoring_notification_channel.operations_email : channel.name
+  ]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "More than five API 5xx responses in five minutes. Follow the API/worker incident runbook in docs/Operations.md."
+  }
+
+  conditions {
+    display_name = "API 5xx count > 5 in 5m"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.api.name}\" AND metric.type = \"run.googleapis.com/request_count\" AND metric.labels.response_code_class = \"5xx\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 5
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+      trigger { count = 1 }
+    }
+  }
+
+  alert_strategy { auto_close = "1800s" }
+  user_labels = local.labels
+  depends_on  = [google_project_service.required]
+}
+
+resource "google_monitoring_alert_policy" "worker_server_errors" {
+  display_name = "${local.prefix}: worker 5xx burst"
+  combiner     = "OR"
+  enabled      = true
+  severity     = "CRITICAL"
+  notification_channels = [
+    for channel in google_monitoring_notification_channel.operations_email : channel.name
+  ]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "More than five worker 5xx responses in five minutes. Pause the analysis queue before retries amplify paid-provider cost."
+  }
+
+  conditions {
+    display_name = "Worker 5xx count > 5 in 5m"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.worker.name}\" AND metric.type = \"run.googleapis.com/request_count\" AND metric.labels.response_code_class = \"5xx\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 5
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+      trigger { count = 1 }
+    }
+  }
+
+  alert_strategy { auto_close = "1800s" }
+  user_labels = local.labels
+  depends_on  = [google_project_service.required]
+}
+
+resource "google_monitoring_alert_policy" "analysis_queue_backlog" {
+  display_name = "${local.prefix}: analysis queue backlog"
+  combiner     = "OR"
+  enabled      = true
+  severity     = "WARNING"
+  notification_channels = [
+    for channel in google_monitoring_notification_channel.operations_email : channel.name
+  ]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Analysis queue depth stayed above 50 for ten minutes. Check worker capacity/provider health before raising dispatch limits."
+  }
+
+  conditions {
+    display_name = "Queue depth > 50 for 10m"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_tasks_queue\" AND resource.labels.location = \"${var.region}\" AND resource.labels.queue_id = \"${google_cloud_tasks_queue.analysis.name}\" AND metric.type = \"cloudtasks.googleapis.com/queue/depth\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 50
+      duration        = "600s"
+      aggregations {
+        alignment_period   = "300s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+      trigger { count = 1 }
+    }
+  }
+
+  alert_strategy { auto_close = "1800s" }
+  user_labels = local.labels
+  depends_on  = [google_project_service.required]
+}
+
+resource "google_monitoring_alert_policy" "analysis_queue_failures" {
+  display_name = "${local.prefix}: analysis task failures"
+  combiner     = "OR"
+  enabled      = true
+  severity     = "CRITICAL"
+  notification_channels = [
+    for channel in google_monitoring_notification_channel.operations_email : channel.name
+  ]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "More than five non-OK analysis task attempts in five minutes. Pause the queue if the failure is deterministic or provider-related."
+  }
+
+  conditions {
+    display_name = "Non-OK task attempts > 5 in 5m"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_tasks_queue\" AND resource.labels.location = \"${var.region}\" AND resource.labels.queue_id = \"${google_cloud_tasks_queue.analysis.name}\" AND metric.type = \"cloudtasks.googleapis.com/queue/task_attempt_count\" AND metric.labels.response_code != \"ok\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 5
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+      trigger { count = 1 }
+    }
+  }
+
+  alert_strategy { auto_close = "1800s" }
+  user_labels = local.labels
+  depends_on  = [google_project_service.required]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public_api" {

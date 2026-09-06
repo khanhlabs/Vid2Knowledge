@@ -44,6 +44,18 @@ variable "monthly_budget_usd" {
     error_message = "monthly_budget_usd must be at least 1"
   }
 }
+
+variable "alert_notification_emails" {
+  description = "Operational alert recipients. Production requires at least two independent addresses."
+  type        = set(string)
+  default     = []
+  validation {
+    condition = alltrue([
+      for email in var.alert_notification_emails : can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", email))
+    ])
+    error_message = "Every alert_notification_emails entry must be an email address."
+  }
+}
 variable "payos_enabled" {
   type    = bool
   default = false
