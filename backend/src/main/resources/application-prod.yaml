@@ -4,6 +4,12 @@ spring:
   datasource:
     hikari:
       minimum-idle: 0
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH_ISSUER_URI}
+          audiences: ${AUTH_AUDIENCE:authenticated}
 
 server:
   error:
@@ -18,3 +24,7 @@ logging:
 features:
   # This synchronous endpoint has no tenant quota and is intentionally local-only.
   analysis-preview-enabled: false
+  auth-enabled: true
+
+task-queue:
+  mode: CLOUD_TASKS

@@ -15,6 +15,8 @@ public interface AnalysisJobStore {
 
     Optional<AnalysisJob> findByIdempotencyKey(UUID organizationId, String idempotencyKey);
 
+    Optional<AnalysisJob> findById(UUID organizationId, UUID jobId);
+
     AnalysisJob create(
             UUID organizationId,
             UUID sourceId,

@@ -24,6 +24,9 @@ public record RequestAnalysisCommand(
         requireText(provider, "Provider is required");
         requireText(model, "Model is required");
         requireText(correlationId, "Correlation ID is required");
+        if (idempotencyKey.length() > 160 || provider.length() > 64 || model.length() > 120) {
+            throw new IllegalArgumentException("Analysis request metadata is too long");
+        }
     }
 
     private static void requireText(String value, String message) {

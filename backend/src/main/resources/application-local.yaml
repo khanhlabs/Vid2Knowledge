@@ -22,3 +22,4 @@ cors:
 
 features:
   analysis-preview-enabled: true
+  auth-enabled: false

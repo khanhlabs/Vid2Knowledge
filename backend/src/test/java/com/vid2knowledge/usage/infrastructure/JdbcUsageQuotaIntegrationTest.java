@@ -4,11 +4,18 @@ import com.vid2knowledge.analysis.application.RequestAnalysisCommand;
 import com.vid2knowledge.analysis.application.RequestAnalysisService;
 import com.vid2knowledge.analysis.application.AnalysisCompletionService;
 import com.vid2knowledge.analysis.application.AnalysisLeaseLostException;
+import com.vid2knowledge.analysis.application.RegisterYoutubeSourceService;
+import com.vid2knowledge.analysis.application.YoutubeUrlParser;
 import com.vid2knowledge.analysis.application.port.AiGenerationResult;
+import com.vid2knowledge.analysis.application.port.VideoMetadataProvider;
 import com.vid2knowledge.analysis.domain.GenerationAccounting;
 import com.vid2knowledge.analysis.infrastructure.JdbcAnalysisJobStore;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.common.outbox.JdbcOutboxStore;
+import com.vid2knowledge.auth.CurrentActor;
+import com.vid2knowledge.auth.TenantAccessService;
+import com.vid2knowledge.auth.IdentityService;
+import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.domain.QuotaExceededException;
 import com.vid2knowledge.usage.domain.UsageMetric;
@@ -21,6 +28,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -28,6 +37,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.Clock;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import tools.jackson.databind.ObjectMapper;
 
@@ -148,6 +159,94 @@ class JdbcUsageQuotaIntegrationTest {
     }
 
     @Test
+    void tenantAccessRequiresActiveMembershipAndAllowedRole() {
+        String subject = jdbc.queryForObject(
+                """
+                SELECT u.auth_subject FROM users u
+                JOIN memberships m ON m.user_id = u.id
+                WHERE m.organization_id = ?
+                """,
+                String.class,
+                organizationId
+        );
+        var authentication = UsernamePasswordAuthenticationToken.authenticated(subject, "n/a", java.util.List.of());
+        var access = new TenantAccessService(jdbc);
+
+        assertThat(access.require(organizationId, authentication, CurrentActor.Role.OWNER).role())
+                .isEqualTo(CurrentActor.Role.OWNER);
+        assertThatThrownBy(() -> access.require(organizationId, authentication, CurrentActor.Role.LEARNER))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> access.require(UUID.randomUUID(), authentication))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void sourceRegistrationUsesServerVerifiedDurationAndRecordsRightsAudit() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class,
+                organizationId
+        );
+        var actor = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        VideoMetadataProvider metadata = videoId -> new VideoMetadataProvider.VideoMetadata(
+                "Verified title", 725, "vi"
+        );
+        var registration = new RegisterYoutubeSourceService(jdbc, new YoutubeUrlParser(), metadata);
+
+        var first = registration.register(
+                actor, "https://youtu.be/dQw4w9WgXcQ?feature=share",
+                RegisterYoutubeSourceService.RightsBasis.PERMISSION, true, "correlation-source-1"
+        );
+        var replay = registration.register(
+                actor, "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                RegisterYoutubeSourceService.RightsBasis.PERMISSION, true, "correlation-source-2"
+        );
+
+        assertThat(replay.id()).isEqualTo(first.id());
+        assertThat(first.durationSeconds()).isEqualTo(725);
+        assertThat(first.title()).isEqualTo("Verified title");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sources WHERE organization_id = ?", Long.class, organizationId))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rights_attestations WHERE source_id = ?", Long.class, first.id()))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM audit_logs WHERE resource_id = ?", Long.class, first.id()))
+                .isEqualTo(2L);
+    }
+
+    @Test
+    void jwtIdentityProvisioningIsIdempotentAndOrganizationTrialIsCapped() {
+        Instant now = Instant.parse("2026-09-06T00:00:00Z");
+        var identities = new IdentityService(
+                jdbc,
+                new CommercialProperties(3_600, Duration.ofDays(14)),
+                Clock.fixed(now, ZoneOffset.UTC)
+        );
+
+        var first = transactions.execute(status -> identities.provision(
+                "jwt-subject-new", "Founder@Example.com", "Founder"
+        ));
+        var replay = transactions.execute(status -> identities.provision(
+                "jwt-subject-new", "founder@example.com", "Founder Updated"
+        ));
+        var organization = transactions.execute(status -> identities.createOrganization(
+                "jwt-subject-new", "founder@example.com", "Founder Updated",
+                "Acme Academy", "acme-academy", "correlation-org-1"
+        ));
+
+        assertThat(replay.id()).isEqualTo(first.id());
+        assertThat(organization.role()).isEqualTo(CurrentActor.Role.OWNER);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE auth_subject = 'jwt-subject-new'", Long.class))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT allowance FROM entitlements WHERE organization_id = ?", Long.class, organization.id()
+        )).isEqualTo(3_600L);
+        assertThat(jdbc.queryForObject(
+                "SELECT EXTRACT(EPOCH FROM (period_end - period_start))::bigint FROM entitlements WHERE organization_id = ?",
+                Long.class, organization.id()
+        )).isEqualTo(Duration.ofDays(14).toSeconds());
+    }
+
+    @Test
     void createsJobReservationAndOutboxAtomicallyAndReplaysSafely() {
         UUID sourceId = seedSourceWithRights(organizationId);
         var service = new RequestAnalysisService(
@@ -193,8 +292,8 @@ class JdbcUsageQuotaIntegrationTest {
                 "{}",
                 "request-job-rollback",
                 "GOOGLE_GEMINI",
-                "x".repeat(121),
-                "correlation-job-rollback"
+                "gemini-test",
+                "x".repeat(129)
         );
 
         assertThatThrownBy(() -> transactions.execute(status -> service.request(invalid)))

@@ -68,6 +68,21 @@ public class JdbcAnalysisJobStore implements AnalysisJobStore {
     }
 
     @Override
+    public Optional<AnalysisJob> findById(UUID organizationId, UUID jobId) {
+        List<AnalysisJob> results = jdbc.query(
+                """
+                SELECT id, organization_id, source_id, usage_reservation_id, state,
+                       request_fingerprint, idempotency_key, provider, model, attempt, queued_at
+                FROM analysis_jobs WHERE organization_id = ? AND id = ?
+                """,
+                JdbcAnalysisJobStore::mapJob,
+                organizationId,
+                jobId
+        );
+        return results.stream().findFirst();
+    }
+
+    @Override
     public AnalysisJob create(
             UUID organizationId,
             UUID sourceId,

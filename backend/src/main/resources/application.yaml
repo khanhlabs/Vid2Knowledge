@@ -57,6 +57,12 @@ gemini:
   base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
   timeout: ${GEMINI_TIMEOUT:180s}
 
+youtube:
+  api-key: ${YOUTUBE_API_KEY:}
+  base-url: ${YOUTUBE_API_BASE_URL:https://www.googleapis.com/youtube/v3}
+  timeout: ${YOUTUBE_API_TIMEOUT:10s}
+  max-duration-seconds: ${YOUTUBE_MAX_DURATION_SECONDS:14400}
+
 # Promotional paid rates are tracked as actual cost. Shadow rates use the
 # announced post-promotion price so margin does not depend on temporary pricing.
 ai-cost:
@@ -70,3 +76,19 @@ ai-cost:
     thought-microusd-per-million-tokens: ${AI_SHADOW_THOUGHT_MICROUSD:7500000}
   max-attempts: ${AI_MAX_ATTEMPTS:3}
   lease-duration: ${AI_JOB_LEASE_DURATION:5m}
+
+task-queue:
+  mode: ${TASK_QUEUE_MODE:INLINE}
+  project: ${GCP_PROJECT:}
+  location: ${GCP_TASKS_LOCATION:asia-southeast1}
+  analysis-queue: ${GCP_ANALYSIS_QUEUE:analysis}
+  worker-base-url: ${WORKER_BASE_URL:}
+  service-account-email: ${TASK_SERVICE_ACCOUNT_EMAIL:}
+  oidc-audience: ${TASK_OIDC_AUDIENCE:}
+  dispatch-interval: ${OUTBOX_DISPATCH_INTERVAL:5s}
+  dispatch-batch-size: ${OUTBOX_DISPATCH_BATCH_SIZE:10}
+  outbox-max-attempts: ${OUTBOX_MAX_ATTEMPTS:10}
+
+commercial:
+  trial-processed-video-seconds: ${TRIAL_PROCESSED_VIDEO_SECONDS:3600}
+  trial-duration: ${TRIAL_DURATION:14d}

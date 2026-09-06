@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -121,6 +123,34 @@ public class GlobalExceptionHandler {
                 HttpStatus.NOT_FOUND,
                 "SOURCE_NOT_FOUND_OR_RIGHTS_REQUIRED",
                 exception.getMessage(),
+                List.of(),
+                request
+        );
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiError> handleAccessDenied(
+            AccessDeniedException exception,
+            HttpServletRequest request
+    ) {
+        return response(
+                HttpStatus.FORBIDDEN,
+                "ACCESS_DENIED",
+                "You do not have access to this resource",
+                List.of(),
+                request
+        );
+    }
+
+    @ExceptionHandler(DuplicateKeyException.class)
+    public ResponseEntity<ApiError> handleDuplicateKey(
+            DuplicateKeyException exception,
+            HttpServletRequest request
+    ) {
+        return response(
+                HttpStatus.CONFLICT,
+                "RESOURCE_CONFLICT",
+                "A resource with the same unique value already exists",
                 List.of(),
                 request
         );
