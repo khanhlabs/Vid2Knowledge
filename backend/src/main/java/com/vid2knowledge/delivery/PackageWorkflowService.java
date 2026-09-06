@@ -136,6 +136,17 @@ public class PackageWorkflowService {
             Transition transition,
             String correlationId
     ) {
+        return transition(actor, packageId, transition, null, correlationId);
+    }
+
+    @Transactional
+    public PackageView transition(
+            CurrentActor actor,
+            UUID packageId,
+            Transition transition,
+            String reason,
+            String correlationId
+    ) {
         String fromStates;
         String target;
         String verification = null;
@@ -150,13 +161,23 @@ public class PackageWorkflowService {
                 verification = "HUMAN_VERIFIED";
             }
             case REJECT -> {
+                if (reason == null || reason.trim().length() < 3 || reason.trim().length() > 1000) {
+                    throw new IllegalArgumentException("A rejection reason between 3 and 1000 characters is required");
+                }
                 fromStates = "('IN_REVIEW')";
                 target = "REJECTED";
                 verification = "REJECTED";
             }
             case PUBLISH -> {
-                fromStates = "('APPROVED')";
+                boolean approvalRequired = Boolean.TRUE.equals(jdbc.queryForObject(
+                        "SELECT approval_required FROM organizations WHERE id = ?",
+                        Boolean.class, actor.organizationId()
+                ));
+                fromStates = approvalRequired ? "('APPROVED')" : "('GENERATED','DRAFT','REJECTED','APPROVED')";
                 target = "PUBLISHED";
+                if (!approvalRequired) {
+                    verification = "HUMAN_VERIFIED";
+                }
             }
             case ARCHIVE -> {
                 fromStates = "('GENERATED','DRAFT','IN_REVIEW','APPROVED','REJECTED','PUBLISHED')";
@@ -183,11 +204,55 @@ public class PackageWorkflowService {
                     verification, packageId, actor.organizationId()
             );
         }
+        if (transition == Transition.APPROVE || transition == Transition.REJECT) {
+            recordDecision(actor, packageId, target, reason, now);
+        }
+        if (transition == Transition.APPROVE || transition == Transition.PUBLISH) {
+            extractQuestionBank(actor.organizationId(), packageId, now);
+        }
         audit(actor, "PACKAGE_" + target, packageId, correlationId, now);
         if (transition == Transition.PUBLISH) {
             outbox(actor, packageId, correlationId, now);
         }
         return get(actor.organizationId(), packageId);
+    }
+
+    private void recordDecision(
+            CurrentActor actor, UUID packageId, String decision, String reason, Instant now
+    ) {
+        jdbc.update(
+                """
+                INSERT INTO review_decisions(
+                    id, organization_id, package_id, package_revision_id,
+                    reviewer_id, decision, reason, created_at
+                )
+                SELECT ?, p.organization_id, p.id, p.current_revision_id, ?, ?, ?, ?
+                FROM learning_packages p WHERE p.organization_id = ? AND p.id = ?
+                """,
+                UuidV7Generator.generate(), actor.userId(), decision,
+                reason == null ? null : reason.trim(), Timestamp.from(now), actor.organizationId(), packageId
+        );
+    }
+
+    private void extractQuestionBank(UUID organizationId, UUID packageId, Instant now) {
+        PackageView value = get(organizationId, packageId);
+        for (JsonNode question : value.content().path("quiz")) {
+            jdbc.update(
+                    """
+                    INSERT INTO question_bank_items(
+                        id, organization_id, package_revision_id, source_item_id, question,
+                        options_json, correct_answer_index, explanation, source_timestamp_seconds,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?)
+                    ON CONFLICT (package_revision_id, source_item_id) DO NOTHING
+                    """,
+                    UuidV7Generator.generate(), organizationId, value.revisionId(), question.path("id").asText(),
+                    question.path("question").asText(), question.path("options").toString(),
+                    question.path("correctAnswerIndex").asInt(), question.path("explanation").asText(),
+                    question.path("source").path("timestampSeconds").asLong(),
+                    Timestamp.from(now), Timestamp.from(now)
+            );
+        }
     }
 
     private void audit(CurrentActor actor, String action, UUID packageId, String correlationId, Instant now) {

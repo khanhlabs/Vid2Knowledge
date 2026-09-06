@@ -29,6 +29,7 @@ export function WorkspacePage() {
   )
   const [organizationName, setOrganizationName] = useState('')
   const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [templateId, setTemplateId] = useState('')
   const [job, setJob] = useState<AnalysisJob | null>(null)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('LEARNER')
@@ -56,6 +57,16 @@ export function WorkspacePage() {
   })
   const canManageMembers =
     organization?.role === 'OWNER' || organization?.role === 'ADMIN'
+  const canAuthor =
+    organization?.role === 'OWNER' ||
+    organization?.role === 'ADMIN' ||
+    organization?.role === 'INSTRUCTOR'
+  const canUseStaffWorkspace = organization?.role !== 'LEARNER'
+  const templates = useQuery({
+    queryKey: ['content-templates', activeOrganizationId],
+    queryFn: () => workspaceApi.templates(activeOrganizationId),
+    enabled: Boolean(activeOrganizationId && canAuthor),
+  })
   const subscription = useQuery({
     queryKey: ['subscription', activeOrganizationId],
     queryFn: () => workspaceApi.subscription(activeOrganizationId),
@@ -112,7 +123,11 @@ export function WorkspacePage() {
         activeOrganizationId,
         youtubeUrl,
       )
-      return workspaceApi.createAnalysis(activeOrganizationId, source.id)
+      return workspaceApi.createAnalysis(
+        activeOrganizationId,
+        source.id,
+        templateId || undefined,
+      )
     },
     onSuccess: (created) => {
       setJob(created)
@@ -203,6 +218,12 @@ export function WorkspacePage() {
               ))}
             </select>
           </label>
+        )}
+        {organization && canUseStaffWorkspace && (
+          <div className="workspace-links">
+            <Link to="/app/authoring">Studio & kiểm duyệt</Link>
+            <Link to="/app/catalog">Chương trình</Link>
+          </div>
         )}
       </section>
 
@@ -303,6 +324,21 @@ export function WorkspacePage() {
                   placeholder="https://www.youtube.com/watch?v=…"
                   required
                 />
+                <label htmlFor="workspace-template">Template đầu ra</label>
+                <select
+                  id="workspace-template"
+                  value={templateId}
+                  onChange={(event) => setTemplateId(event.target.value)}
+                >
+                  <option value="">Mặc định · tự nhận diện ngôn ngữ</option>
+                  {templates.data
+                    ?.filter((template) => template.state === 'ACTIVE')
+                    .map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                </select>
                 <label className="rights-confirmation">
                   <input type="checkbox" required /> Tôi xác nhận tổ chức có
                   quyền dùng video này để tạo học liệu.

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { workspaceApi } from './api'
 
@@ -24,19 +25,27 @@ export function PackageReviewPage() {
   const { packageId = '' } = useParams()
   const organizationId = localStorage.getItem('v2k.organizationId') ?? ''
   const queryClient = useQueryClient()
+  const [rejectionReason, setRejectionReason] = useState('')
   const result = useQuery({
     queryKey: ['package', organizationId, packageId],
     queryFn: () => workspaceApi.learningPackage(organizationId, packageId),
     enabled: Boolean(organizationId && packageId),
   })
   const transition = useMutation({
-    mutationFn: (
-      action: 'submit-review' | 'approve' | 'reject' | 'publish' | 'archive',
-    ) => workspaceApi.transitionPackage(organizationId, packageId, action),
-    onSuccess: async () =>
-      queryClient.invalidateQueries({
+    mutationFn: ({
+      action,
+      reason,
+    }: {
+      action: 'submit-review' | 'approve' | 'reject' | 'publish' | 'archive'
+      reason?: string
+    }) =>
+      workspaceApi.transitionPackage(organizationId, packageId, action, reason),
+    onSuccess: async () => {
+      setRejectionReason('')
+      await queryClient.invalidateQueries({
         queryKey: ['package', organizationId, packageId],
-      }),
+      })
+    },
   })
   const knowledgeIndex = useMutation({
     mutationFn: () => workspaceApi.indexKnowledge(organizationId, packageId),
@@ -75,6 +84,18 @@ export function PackageReviewPage() {
           Kiểm tra tính chính xác, nguồn dẫn và câu trả lời trước khi xuất bản.
         </p>
         <pre>{JSON.stringify(item.content, null, 2)}</pre>
+        {item.state === 'IN_REVIEW' && (
+          <label className="review-reason">
+            Lý do yêu cầu chỉnh sửa
+            <textarea
+              value={rejectionReason}
+              onChange={(event) => setRejectionReason(event.target.value)}
+              minLength={3}
+              maxLength={1000}
+              placeholder="Nêu chính xác item, timestamp hoặc đáp án cần sửa."
+            />
+          </label>
+        )}
         <div className="review-actions">
           {(actionsByState[item.state] ?? []).map(({ action, label }) => (
             <button
@@ -84,8 +105,16 @@ export function PackageReviewPage() {
                   ? 'danger-button'
                   : ''
               }
-              disabled={transition.isPending}
-              onClick={() => transition.mutate(action)}
+              disabled={
+                transition.isPending ||
+                (action === 'reject' && rejectionReason.trim().length < 3)
+              }
+              onClick={() =>
+                transition.mutate({
+                  action,
+                  reason: action === 'reject' ? rejectionReason : undefined,
+                })
+              }
             >
               {label}
             </button>

@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public record CreateAnalysisRequest(
         @NotNull UUID sourceId,
-        @NotNull JsonNode outputProfile
+        JsonNode outputProfile,
+        UUID templateId
 ) {
 }

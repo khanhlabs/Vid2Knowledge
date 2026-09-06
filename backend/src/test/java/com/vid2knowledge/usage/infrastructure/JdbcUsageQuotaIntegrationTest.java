@@ -22,6 +22,7 @@ import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.config.AiCostProperties;
 import com.vid2knowledge.delivery.CatalogService;
 import com.vid2knowledge.delivery.AssessmentService;
+import com.vid2knowledge.delivery.AuthoringService;
 import com.vid2knowledge.delivery.LearnerService;
 import com.vid2knowledge.delivery.LearningPathService;
 import com.vid2knowledge.delivery.FlashcardReviewService;
@@ -731,6 +732,61 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM audit_logs WHERE resource_id = ?", Long.class, packageId
         )).isEqualTo(3L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM review_decisions WHERE package_id = ?", Long.class, packageId
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM question_bank_items WHERE organization_id = ?", Long.class, organizationId
+        )).isEqualTo(2L);
+    }
+
+    @Test
+    void authoringTemplatesAreTenantScopedVersionedAndRejectionsRequireReasons() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        var mapper = new ObjectMapper();
+        var authoring = new AuthoringService(jdbc, mapper);
+        var profile = mapper.createObjectNode()
+                .put("language", "vi").put("audience", "employee")
+                .put("difficulty", "advanced").put("flashcards", 15)
+                .put("quizQuestions", 8).put("tone", "formal");
+
+        var template = authoring.createTemplate(owner, "Đào tạo bán hàng", profile, "template-1");
+        assertThat(authoring.resolveProfile(organizationId, template.id(), null))
+                .contains("\"flashcards\":15", "\"quizQuestions\":8");
+        assertThatThrownBy(() -> authoring.resolveProfile(UUID.randomUUID(), template.id(), null))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> authoring.updateTemplate(
+                owner, template.id(), 99, "Tên mới", profile, "template-2"
+        )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+
+        UUID packageId = seedPackage(organizationId, ownerId, "GENERATED");
+        var packages = new PackageWorkflowService(
+                jdbc, new LearningPackageCodec(mapper, Validation.buildDefaultValidatorFactory().getValidator()), mapper
+        );
+        packages.transition(owner, packageId, PackageWorkflowService.Transition.SUBMIT_REVIEW, "review-1");
+        assertThat(authoring.reviewQueue(organizationId)).extracting(AuthoringService.ReviewQueueItem::packageId)
+                .contains(packageId);
+        assertThatThrownBy(() -> packages.transition(
+                owner, packageId, PackageWorkflowService.Transition.REJECT, null, "review-2"
+        )).isInstanceOf(IllegalArgumentException.class);
+        packages.transition(
+                owner, packageId, PackageWorkflowService.Transition.REJECT,
+                "Cần đối chiếu lại timestamp", "review-3"
+        );
+        assertThat(jdbc.queryForObject(
+                "SELECT reason FROM review_decisions WHERE package_id = ?", String.class, packageId
+        )).contains("timestamp");
+
+        authoring.updateSettings(owner, false, "settings-1");
+        assertThat(authoring.settings(organizationId).approvalRequired()).isFalse();
+        UUID directPublish = seedPackage(organizationId, ownerId, "DRAFT");
+        assertThat(packages.transition(
+                owner, directPublish, PackageWorkflowService.Transition.PUBLISH, "publish-direct"
+        ).verificationState()).isEqualTo("HUMAN_VERIFIED");
     }
 
     @Test
@@ -1380,8 +1436,8 @@ class JdbcUsageQuotaIntegrationTest {
                    {"id":"flash-2","question":"F2?","answer":"A2","source":{"timestampSeconds":20,"verificationStatus":"verified"}}
                  ],
                  "quiz":[
-                   {"question":"Q1","options":["A","B","C","D"],"correctAnswerIndex":1,"explanation":"E1"},
-                   {"question":"Q2","options":["A","B","C","D"],"correctAnswerIndex":2,"explanation":"E2"}
+                   {"id":"quiz-1","question":"Q1","options":["A","B","C","D"],"correctAnswerIndex":1,"explanation":"E1","source":{"timestampSeconds":30,"evidence":"Evidence one"}},
+                   {"id":"quiz-2","question":"Q2","options":["A","B","C","D"],"correctAnswerIndex":2,"explanation":"E2","source":{"timestampSeconds":40,"evidence":"Evidence two"}}
                  ]}
                 """;
         jdbc.update(

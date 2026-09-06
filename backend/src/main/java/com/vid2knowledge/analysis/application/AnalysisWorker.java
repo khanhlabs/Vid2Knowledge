@@ -71,7 +71,9 @@ public class AnalysisWorker {
         AnalysisWorkItem item = claimed.get();
         AiGenerationResult generation;
         try {
-            generation = provider.generateLearningPackage(promptFactory.create(), item.sourceUri());
+            generation = provider.generateLearningPackage(
+                    promptFactory.create(item.outputProfileJson()), item.sourceUri()
+            );
         } catch (RuntimeException exception) {
             boolean retryable = !(exception instanceof AiProviderException providerError)
                     || providerError.retryable();

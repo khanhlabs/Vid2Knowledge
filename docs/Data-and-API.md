@@ -28,7 +28,9 @@
 - `generation_runs(id, job_id, provider, model, prompt_version, schema_version, request_fingerprint, usage_json, actual_cost, shadow_cost, latency_ms, output_json, created_at)`; immutable.
 - `learning_packages(id, organization_id, lesson_id, current_revision_id, publication_state)`.
 - `package_revisions(id, package_id, revision_no, based_on_generation_id, content_json, edited_by, verification_state, created_at)`; immutable revision.
-- `templates`, `question_bank_items`, `quality_issues`, `review_decisions`.
+- `content_templates` lưu output profile đã whitelist/version hóa theo tenant;
+  `question_bank_items` chỉ nhận câu hỏi từ revision human-verified;
+  `review_decisions` lưu reviewer, exact revision, quyết định và lý do từ chối bắt buộc.
 
 ### Learning và assignment
 
@@ -106,8 +108,14 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `POST .../analyses` với `Idempotency-Key`; trả `202` + job URI.
 - `GET/POST .../analysis-jobs/{jobId}` cho status/cancel/retry hợp lệ.
 - `GET/PATCH .../packages/{packageId}/draft` dùng ETag/If-Match.
-- `POST .../packages/{packageId}/submit-review|approve|reject|publish|archive`.
-- CRUD templates và question-bank items.
+- `POST .../packages/{packageId}/submit-review|approve|reject|publish|archive`; reject bắt buộc
+  reason 3–1000 ký tự. Khi `approvalRequired=false`, author publish là human verification;
+  mặc định tổ chức mới vẫn bắt buộc reviewer approval.
+- CRUD `/authoring/templates` dùng ETag/If-Match; request analysis chọn chính xác một trong
+  `templateId` hoặc inline `outputProfile`. Profile chỉ nhận enum đã whitelist và 10–20
+  flashcard/5–10 quiz để ngăn prompt injection và cost expansion.
+- `GET /authoring/review-queue|question-bank|settings`; resolution phản hồi luôn có người xử lý,
+  lý do và audit log.
 
 ### Cohort/learner
 

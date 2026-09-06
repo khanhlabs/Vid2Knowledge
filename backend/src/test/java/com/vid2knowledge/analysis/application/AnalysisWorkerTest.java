@@ -130,7 +130,7 @@ class AnalysisWorkerTest {
                 Duration.ofMinutes(5)
         );
         return new AnalysisWorker(
-                jobs, provider, new LearningPackagePromptFactory(), codec, completion,
+                jobs, provider, new LearningPackagePromptFactory(new ObjectMapper()), codec, completion,
                 prices, Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }

@@ -173,6 +173,38 @@ export interface CohortOutcome {
   completionRate: number
 }
 
+export interface ContentTemplate {
+  id: string
+  name: string
+  outputProfile: {
+    language: 'auto' | 'vi' | 'en'
+    audience: 'student' | 'employee' | 'professional' | 'general'
+    difficulty: 'beginner' | 'intermediate' | 'advanced'
+    flashcards: number
+    quizQuestions: number
+    tone: 'concise' | 'supportive' | 'formal'
+  }
+  state: 'ACTIVE' | 'ARCHIVED'
+  version: number
+}
+
+export interface ReviewQueueItem {
+  packageId: string
+  revisionId: string
+  title: string
+  revisionNo: number
+  openFeedback: number
+  submittedAt: string
+}
+
+export interface QuestionBankItem {
+  id: string
+  question: string
+  difficulty: string
+  validationState: string
+  usageCount: number
+}
+
 export const workspaceApi = {
   me: () => api<Me>('/api/v1/me'),
   createOrganization: (name: string, slug: string) =>
@@ -206,14 +238,26 @@ export const workspaceApi = {
         }),
       },
     ),
-  createAnalysis: (organizationId: string, sourceId: string) =>
+  createAnalysis: (
+    organizationId: string,
+    sourceId: string,
+    templateId?: string,
+  ) =>
     api<AnalysisJob>(`/api/v1/organizations/${organizationId}/analysis-jobs`, {
       method: 'POST',
       headers: { 'Idempotency-Key': idempotencyKey('analysis') },
-      body: JSON.stringify({
-        sourceId,
-        outputProfile: { language: 'auto', flashcards: 12, quizQuestions: 6 },
-      }),
+      body: JSON.stringify(
+        templateId
+          ? { sourceId, templateId }
+          : {
+              sourceId,
+              outputProfile: {
+                language: 'auto',
+                flashcards: 12,
+                quizQuestions: 6,
+              },
+            },
+      ),
     }),
   job: (organizationId: string, jobId: string) =>
     api<AnalysisJob>(
@@ -227,10 +271,14 @@ export const workspaceApi = {
     organizationId: string,
     packageId: string,
     action: 'submit-review' | 'approve' | 'reject' | 'publish' | 'archive',
+    reason?: string,
   ) =>
     api<LearningPackage>(
       `/api/v1/organizations/${organizationId}/packages/${packageId}/${action}`,
-      { method: 'POST' },
+      {
+        method: 'POST',
+        body: reason ? JSON.stringify({ reason }) : undefined,
+      },
     ),
   indexKnowledge: (organizationId: string, packageId: string) =>
     api<KnowledgeIndexResult>(
@@ -272,6 +320,39 @@ export const workspaceApi = {
     downloadApi(
       `/api/v1/organizations/${organizationId}/analytics/cohorts.csv`,
       'ket-qua-cohort.csv',
+    ),
+  templates: (organizationId: string) =>
+    api<ContentTemplate[]>(
+      `/api/v1/organizations/${organizationId}/authoring/templates`,
+    ),
+  createTemplate: (
+    organizationId: string,
+    name: string,
+    outputProfile: ContentTemplate['outputProfile'],
+  ) =>
+    api<ContentTemplate>(
+      `/api/v1/organizations/${organizationId}/authoring/templates`,
+      { method: 'POST', body: JSON.stringify({ name, outputProfile }) },
+    ),
+  reviewQueue: (organizationId: string) =>
+    api<ReviewQueueItem[]>(
+      `/api/v1/organizations/${organizationId}/authoring/review-queue`,
+    ),
+  questionBank: (organizationId: string) =>
+    api<QuestionBankItem[]>(
+      `/api/v1/organizations/${organizationId}/authoring/question-bank`,
+    ),
+  authoringSettings: (organizationId: string) =>
+    api<{ approvalRequired: boolean }>(
+      `/api/v1/organizations/${organizationId}/authoring/settings`,
+    ),
+  updateAuthoringSettings: (
+    organizationId: string,
+    approvalRequired: boolean,
+  ) =>
+    api<{ approvalRequired: boolean }>(
+      `/api/v1/organizations/${organizationId}/authoring/settings`,
+      { method: 'PATCH', body: JSON.stringify({ approvalRequired }) },
     ),
   launchProgram: (
     organizationId: string,

@@ -80,6 +80,7 @@ public class PackageController {
             @PathVariable UUID organizationId,
             @PathVariable UUID packageId,
             @PathVariable String action,
+            @RequestBody(required = false) TransitionRequest request,
             Authentication authentication,
             HttpServletRequest servletRequest
     ) {
@@ -94,7 +95,9 @@ public class PackageController {
             case "archive" -> PackageWorkflowService.Transition.ARCHIVE;
             default -> throw new IllegalArgumentException("Unsupported action");
         };
-        return packages.transition(actor, packageId, transition, correlation(servletRequest));
+        return packages.transition(
+                actor, packageId, transition, request == null ? null : request.reason(), correlation(servletRequest)
+        );
     }
 
     private CurrentActor author(UUID organizationId, Authentication authentication) {
@@ -124,5 +127,8 @@ public class PackageController {
     }
 
     public record DraftRequest(@NotNull JsonNode content) {
+    }
+
+    public record TransitionRequest(@jakarta.validation.constraints.Size(max = 1000) String reason) {
     }
 }

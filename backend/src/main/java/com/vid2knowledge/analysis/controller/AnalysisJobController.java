@@ -6,6 +6,7 @@ import com.vid2knowledge.analysis.dto.CreateAnalysisRequest;
 import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.auth.TenantAccessService;
 import com.vid2knowledge.common.api.CorrelationIdFilter;
+import com.vid2knowledge.delivery.AuthoringService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
@@ -32,10 +33,12 @@ public class AnalysisJobController {
 
     private final TenantAccessService access;
     private final AnalysisApiService analyses;
+    private final AuthoringService authoring;
 
-    public AnalysisJobController(TenantAccessService access, AnalysisApiService analyses) {
+    public AnalysisJobController(TenantAccessService access, AnalysisApiService analyses, AuthoringService authoring) {
         this.access = access;
         this.analyses = analyses;
+        this.authoring = authoring;
     }
 
     @PostMapping
@@ -53,7 +56,7 @@ public class AnalysisJobController {
         var job = analyses.submit(
                 organizationId,
                 request.sourceId(),
-                request.outputProfile().toString(),
+                authoring.resolveProfile(organizationId, request.templateId(), request.outputProfile()),
                 idempotencyKey,
                 servletRequest.getAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE).toString()
         );

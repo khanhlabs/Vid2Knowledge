@@ -8,6 +8,7 @@ import { PackageReviewPage } from '../features/workspace/PackageReviewPage'
 import { WorkspacePage } from '../features/workspace/WorkspacePage'
 import { CatalogPage } from '../features/workspace/CatalogPage'
 import { AnalyticsPage } from '../features/workspace/AnalyticsPage'
+import { AuthoringPage } from '../features/workspace/AuthoringPage'
 import { LandingPage } from './LandingPage'
 
 export default function App() {
@@ -45,6 +46,14 @@ export default function App() {
         element={
           <RequireAuth>
             <AnalyticsPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/app/authoring"
+        element={
+          <RequireAuth>
+            <AuthoringPage />
           </RequireAuth>
         }
       />

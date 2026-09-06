@@ -79,6 +79,8 @@ Module giao tiếp bằng application ports và domain events trong cùng proces
 - `verificationStatus` chỉ do validator/reviewer đặt; model không tự chứng nhận.
 - Prompt/template immutable theo version; rollout qua feature flag/cohort.
 - Red-team prompt injection, malicious transcript, unsupported language và oversized input.
+- Output profile được normalize và whitelist trước khi reserve quota; worker dùng đúng profile đã
+  fingerprint trong prompt. Không chèn brand voice/free text trực tiếp vào instruction.
 - Cache key gồm normalized source, rights scope, content fingerprint, output profile, model/prompt/schema; không share cross-tenant nếu chưa có quyền rõ ràng.
 
 ## 6. Security architecture

@@ -77,11 +77,7 @@ public class RequestAnalysisService {
     }
 
     private String normalizeJson(String value) {
-        try {
-            return objectMapper.readTree(value).toString();
-        } catch (Exception exception) {
-            throw new IllegalArgumentException("Output profile must be valid JSON", exception);
-        }
+        return AnalysisOutputProfile.parse(value, objectMapper).normalizedJson(objectMapper);
     }
 
     private static String fingerprint(RequestAnalysisCommand command, String normalizedProfile) {

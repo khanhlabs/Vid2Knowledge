@@ -44,6 +44,56 @@
   margin-top: 0.2rem;
 }
 
+.workspace-links {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.template-grid label {
+  margin: 0;
+}
+
+.template-list,
+.template-list article {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.template-list {
+  margin-top: 1.25rem;
+}
+
+.template-list article {
+  border-top: 1px solid var(--line);
+  padding-top: 0.9rem;
+}
+
+.template-list span,
+.catalog-row span {
+  color: var(--muted);
+}
+
+.approval-setting {
+  margin-bottom: 1.25rem;
+}
+
+.question-bank-count {
+  margin-top: 2rem;
+}
+
+.review-reason {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 * {
   box-sizing: border-box;
 }

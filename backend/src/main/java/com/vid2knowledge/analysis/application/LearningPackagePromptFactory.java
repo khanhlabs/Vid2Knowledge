@@ -1,11 +1,23 @@
 package com.vid2knowledge.analysis.application;
 
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 @Component
 public class LearningPackagePromptFactory {
 
+    private final ObjectMapper mapper;
+
+    public LearningPackagePromptFactory(ObjectMapper mapper) {
+        this.mapper = mapper;
+    }
+
     public String create() {
+        return create("{}");
+    }
+
+    public String create(String outputProfileJson) {
+        AnalysisOutputProfile profile = AnalysisOutputProfile.parse(outputProfileJson, mapper);
         return """
                 Analyze the provided public YouTube video and create a learning package.
 
@@ -13,8 +25,6 @@ public class LearningPackagePromptFactory {
                 Do not use Markdown.
                 Do not wrap the JSON in code fences.
                 Do not add any text before or after the JSON.
-
-                Use the main language spoken in the video.
 
                 The JSON must use exactly this structure:
                 {
@@ -66,8 +76,6 @@ public class LearningPackagePromptFactory {
                 Requirements:
                 - Include at least one summary section.
                 - Include at least one key takeaway.
-                - Generate 10 to 20 flashcards.
-                - Generate 5 to 10 quiz questions.
                 - Every quiz question must have exactly 4 options.
                 - correctAnswerIndex must be an integer from 0 to 3.
                 - Every section, takeaway, flashcard, and quiz question must have a source object.
@@ -78,6 +86,7 @@ public class LearningPackagePromptFactory {
                 - Do not invent facts, timestamps, or details that are not supported by the video.
                 - video.youtubeUrl must be the exact canonical YouTube URL provided in the video input.
                 - Never use placeholders such as VIDEO_ID.
-                """;
+
+                """ + profile.promptInstructions();
     }
 }
