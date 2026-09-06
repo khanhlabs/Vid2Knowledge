@@ -820,6 +820,53 @@ button:disabled {
 .answer-review p {
   margin: 0.35rem 0;
 }
+.learning-paths {
+  margin-bottom: 1rem;
+  padding: clamp(1.2rem, 3vw, 2rem);
+  border: 1px solid #d1d5ca;
+  border-radius: 14px;
+  background: #f8faf6;
+}
+.learning-paths > h1 {
+  max-width: 760px;
+}
+.path-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.8rem;
+}
+.path-grid article {
+  padding: 1rem;
+  border: 1px solid #d8dbd2;
+  border-radius: 10px;
+  background: #fff;
+}
+.path-grid ol {
+  padding-left: 1.2rem;
+  color: #52645a;
+}
+.path-grid li {
+  margin: 0.45rem 0;
+}
+.path-grid li span {
+  display: inline-block;
+  color: #176744;
+  font-size: 0.78rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+.certificate-result {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid #8eb6a1;
+  border-radius: 10px;
+  background: #e5f3eb;
+}
+.certificate-result small {
+  color: #52645a;
+}
 
 .consent {
   color: #737c74;

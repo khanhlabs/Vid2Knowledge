@@ -70,7 +70,9 @@ public class SecurityConfig {
         common(http);
         if (authEnabled) {
             http.authorizeHttpRequests(auth -> auth
-                            .requestMatchers("/actuator/health/**", "/api/v1/webhooks/**").permitAll()
+                            .requestMatchers(
+                                    "/actuator/health/**", "/api/v1/webhooks/**", "/api/v1/certificates/**"
+                            ).permitAll()
                             .anyRequest().authenticated()
                     )
                     .oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> {}));

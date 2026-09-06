@@ -8,6 +8,8 @@ import {
   type AssessmentMode,
   type AssessmentResultV2,
   type AssessmentSnapshot,
+  type Certificate,
+  type LearningPath,
   type DueCard,
   type ReviewRating,
 } from './api'
@@ -23,6 +25,7 @@ export function LearnerPage() {
     key: string
   } | null>(null)
   const [submissionKey, setSubmissionKey] = useState<string | null>(null)
+  const [certificate, setCertificate] = useState<Certificate | null>(null)
   const [revealedCardId, setRevealedCardId] = useState<string | null>(null)
   const [pendingReview, setPendingReview] = useState<{
     card: DueCard
@@ -43,6 +46,11 @@ export function LearnerPage() {
   const reviewSummary = useQuery({
     queryKey: ['learner-reviews-summary', organizationId],
     queryFn: () => learnerApi.reviewSummary(organizationId),
+    enabled: Boolean(organizationId) && !lesson,
+  })
+  const learningPaths = useQuery({
+    queryKey: ['learner-paths', organizationId],
+    queryFn: () => learnerApi.learningPaths(organizationId),
     enabled: Boolean(organizationId) && !lesson,
   })
   const assessmentOverview = useQuery({
@@ -128,6 +136,11 @@ export function LearnerPage() {
         }),
       ])
     },
+  })
+  const issueCertificate = useMutation({
+    mutationFn: (path: LearningPath) =>
+      learnerApi.issueCertificate(organizationId, path.courseId, path.cohortId),
+    onSuccess: setCertificate,
   })
 
   const rateCard = (card: DueCard, rating: ReviewRating) => {
@@ -353,6 +366,63 @@ export function LearnerPage() {
         </section>
       ) : (
         <section className="learner-home">
+          {learningPaths.data?.length ? (
+            <section className="learning-paths" aria-labelledby="paths-title">
+              <p className="eyebrow">LỘ TRÌNH ĐÀO TẠO</p>
+              <h1 id="paths-title">
+                Tiến độ có điều kiện, kết quả có thể xác minh.
+              </h1>
+              <div className="path-grid">
+                {learningPaths.data.map((path) => (
+                  <article key={`${path.courseId}-${path.cohortId}`}>
+                    <span className="status-pill">{path.cohortName}</span>
+                    <h2>{path.title}</h2>
+                    <p>
+                      {path.completedLessons}/{path.totalLessons} bài đạt từ{' '}
+                      {path.passingScorePercent}%
+                      {path.requireDelayedRecall
+                        ? ' · yêu cầu delayed recall'
+                        : ''}
+                    </p>
+                    <ol>
+                      {path.lessons.map((pathLesson) => (
+                        <li key={pathLesson.lessonId}>
+                          <span>{pathLesson.unlocked ? 'Mở' : 'Khóa'}</span>{' '}
+                          {pathLesson.title}
+                          {pathLesson.bestScorePercent != null
+                            ? ` · ${pathLesson.bestScorePercent}%`
+                            : ''}
+                        </li>
+                      ))}
+                    </ol>
+                    <button
+                      disabled={
+                        !path.certificateEligible || issueCertificate.isPending
+                      }
+                      onClick={() => issueCertificate.mutate(path)}
+                    >
+                      Nhận certificate nội bộ
+                    </button>
+                  </article>
+                ))}
+              </div>
+              {certificate && (
+                <div className="certificate-result" role="status">
+                  <strong>{certificate.courseTitle}</strong>
+                  <span>Mã xác thực: {certificate.verificationCode}</span>
+                  <small>
+                    Certificate hoàn thành nội bộ, không phải văn bằng/chứng chỉ
+                    được cơ quan nhà nước công nhận.
+                  </small>
+                </div>
+              )}
+              {issueCertificate.isError && (
+                <p className="form-error">
+                  Chưa đủ điều kiện cấp certificate hoặc không thể lưu lúc này.
+                </p>
+              )}
+            </section>
+          ) : null}
           <section className="review-dashboard" aria-labelledby="review-title">
             <div className="review-heading">
               <div>
@@ -454,10 +524,10 @@ export function LearnerPage() {
                   </p>
                 </div>
                 <button
-                  disabled={start.isPending}
+                  disabled={start.isPending || !item.unlocked}
                   onClick={() => start.mutate(item.id)}
                 >
-                  Bắt đầu
+                  {item.unlocked ? 'Bắt đầu' : 'Hoàn tất bài trước để mở'}
                 </button>
               </article>
             ))}

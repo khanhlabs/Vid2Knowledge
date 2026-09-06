@@ -36,6 +36,7 @@
 - `learner_progress(organization_id, user_id, assignment_id, state, started_at, completed_at, progress_percent, version)`.
 - `assessment_snapshots`, `assessment_attempts`, `assessment_attempt_answers`; snapshot giữ nguyên revision, câu hỏi và thứ tự option tại thời điểm làm. Answer key chỉ ở server; mỗi lượt thi có cửa sổ 2 giờ, khóa idempotency và tenant FK.
 - `flashcard_memory_states`, `flashcard_review_log`; review append-only, state là projection theo FSRS-6, lưu algorithm version để reschedule/migrate có kiểm soát.
+- `lesson_prerequisites`, `course_completion_rules`, `completion_certificates`; prerequisite cùng course và chống cycle, certificate snapshot tiêu chí cấp, có verification code và trạng thái thu hồi.
 - `mastery_states(organization_id, user_id, topic_key, score, evidence_count, updated_at)`.
 - `qa_threads`, `qa_messages`, `qa_citations`, `embedding_chunks` với pgvector và revision reference.
 - `learner_feedback`, `content_reports`.
@@ -119,6 +120,9 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `GET .../learner/reviews/due|summary`, `POST .../assignments/{assignmentId}/flashcards/{cardId}/reviews`; rating bắt buộc idempotent và tenant-scoped.
 - `POST .../qa/messages`; response có citations và usage.
 - `POST .../feedback` và `POST .../reports`.
+- `POST .../courses/{courseId}/completion-rule|publish`, `POST .../lessons/{lessonId}/prerequisites` cho author; `POST .../certificates/{certificateId}/revoke` chỉ OWNER/ADMIN và bắt buộc lý do.
+- `GET .../learner/paths`, `POST .../learner/paths/{courseId}/cohorts/{cohortId}/certificate`; certificate chỉ cấp khi mọi lesson đạt passing score và delayed recall nếu buyer bật.
+- `GET /api/v1/certificates/{verificationCode}` là public verification tối giản, không trả internal user/course/cohort ID. Đây là certificate hoàn thành nội bộ, không phải chứng chỉ được công nhận.
 
 ### Billing
 

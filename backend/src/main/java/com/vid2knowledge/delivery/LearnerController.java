@@ -32,17 +32,20 @@ public class LearnerController {
     private final LearnerService learners;
     private final FlashcardReviewService reviews;
     private final AssessmentService assessments;
+    private final LearningPathService learningPaths;
 
     public LearnerController(
             TenantAccessService access,
             LearnerService learners,
             FlashcardReviewService reviews,
-            AssessmentService assessments
+            AssessmentService assessments,
+            LearningPathService learningPaths
     ) {
         this.access = access;
         this.learners = learners;
         this.reviews = reviews;
         this.assessments = assessments;
+        this.learningPaths = learningPaths;
     }
 
     @GetMapping("/assignments")
@@ -109,6 +112,27 @@ public class LearnerController {
             Authentication authentication
     ) {
         return assessments.overview(learner(organizationId, authentication), assignmentId);
+    }
+
+    @GetMapping("/paths")
+    public List<LearningPathService.LearningPath> learningPaths(
+            @PathVariable UUID organizationId,
+            Authentication authentication
+    ) {
+        return learningPaths.paths(learner(organizationId, authentication));
+    }
+
+    @PostMapping("/paths/{courseId}/cohorts/{cohortId}/certificate")
+    public LearningPathService.Certificate issueCertificate(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID courseId,
+            @PathVariable UUID cohortId,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        return learningPaths.issue(
+                learner(organizationId, authentication), courseId, cohortId, correlation(servletRequest)
+        );
     }
 
     @PostMapping("/assignments/{assignmentId}/assessments")

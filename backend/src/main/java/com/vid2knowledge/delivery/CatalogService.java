@@ -168,6 +168,24 @@ public class CatalogService {
                 actor, cohort.id(), lesson.id(), title, availableAt, dueAt, correlationId
         );
         assignment = publishAssignment(actor, assignment.id(), correlationId);
+        Instant launchedAt = clock.instant();
+        jdbc.update(
+                """
+                UPDATE courses SET state = 'PUBLISHED', version = version + 1, updated_at = ?
+                WHERE organization_id = ? AND id = ? AND state = 'DRAFT'
+                """,
+                Timestamp.from(launchedAt), actor.organizationId(), course.id()
+        );
+        jdbc.update(
+                """
+                INSERT INTO course_completion_rules(
+                    organization_id, course_id, passing_score_percent,
+                    require_delayed_recall, updated_by, updated_at
+                ) VALUES (?, ?, 70, FALSE, ?, ?) ON CONFLICT DO NOTHING
+                """,
+                actor.organizationId(), course.id(), actor.userId(), Timestamp.from(launchedAt)
+        );
+        audit(actor, "COURSE_PUBLISHED", "Course", course.id(), correlationId, launchedAt);
         jdbc.update(
                 """
                 INSERT INTO program_launches(

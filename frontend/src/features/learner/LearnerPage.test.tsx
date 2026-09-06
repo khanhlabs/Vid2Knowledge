@@ -44,6 +44,7 @@ describe('LearnerPage adaptive review', () => {
             : input.url
       requests.push({ url, init })
       if (url.endsWith('/learner/assignments')) return Promise.resolve(json([]))
+      if (url.endsWith('/learner/paths')) return Promise.resolve(json([]))
       if (url.endsWith('/learner/reviews/summary')) {
         return Promise.resolve(
           json({
@@ -144,10 +145,12 @@ describe('LearnerPage adaptive review', () => {
               availableAt: '2026-09-06T00:00:00Z',
               status: 'ASSIGNED',
               progressPercent: 0,
+              unlocked: true,
             },
           ]),
         )
       }
+      if (url.endsWith('/learner/paths')) return Promise.resolve(json([]))
       if (url.endsWith('/learner/reviews/summary')) {
         return Promise.resolve(
           json({
@@ -268,5 +271,84 @@ describe('LearnerPage adaptive review', () => {
     expect(
       new Headers(submitRequest?.init?.headers).get('Idempotency-Key'),
     ).toMatch(/^assessment-submit-/)
+  })
+
+  it('issues an internal certificate only for an eligible learning path', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url
+      if (url.endsWith('/learner/assignments')) return Promise.resolve(json([]))
+      if (url.endsWith('/learner/reviews/due')) return Promise.resolve(json([]))
+      if (url.endsWith('/learner/reviews/summary')) {
+        return Promise.resolve(
+          json({
+            totalCards: 0,
+            dueCards: 0,
+            masteredCards: 0,
+            reviewsToday: 0,
+            currentStreakDays: 0,
+          }),
+        )
+      }
+      if (url.endsWith('/learner/paths')) {
+        return Promise.resolve(
+          json([
+            {
+              courseId: 'course-1',
+              title: 'Sales onboarding',
+              description: 'Lộ trình nội bộ',
+              cohortId: 'cohort-1',
+              cohortName: 'Tháng 9',
+              passingScorePercent: 70,
+              requireDelayedRecall: false,
+              completedLessons: 1,
+              totalLessons: 1,
+              certificateEligible: true,
+              lessons: [
+                {
+                  lessonId: 'lesson-1',
+                  assignmentId: 'assignment-1',
+                  title: 'Nền tảng',
+                  status: 'COMPLETED',
+                  bestScorePercent: 90,
+                  delayedRecallCompleted: false,
+                  unlocked: true,
+                },
+              ],
+            },
+          ]),
+        )
+      }
+      if (url.endsWith('/paths/course-1/cohorts/cohort-1/certificate')) {
+        return Promise.resolve(
+          json({
+            id: 'certificate-1',
+            courseId: 'course-1',
+            cohortId: 'cohort-1',
+            verificationCode: 'ABCDEF1234567890ABCD',
+            learnerName: 'Nguyễn An',
+            courseTitle: 'Sales onboarding',
+            cohortName: 'Tháng 9',
+            organizationName: 'Acme',
+            issuedAt: '2026-09-06T00:00:00Z',
+            revoked: false,
+          }),
+        )
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    renderPage()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Nhận certificate nội bộ' }),
+    )
+    expect(await screen.findByText(/ABCDEF1234567890ABCD/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/không phải văn bằng\/chứng chỉ/),
+    ).toBeInTheDocument()
   })
 })

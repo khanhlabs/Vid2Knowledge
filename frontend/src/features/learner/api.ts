@@ -8,6 +8,7 @@ export interface AssignmentSummary {
   status: string
   progressPercent: number
   bestScorePercent?: number
+  unlocked: boolean
 }
 export interface QuizQuestion {
   question: string
@@ -134,6 +135,41 @@ export interface ReviewResult {
   reviewedAt: string
 }
 
+export interface LearningPath {
+  courseId: string
+  title: string
+  description: string
+  cohortId: string
+  cohortName: string
+  passingScorePercent: number
+  requireDelayedRecall: boolean
+  completedLessons: number
+  totalLessons: number
+  certificateEligible: boolean
+  lessons: Array<{
+    lessonId: string
+    assignmentId: string
+    title: string
+    status: string
+    bestScorePercent?: number
+    delayedRecallCompleted: boolean
+    unlocked: boolean
+  }>
+}
+
+export interface Certificate {
+  id: string
+  courseId: string
+  cohortId: string
+  verificationCode: string
+  learnerName: string
+  courseTitle: string
+  cohortName: string
+  organizationName: string
+  issuedAt: string
+  revoked: boolean
+}
+
 export const learnerApi = {
   assignments: (organizationId: string) =>
     api<AssignmentSummary[]>(
@@ -160,6 +196,19 @@ export const learnerApi = {
   reviewSummary: (organizationId: string) =>
     api<ReviewSummary>(
       `/api/v1/organizations/${organizationId}/learner/reviews/summary`,
+    ),
+  learningPaths: (organizationId: string) =>
+    api<LearningPath[]>(
+      `/api/v1/organizations/${organizationId}/learner/paths`,
+    ),
+  issueCertificate: (
+    organizationId: string,
+    courseId: string,
+    cohortId: string,
+  ) =>
+    api<Certificate>(
+      `/api/v1/organizations/${organizationId}/learner/paths/${courseId}/cohorts/${cohortId}/certificate`,
+      { method: 'POST' },
     ),
   reviewCard: (
     organizationId: string,

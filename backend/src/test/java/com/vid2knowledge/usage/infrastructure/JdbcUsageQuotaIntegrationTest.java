@@ -21,6 +21,7 @@ import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.delivery.CatalogService;
 import com.vid2knowledge.delivery.AssessmentService;
 import com.vid2knowledge.delivery.LearnerService;
+import com.vid2knowledge.delivery.LearningPathService;
 import com.vid2knowledge.delivery.FlashcardReviewService;
 import com.vid2knowledge.delivery.FsrsScheduler;
 import com.vid2knowledge.delivery.OutcomeAnalyticsService;
@@ -457,6 +458,91 @@ class JdbcUsageQuotaIntegrationTest {
                 otherTenant, snapshot.snapshotId(), answers,
                 "cross-tenant-assessment", "assessment-correlation-8"
         )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    void publishedLearningPathEnforcesPrerequisitesAndIssuesVerifiableCertificate() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        UUID learnerId = seedLearner(organizationId);
+        CurrentActor learner = new CurrentActor(learnerId, organizationId, CurrentActor.Role.LEARNER);
+        UUID packageId = seedPublishedPackage(organizationId, ownerId);
+        var catalog = new CatalogService(jdbc);
+        var paths = new LearningPathService(jdbc, new ObjectMapper());
+        var launch = catalog.launchProgram(
+                owner, "Lộ trình bán hàng", packageId, java.util.List.of(learnerId),
+                Instant.now().minusSeconds(1), Instant.now().plus(Duration.ofDays(7)),
+                "path-launch", "path-correlation-1"
+        );
+        paths.configure(owner, launch.courseId(), 70, false, "path-correlation-2");
+
+        var before = paths.paths(learner).getFirst();
+        assertThat(before.totalLessons()).isEqualTo(1);
+        assertThat(before.certificateEligible()).isFalse();
+        assertThatThrownBy(() -> paths.issue(
+                learner, launch.courseId(), launch.cohortId(), "path-correlation-3"
+        )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+
+        new LearnerService(jdbc, new ObjectMapper()).submit(
+                learner, launch.assignmentId(), java.util.List.of(1, 2),
+                "path-assessment-submit", "path-correlation-4"
+        );
+        assertThat(paths.paths(learner).getFirst().certificateEligible()).isTrue();
+        var certificate = paths.issue(
+                learner, launch.courseId(), launch.cohortId(), "path-correlation-5"
+        );
+        var replay = paths.issue(
+                learner, launch.courseId(), launch.cohortId(), "path-correlation-6"
+        );
+        var verified = paths.verify(certificate.verificationCode().toLowerCase());
+        assertThat(replay.id()).isEqualTo(certificate.id());
+        assertThat(verified.learnerName()).isNotBlank();
+        assertThat(verified.courseTitle()).isEqualTo("Lộ trình bán hàng");
+        assertThat(verified.revoked()).isFalse();
+        paths.revoke(owner, certificate.id(), "Issued in error", "path-correlation-7");
+        assertThat(paths.verify(certificate.verificationCode()).revoked()).isTrue();
+
+        var secondCourse = catalog.createCourse(owner, "Prerequisite graph", "", "path-correlation-8");
+        var module = catalog.addModule(owner, secondCourse.id(), "Module", 1, "path-correlation-9");
+        var firstLesson = catalog.addLesson(
+                owner, module.id(), packageId, "Lesson A", 1, "path-correlation-10"
+        );
+        var secondLesson = catalog.addLesson(
+                owner, module.id(), packageId, "Lesson B", 2, "path-correlation-11"
+        );
+        paths.addPrerequisite(owner, secondLesson.id(), firstLesson.id(), "path-correlation-12");
+        assertThatThrownBy(() -> paths.addPrerequisite(
+                owner, firstLesson.id(), secondLesson.id(), "path-correlation-13"
+        )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        paths.publish(owner, secondCourse.id(), "path-correlation-14");
+        var prerequisiteCohort = catalog.createCohort(
+                owner, "Prerequisite cohort", Instant.now().minusSeconds(1),
+                Instant.now().plus(Duration.ofDays(7)), "path-correlation-15"
+        );
+        catalog.addCohortMember(owner, prerequisiteCohort.id(), learnerId, "path-correlation-16");
+        var firstAssignment = catalog.createAssignment(
+                owner, prerequisiteCohort.id(), firstLesson.id(), "Lesson A",
+                Instant.now().minusSeconds(1), Instant.now().plus(Duration.ofDays(7)), "path-correlation-17"
+        );
+        var secondAssignment = catalog.createAssignment(
+                owner, prerequisiteCohort.id(), secondLesson.id(), "Lesson B",
+                Instant.now().minusSeconds(1), Instant.now().plus(Duration.ofDays(7)), "path-correlation-18"
+        );
+        catalog.publishAssignment(owner, firstAssignment.id(), "path-correlation-19");
+        catalog.publishAssignment(owner, secondAssignment.id(), "path-correlation-20");
+        var learning = new LearnerService(jdbc, new ObjectMapper());
+        assertThat(learning.assignments(learner)).filteredOn(item -> item.id().equals(secondAssignment.id()))
+                .singleElement().satisfies(item -> assertThat(item.unlocked()).isFalse());
+        assertThatThrownBy(() -> learning.start(learner, secondAssignment.id()))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        learning.submit(
+                learner, firstAssignment.id(), java.util.List.of(1, 2),
+                "prerequisite-first-submit", "path-correlation-21"
+        );
+        assertThat(learning.start(learner, secondAssignment.id()).id()).isEqualTo(secondAssignment.id());
     }
 
     @Test
@@ -1017,6 +1103,7 @@ class JdbcUsageQuotaIntegrationTest {
 
     @Test
     void outboxLeasePreventsConcurrentDispatchAndRecoversAfterExpiry() {
+        jdbc.update("DELETE FROM outbox_events");
         UUID sourceId = seedSourceWithRights(organizationId);
         var service = new RequestAnalysisService(new JdbcAnalysisJobStore(jdbc), quota, new ObjectMapper());
         var job = transactions.execute(status -> service.request(new RequestAnalysisCommand(

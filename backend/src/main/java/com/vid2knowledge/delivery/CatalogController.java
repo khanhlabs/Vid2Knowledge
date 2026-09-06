@@ -32,10 +32,14 @@ public class CatalogController {
 
     private final TenantAccessService access;
     private final CatalogService catalog;
+    private final LearningPathService learningPaths;
 
-    public CatalogController(TenantAccessService access, CatalogService catalog) {
+    public CatalogController(
+            TenantAccessService access, CatalogService catalog, LearningPathService learningPaths
+    ) {
         this.access = access;
         this.catalog = catalog;
+        this.learningPaths = learningPaths;
     }
 
     @GetMapping("/courses")
@@ -182,6 +186,64 @@ public class CatalogController {
         );
     }
 
+    @PostMapping("/courses/{courseId}/completion-rule")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void configureCompletion(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID courseId,
+            @Valid @RequestBody CompletionRule request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        learningPaths.configure(
+                author(organizationId, authentication), courseId, request.passingScorePercent(),
+                request.requireDelayedRecall(), correlation(servletRequest)
+        );
+    }
+
+    @PostMapping("/lessons/{lessonId}/prerequisites")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void addPrerequisite(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID lessonId,
+            @Valid @RequestBody AddPrerequisite request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        learningPaths.addPrerequisite(
+                author(organizationId, authentication), lessonId, request.prerequisiteLessonId(),
+                correlation(servletRequest)
+        );
+    }
+
+    @PostMapping("/courses/{courseId}/publish")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void publishCourse(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID courseId,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        learningPaths.publish(
+                author(organizationId, authentication), courseId, correlation(servletRequest)
+        );
+    }
+
+    @PostMapping("/certificates/{certificateId}/revoke")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void revokeCertificate(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID certificateId,
+            @Valid @RequestBody RevokeCertificate request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        learningPaths.revoke(
+                manager(organizationId, authentication), certificateId, request.reason(),
+                correlation(servletRequest)
+        );
+    }
+
     private CurrentActor author(UUID organizationId, Authentication authentication) {
         return access.require(
                 organizationId, authentication,
@@ -248,4 +310,13 @@ public class CatalogController {
             @NotNull Instant availableAt,
             Instant dueAt
     ) {}
+
+    public record CompletionRule(
+            @Min(1) @jakarta.validation.constraints.Max(100) int passingScorePercent,
+            boolean requireDelayedRecall
+    ) {}
+
+    public record AddPrerequisite(@NotNull UUID prerequisiteLessonId) {}
+
+    public record RevokeCertificate(@NotBlank @Size(max = 500) String reason) {}
 }

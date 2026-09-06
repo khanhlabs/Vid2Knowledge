@@ -268,6 +268,9 @@ public class FlashcardReviewService {
         );
         List<DueCard> cards = new ArrayList<>();
         for (AssignmentCards assignment : assignments) {
+            if (!PrerequisiteAccess.isUnlocked(jdbc, learner, assignment.id())) {
+                continue;
+            }
             for (JsonNode card : assignment.content().path("flashcards")) {
                 String cardId = card.path("id").asText();
                 if (cardId.isBlank()) {
@@ -291,6 +294,7 @@ public class FlashcardReviewService {
     }
 
     private CardSource card(CurrentActor learner, UUID assignmentId, String cardId) {
+        PrerequisiteAccess.requireUnlocked(jdbc, learner, assignmentId);
         List<CardSource> matches = jdbc.query(
                 """
                 SELECT a.package_revision_id, pr.content_json::text AS content

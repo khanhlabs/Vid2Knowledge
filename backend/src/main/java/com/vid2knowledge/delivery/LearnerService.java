@@ -35,7 +35,7 @@ public class LearnerService {
     }
 
     public List<AssignmentSummary> assignments(CurrentActor learner) {
-        return jdbc.query(
+        List<AssignmentSummary> assignments = jdbc.query(
                 """
                 SELECT a.id, a.title, a.available_at, a.due_at, lp.status,
                        lp.progress_percent, lp.best_score_percent
@@ -51,10 +51,15 @@ public class LearnerService {
                         result.getTimestamp("available_at").toInstant(),
                         result.getTimestamp("due_at") == null ? null : result.getTimestamp("due_at").toInstant(),
                         result.getString("status"), result.getInt("progress_percent"),
-                        result.getObject("best_score_percent", Integer.class)
+                        result.getObject("best_score_percent", Integer.class), true
                 ),
                 learner.organizationId(), learner.userId()
         );
+        return assignments.stream().map(assignment -> new AssignmentSummary(
+                assignment.id(), assignment.title(), assignment.availableAt(), assignment.dueAt(),
+                assignment.status(), assignment.progressPercent(), assignment.bestScorePercent(),
+                PrerequisiteAccess.isUnlocked(jdbc, learner, assignment.id())
+        )).toList();
     }
 
     public AssignmentView get(CurrentActor learner, UUID assignmentId) {
@@ -81,9 +86,11 @@ public class LearnerService {
                 ),
                 learner.organizationId(), learner.userId(), assignmentId, Timestamp.from(clock.instant())
         );
-        return matches.stream().findFirst().orElseThrow(() ->
+        AssignmentView view = matches.stream().findFirst().orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Assignment not found")
         );
+        PrerequisiteAccess.requireUnlocked(jdbc, learner, assignmentId);
+        return view;
     }
 
     @Transactional
@@ -215,6 +222,7 @@ public class LearnerService {
     }
 
     private AssignmentContent loadContent(CurrentActor learner, UUID assignmentId, boolean requireAvailable) {
+        PrerequisiteAccess.requireUnlocked(jdbc, learner, assignmentId);
         String availability = requireAvailable ? " AND a.available_at <= ?" : "";
         List<Object> arguments = new ArrayList<>(List.of(
                 learner.organizationId(), learner.userId(), assignmentId
@@ -287,7 +295,7 @@ public class LearnerService {
 
     public record AssignmentSummary(
             UUID id, String title, Instant availableAt, Instant dueAt,
-            String status, int progressPercent, Integer bestScorePercent
+            String status, int progressPercent, Integer bestScorePercent, boolean unlocked
     ) {
     }
 

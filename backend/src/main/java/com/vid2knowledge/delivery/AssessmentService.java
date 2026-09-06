@@ -362,6 +362,7 @@ public class AssessmentService {
     }
 
     private AssignmentContent assignment(CurrentActor learner, UUID assignmentId) {
+        PrerequisiteAccess.requireUnlocked(jdbc, learner, assignmentId);
         List<AssignmentContent> matches = jdbc.query(
                 """
                 SELECT a.package_revision_id, a.due_at, pr.content_json::text AS content
