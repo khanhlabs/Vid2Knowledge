@@ -34,7 +34,7 @@
 
 - `cohorts`, `cohort_memberships`, `assignments`, `assignment_targets`.
 - `learner_progress(organization_id, user_id, assignment_id, state, started_at, completed_at, progress_percent, version)`.
-- `assessment_snapshots`, `attempts`, `attempt_answers`; snapshot giữ nguyên câu hỏi/option tại thời điểm làm.
+- `assessment_snapshots`, `assessment_attempts`, `assessment_attempt_answers`; snapshot giữ nguyên revision, câu hỏi và thứ tự option tại thời điểm làm. Answer key chỉ ở server; mỗi lượt thi có cửa sổ 2 giờ, khóa idempotency và tenant FK.
 - `flashcard_memory_states`, `flashcard_review_log`; review append-only, state là projection theo FSRS-6, lưu algorithm version để reschedule/migrate có kiểm soát.
 - `mastery_states(organization_id, user_id, topic_key, score, evidence_count, updated_at)`.
 - `qa_threads`, `qa_messages`, `qa_citations`, `embedding_chunks` với pgvector và revision reference.
@@ -114,7 +114,8 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `GET /api/v1/learner/assignments`
 - `GET /api/v1/learner/assignments/{id}`
 - `POST .../start`, `POST .../progress`, `POST .../complete` idempotent.
-- `POST .../attempts`, `PUT .../answers/{questionId}`, `POST .../submit`.
+- `GET .../assignments/{assignmentId}/assessments/overview` trả số lượt, delayed-recall eligibility và top điểm yếu.
+- `POST .../assignments/{assignmentId}/assessments` tạo snapshot `PRACTICE|DELAYED_RECALL`; `POST .../assessments/{snapshotId}/submit` chấm snapshot phía server. Cả hai bắt buộc `Idempotency-Key`; delayed recall mở sau lượt practice đầu tiên 3 ngày.
 - `GET .../learner/reviews/due|summary`, `POST .../assignments/{assignmentId}/flashcards/{cardId}/reviews`; rating bắt buộc idempotent và tenant-scoped.
 - `POST .../qa/messages`; response có citations và usage.
 - `POST .../feedback` và `POST .../reports`.
@@ -158,7 +159,7 @@ Chỉ Cloud Tasks/Scheduler service account được gọi; kiểm tra OIDC audi
 - `OrganizationCreated`, `MemberInvited`, `InvitationAccepted`.
 - `SourceRegistered`, `AnalysisRequested`, `AnalysisCompleted`, `AnalysisFailed`.
 - `PackageApproved`, `PackagePublished`, `QualityIssueReported`.
-- `AssignmentPublished`, `LearnerStarted`, `AssessmentSubmitted`, `AssignmentCompleted`, `FlashcardReviewed`.
+- `AssignmentPublished`, `LearnerStarted`, `AssessmentSubmitted`, `DelayedRecallCompleted`, `AssignmentCompleted`, `FlashcardReviewed`.
 - `PaymentReceived`, `PaymentRefunded`, `SubscriptionActivated`, `SubscriptionPastDue`, `EntitlementChanged`.
 - `UsageReserved`, `UsageCommitted`, `UsageReleased`, `BudgetThresholdReached`.
 

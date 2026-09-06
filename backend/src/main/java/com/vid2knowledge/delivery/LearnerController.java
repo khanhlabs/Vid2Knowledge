@@ -31,15 +31,18 @@ public class LearnerController {
     private final TenantAccessService access;
     private final LearnerService learners;
     private final FlashcardReviewService reviews;
+    private final AssessmentService assessments;
 
     public LearnerController(
             TenantAccessService access,
             LearnerService learners,
-            FlashcardReviewService reviews
+            FlashcardReviewService reviews,
+            AssessmentService assessments
     ) {
         this.access = access;
         this.learners = learners;
         this.reviews = reviews;
+        this.assessments = assessments;
     }
 
     @GetMapping("/assignments")
@@ -99,6 +102,45 @@ public class LearnerController {
         return reviews.summary(learner(organizationId, authentication));
     }
 
+    @GetMapping("/assignments/{assignmentId}/assessments/overview")
+    public AssessmentService.AssessmentOverview assessmentOverview(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID assignmentId,
+            Authentication authentication
+    ) {
+        return assessments.overview(learner(organizationId, authentication), assignmentId);
+    }
+
+    @PostMapping("/assignments/{assignmentId}/assessments")
+    public AssessmentService.AssessmentSnapshot startAssessment(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID assignmentId,
+            @RequestHeader("Idempotency-Key") @Size(min = 8, max = 160) String idempotencyKey,
+            @Valid @RequestBody StartAssessment request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        return assessments.start(
+                learner(organizationId, authentication), assignmentId, request.mode(),
+                idempotencyKey, correlation(servletRequest)
+        );
+    }
+
+    @PostMapping("/assessments/{snapshotId}/submit")
+    public AssessmentService.AssessmentResult submitAssessment(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID snapshotId,
+            @RequestHeader("Idempotency-Key") @Size(min = 8, max = 160) String idempotencyKey,
+            @Valid @RequestBody SubmitAssessment request,
+            Authentication authentication,
+            HttpServletRequest servletRequest
+    ) {
+        return assessments.submit(
+                learner(organizationId, authentication), snapshotId, request.answers(),
+                idempotencyKey, correlation(servletRequest)
+        );
+    }
+
     @PostMapping("/assignments/{assignmentId}/flashcards/{cardId}/reviews")
     public FlashcardReviewService.ReviewResult reviewFlashcard(
             @PathVariable UUID organizationId,
@@ -149,5 +191,13 @@ public class LearnerController {
     }
 
     public record ReviewFlashcard(@jakarta.validation.constraints.NotNull FsrsScheduler.Rating rating) {
+    }
+
+    public record StartAssessment(
+            @jakarta.validation.constraints.NotNull AssessmentService.Mode mode
+    ) {
+    }
+
+    public record SubmitAssessment(@NotEmpty @Size(max = 100) List<Integer> answers) {
     }
 }

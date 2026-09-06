@@ -38,6 +38,61 @@ export interface AttemptResult {
   submittedAt: string
 }
 
+export type AssessmentMode = 'PRACTICE' | 'DELAYED_RECALL'
+
+export interface AssessmentQuestion {
+  id: string
+  question: string
+  options: string[]
+}
+
+export interface AssessmentSnapshot {
+  snapshotId: string
+  assignmentId: string
+  mode: AssessmentMode
+  questions: AssessmentQuestion[]
+  startedAt: string
+  expiresAt: string
+}
+
+export interface AssessmentQuestionResult {
+  questionId: string
+  question: string
+  selectedAnswerIndex: number
+  correctAnswerIndex: number
+  correct: boolean
+  explanation: string
+  youtubeUrl?: string
+  timestampSeconds: number
+  evidence: string
+}
+
+export interface AssessmentResultV2 {
+  attemptId: string
+  snapshotId: string
+  mode: AssessmentMode
+  scorePercent: number
+  correctCount: number
+  questionCount: number
+  submittedAt: string
+  questions: AssessmentQuestionResult[]
+}
+
+export interface AssessmentOverview {
+  practiceAttempts: number
+  delayedRecallAttempts: number
+  bestScorePercent?: number
+  delayedRecallAvailableAt?: string
+  delayedRecallAvailable: boolean
+  delayedRecallCompleted: boolean
+  weakAreas: Array<{
+    questionId: string
+    question: string
+    wrongCount: number
+    affectedAttempts: number
+  }>
+}
+
 export type ReviewRating = 'AGAIN' | 'HARD' | 'GOOD' | 'EASY'
 
 export interface DueCard {
@@ -119,6 +174,38 @@ export const learnerApi = {
         method: 'POST',
         headers: { 'Idempotency-Key': requestKey },
         body: JSON.stringify({ rating }),
+      },
+    ),
+  assessmentOverview: (organizationId: string, assignmentId: string) =>
+    api<AssessmentOverview>(
+      `/api/v1/organizations/${organizationId}/learner/assignments/${assignmentId}/assessments/overview`,
+    ),
+  startAssessment: (
+    organizationId: string,
+    assignmentId: string,
+    mode: AssessmentMode,
+    requestKey: string,
+  ) =>
+    api<AssessmentSnapshot>(
+      `/api/v1/organizations/${organizationId}/learner/assignments/${assignmentId}/assessments`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': requestKey },
+        body: JSON.stringify({ mode }),
+      },
+    ),
+  submitAssessment: (
+    organizationId: string,
+    snapshotId: string,
+    answers: number[],
+    requestKey: string,
+  ) =>
+    api<AssessmentResultV2>(
+      `/api/v1/organizations/${organizationId}/learner/assessments/${snapshotId}/submit`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': requestKey },
+        body: JSON.stringify({ answers }),
       },
     ),
 }

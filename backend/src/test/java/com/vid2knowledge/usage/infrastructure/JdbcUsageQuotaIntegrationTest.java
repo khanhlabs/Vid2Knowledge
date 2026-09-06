@@ -19,6 +19,7 @@ import com.vid2knowledge.auth.InvitationService;
 import com.vid2knowledge.auth.OrganizationAdminService;
 import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.delivery.CatalogService;
+import com.vid2knowledge.delivery.AssessmentService;
 import com.vid2knowledge.delivery.LearnerService;
 import com.vid2knowledge.delivery.FlashcardReviewService;
 import com.vid2knowledge.delivery.FsrsScheduler;
@@ -371,6 +372,90 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(reviews.due(otherTenant)).isEmpty();
         assertThatThrownBy(() -> reviews.review(
                 otherTenant, launch.assignmentId(), "flash-1", FsrsScheduler.Rating.GOOD, "cross-tenant-review"
+        )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    void examUsesImmutableRandomizedSnapshotAndMeasuresDelayedRecall() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        UUID learnerId = seedLearner(organizationId);
+        CurrentActor learner = new CurrentActor(learnerId, organizationId, CurrentActor.Role.LEARNER);
+        UUID packageId = seedPublishedPackage(organizationId, ownerId);
+        var launch = new CatalogService(jdbc).launchProgram(
+                owner, "Kiểm tra có bằng chứng", packageId, java.util.List.of(learnerId),
+                Instant.now().minusSeconds(1), Instant.now().plus(Duration.ofDays(7)),
+                "assessment-launch", "assessment-launch-correlation"
+        );
+        var mapper = new ObjectMapper();
+        var assessments = new AssessmentService(jdbc, mapper);
+
+        var snapshot = assessments.start(
+                learner, launch.assignmentId(), AssessmentService.Mode.PRACTICE,
+                "assessment-start-1", "assessment-correlation-1"
+        );
+        var replay = assessments.start(
+                learner, launch.assignmentId(), AssessmentService.Mode.PRACTICE,
+                "assessment-start-1", "assessment-correlation-2"
+        );
+        assertThat(replay.snapshotId()).isEqualTo(snapshot.snapshotId());
+        assertThat(snapshot.questions()).allSatisfy(question -> {
+            assertThat(question.has("correctAnswerIndex")).isFalse();
+            assertThat(question.has("explanation")).isFalse();
+            assertThat(question.path("options")).hasSize(4);
+        });
+        assertThatThrownBy(() -> assessments.start(
+                learner, launch.assignmentId(), AssessmentService.Mode.DELAYED_RECALL,
+                "assessment-start-1", "assessment-correlation-3"
+        )).isInstanceOf(IdempotencyConflictException.class);
+
+        String keyJson = jdbc.queryForObject(
+                "SELECT answer_key_json::text FROM assessment_snapshots WHERE id = ?",
+                String.class, snapshot.snapshotId()
+        );
+        var key = mapper.readTree(keyJson);
+        var answers = new java.util.ArrayList<Integer>();
+        key.forEach(question -> answers.add(question.path("correctAnswerIndex").asInt()));
+        answers.set(0, (answers.getFirst() + 1) % 4);
+        var result = assessments.submit(
+                learner, snapshot.snapshotId(), answers, "assessment-submit-1", "assessment-correlation-4"
+        );
+        var resultReplay = assessments.submit(
+                learner, snapshot.snapshotId(), answers, "assessment-submit-1", "assessment-correlation-5"
+        );
+        assertThat(result.scorePercent()).isEqualTo(50);
+        assertThat(result.questions()).filteredOn(question -> !question.correct()).singleElement()
+                .satisfies(question -> assertThat(question.explanation()).isNotBlank());
+        assertThat(resultReplay).isEqualTo(result);
+        assertThatThrownBy(() -> assessments.submit(
+                learner, snapshot.snapshotId(), java.util.List.of(0, 0),
+                "assessment-submit-2", "assessment-correlation-6"
+        )).isInstanceOf(IdempotencyConflictException.class);
+
+        var overview = assessments.overview(learner, launch.assignmentId());
+        assertThat(overview.practiceAttempts()).isEqualTo(1);
+        assertThat(overview.delayedRecallAvailable()).isFalse();
+        assertThat(overview.weakAreas()).singleElement();
+        jdbc.update(
+                "UPDATE assessment_attempts SET submitted_at = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minus(Duration.ofDays(4))), result.attemptId()
+        );
+        var delayed = assessments.start(
+                learner, launch.assignmentId(), AssessmentService.Mode.DELAYED_RECALL,
+                "assessment-delayed-1", "assessment-correlation-7"
+        );
+        assertThat(delayed.mode()).isEqualTo(AssessmentService.Mode.DELAYED_RECALL);
+        assertThat(assessments.overview(learner, launch.assignmentId()).delayedRecallAvailable()).isTrue();
+
+        CurrentActor otherTenant = new CurrentActor(learnerId, UUID.randomUUID(), CurrentActor.Role.LEARNER);
+        assertThatThrownBy(() -> assessments.overview(otherTenant, launch.assignmentId()))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> assessments.submit(
+                otherTenant, snapshot.snapshotId(), answers,
+                "cross-tenant-assessment", "assessment-correlation-8"
         )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
     }
 

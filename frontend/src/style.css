@@ -764,6 +764,62 @@ button:disabled {
 .score-result span {
   color: #52645a;
 }
+.assessment-launcher {
+  display: grid;
+  gap: 0.85rem;
+}
+.assessment-launcher h2,
+.assessment-launcher p {
+  margin: 0;
+}
+.assessment-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.6rem;
+}
+.assessment-stats span {
+  padding: 0.8rem;
+  border: 1px solid #d8dbd2;
+  border-radius: 9px;
+  background: #fff;
+}
+.assessment-stats strong {
+  color: #176744;
+  font-size: 1.35rem;
+}
+.secondary-button {
+  border-color: #aab5ac;
+  background: transparent;
+  color: #294d3b;
+}
+.weak-areas {
+  padding: 0.9rem;
+  border-radius: 9px;
+  background: #fff5e7;
+}
+.weak-areas h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.weak-areas ul {
+  margin-top: 0.5rem;
+}
+.weak-areas li {
+  padding: 0.45rem 0;
+  font-size: 0.85rem;
+}
+.answer-review {
+  width: 100%;
+  margin: 1rem 0;
+  text-align: left;
+}
+.answer-review article {
+  padding: 0.85rem 0;
+  border-top: 1px solid #c8ddd0;
+}
+.answer-review p {
+  margin: 0.35rem 0;
+}
 
 .consent {
   color: #737c74;

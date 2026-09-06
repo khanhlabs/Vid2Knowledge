@@ -5,7 +5,9 @@ import { idempotencyKey } from '../../shared/api/client'
 import {
   learnerApi,
   type Assignment,
-  type AttemptResult,
+  type AssessmentMode,
+  type AssessmentResultV2,
+  type AssessmentSnapshot,
   type DueCard,
   type ReviewRating,
 } from './api'
@@ -14,7 +16,13 @@ export function LearnerPage() {
   const { organizationId = '' } = useParams()
   const [lesson, setLesson] = useState<Assignment | null>(null)
   const [answers, setAnswers] = useState<number[]>([])
-  const [result, setResult] = useState<AttemptResult | null>(null)
+  const [assessment, setAssessment] = useState<AssessmentSnapshot | null>(null)
+  const [result, setResult] = useState<AssessmentResultV2 | null>(null)
+  const [assessmentStart, setAssessmentStart] = useState<{
+    mode: AssessmentMode
+    key: string
+  } | null>(null)
+  const [submissionKey, setSubmissionKey] = useState<string | null>(null)
   const [revealedCardId, setRevealedCardId] = useState<string | null>(null)
   const [pendingReview, setPendingReview] = useState<{
     card: DueCard
@@ -37,17 +45,62 @@ export function LearnerPage() {
     queryFn: () => learnerApi.reviewSummary(organizationId),
     enabled: Boolean(organizationId) && !lesson,
   })
+  const assessmentOverview = useQuery({
+    queryKey: ['assessment-overview', organizationId, lesson?.id],
+    queryFn: () => learnerApi.assessmentOverview(organizationId, lesson!.id),
+    enabled: Boolean(organizationId && lesson?.id),
+  })
   const start = useMutation({
     mutationFn: (id: string) => learnerApi.start(organizationId, id),
     onSuccess: (item) => {
       setLesson(item)
-      setAnswers(Array(item.content.quiz?.length ?? 0).fill(-1))
+      setAssessment(null)
+      setAnswers([])
       setResult(null)
+      setAssessmentStart(null)
+      setSubmissionKey(null)
     },
   })
-  const submit = useMutation({
-    mutationFn: () => learnerApi.submit(organizationId, lesson!.id, answers),
-    onSuccess: setResult,
+  const startAssessment = useMutation({
+    mutationFn: (request: { mode: AssessmentMode; key: string }) =>
+      learnerApi.startAssessment(
+        organizationId,
+        lesson!.id,
+        request.mode,
+        request.key,
+      ),
+    retry: 2,
+    onSuccess: (snapshot) => {
+      setAssessment(snapshot)
+      setAnswers(Array(snapshot.questions.length).fill(-1))
+      setResult(null)
+      setSubmissionKey(null)
+    },
+  })
+  const submitAssessment = useMutation({
+    mutationFn: (request: {
+      snapshot: AssessmentSnapshot
+      answers: number[]
+      key: string
+    }) =>
+      learnerApi.submitAssessment(
+        organizationId,
+        request.snapshot.snapshotId,
+        request.answers,
+        request.key,
+      ),
+    retry: 2,
+    onSuccess: async (submitted) => {
+      setResult(submitted)
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['assessment-overview', organizationId, lesson?.id],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['learner-assignments', organizationId],
+        }),
+      ])
+    },
   })
   const review = useMutation({
     mutationFn: (request: {
@@ -88,6 +141,22 @@ export function LearnerPage() {
   }
   const currentReviewCard = dueReviews.data?.[0]
 
+  const beginAssessment = (mode: AssessmentMode) => {
+    const request =
+      assessmentStart?.mode === mode
+        ? assessmentStart
+        : { mode, key: idempotencyKey('assessment-start') }
+    setAssessmentStart(request)
+    startAssessment.mutate(request)
+  }
+
+  const submitCurrentAssessment = () => {
+    if (!assessment) return
+    const key = submissionKey ?? idempotencyKey('assessment-submit')
+    setSubmissionKey(key)
+    submitAssessment.mutate({ snapshot: assessment, answers, key })
+  }
+
   return (
     <main className="learner-page">
       <header className="learner-header">
@@ -98,7 +167,11 @@ export function LearnerPage() {
         <section className="lesson-layout">
           <button
             className="text-button back-button"
-            onClick={() => setLesson(null)}
+            onClick={() => {
+              setLesson(null)
+              setAssessment(null)
+              setResult(null)
+            }}
           >
             ← Danh sách bài học
           </button>
@@ -129,8 +202,76 @@ export function LearnerPage() {
             )}
           </article>
           <aside className="quiz-card">
-            <p className="eyebrow">KIỂM TRA KIẾN THỨC</p>
-            {lesson.content.quiz?.map((question, questionIndex) => (
+            <p className="eyebrow">EXAM MODE · SNAPSHOT BẤT BIẾN</p>
+            {!assessment && (
+              <div className="assessment-launcher">
+                <h2>Đo mức hiểu, không lộ đáp án.</h2>
+                <p>
+                  Mỗi lượt dùng thứ tự câu và đáp án riêng. Kết quả luôn giữ
+                  nguyên dù nội dung bài học được cập nhật sau này.
+                </p>
+                <div className="assessment-stats">
+                  <span>
+                    <strong>
+                      {assessmentOverview.data?.practiceAttempts ?? 0}
+                    </strong>{' '}
+                    lượt luyện
+                  </span>
+                  <span>
+                    <strong>
+                      {assessmentOverview.data?.bestScorePercent ?? '—'}
+                    </strong>
+                    {assessmentOverview.data?.bestScorePercent != null
+                      ? '% tốt nhất'
+                      : ' chưa có điểm'}
+                  </span>
+                </div>
+                <button
+                  disabled={startAssessment.isPending}
+                  onClick={() => beginAssessment('PRACTICE')}
+                >
+                  Bắt đầu đề luyện mới
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={
+                    startAssessment.isPending ||
+                    !assessmentOverview.data?.delayedRecallAvailable
+                  }
+                  onClick={() => beginAssessment('DELAYED_RECALL')}
+                >
+                  Kiểm tra nhớ lại sau 3 ngày
+                </button>
+                {assessmentOverview.data?.delayedRecallAvailableAt &&
+                  !assessmentOverview.data.delayedRecallAvailable && (
+                    <small>
+                      Mở delayed recall lúc{' '}
+                      {new Date(
+                        assessmentOverview.data.delayedRecallAvailableAt,
+                      ).toLocaleString('vi-VN')}
+                    </small>
+                  )}
+                {assessmentOverview.data?.weakAreas.length ? (
+                  <div className="weak-areas">
+                    <h3>Điểm yếu cần xử lý</h3>
+                    <ul>
+                      {assessmentOverview.data.weakAreas.map((area) => (
+                        <li key={area.questionId}>
+                          {area.question} · sai {area.wrongCount} lần
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {startAssessment.isError && (
+                  <p className="form-error">
+                    Chưa thể tạo đề. Nếu là delayed recall, hãy kiểm tra thời
+                    điểm mở đề.
+                  </p>
+                )}
+              </div>
+            )}
+            {assessment?.questions.map((question, questionIndex) => (
               <fieldset key={`${question.question}-${questionIndex}`}>
                 <legend>
                   {questionIndex + 1}. {question.question}
@@ -154,12 +295,13 @@ export function LearnerPage() {
                 ))}
               </fieldset>
             ))}
-            {!result && (
+            {assessment && !result && (
               <button
                 disabled={
-                  submit.isPending || answers.some((answer) => answer < 0)
+                  submitAssessment.isPending ||
+                  answers.some((answer) => answer < 0)
                 }
-                onClick={() => submit.mutate()}
+                onClick={submitCurrentAssessment}
               >
                 Nộp bài
               </button>
@@ -170,11 +312,41 @@ export function LearnerPage() {
                 <span>
                   {result.correctCount}/{result.questionCount} câu đúng
                 </span>
+                <div className="answer-review">
+                  {result.questions
+                    .filter((question) => !question.correct)
+                    .map((question) => (
+                      <article key={question.questionId}>
+                        <strong>{question.question}</strong>
+                        <p>{question.explanation}</p>
+                        {question.youtubeUrl && (
+                          <a
+                            href={`${question.youtubeUrl}&t=${question.timestampSeconds}s`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Xem bằng chứng tại {question.timestampSeconds}s ↗
+                          </a>
+                        )}
+                      </article>
+                    ))}
+                </div>
+                <button
+                  className="secondary-button"
+                  onClick={() => {
+                    setAssessment(null)
+                    setResult(null)
+                    setAnswers([])
+                    setAssessmentStart(null)
+                  }}
+                >
+                  Tạo đề khác
+                </button>
               </div>
             )}
-            {submit.isError && (
+            {submitAssessment.isError && (
               <p className="form-error">
-                Không thể nộp bài. Hãy kiểm tra hạn nộp và thử lại.
+                Không thể nộp bài. Bấm lại để retry an toàn với cùng mã yêu cầu.
               </p>
             )}
           </aside>
