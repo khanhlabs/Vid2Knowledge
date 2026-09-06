@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.vid2knowledge.privacy.PrivacyService;
+import com.vid2knowledge.privacy.RetentionService;
 
 @RestController
 @RequestMapping("/internal/tasks/billing/reconcile")
@@ -15,15 +16,19 @@ public class InternalBillingController {
 
     private final BillingService billing;
     private final PrivacyService privacy;
+    private final RetentionService retention;
 
-    public InternalBillingController(BillingService billing, PrivacyService privacy) {
+    public InternalBillingController(BillingService billing, PrivacyService privacy, RetentionService retention) {
         this.billing = billing;
         this.privacy = privacy;
+        this.retention = retention;
     }
 
     @PostMapping
     public MaintenanceResult reconcile() {
-        return new MaintenanceResult(billing.reconcilePendingPayments(), privacy.processDueDeletions());
+        return new MaintenanceResult(
+                billing.reconcilePendingPayments(), privacy.processDueDeletions(), retention.cleanup()
+        );
     }
 
     @PostMapping("/refunds/{refundId}/confirm")
@@ -47,6 +52,7 @@ public class InternalBillingController {
 
     public record MaintenanceResult(
             BillingService.ReconciliationResult billing,
-            PrivacyService.ProcessingResult privacyDeletions
+            PrivacyService.ProcessingResult privacyDeletions,
+            RetentionService.CleanupResult retention
     ) { }
 }

@@ -37,6 +37,18 @@ RPO ban đầu 24 giờ, RTO 4 giờ. Nếu hợp đồng yêu cầu tốt hơn,
 - Privacy deletion: task local pseudonymize và block subject; operator xóa Supabase Auth identity,
   ghi ticket/bằng chứng hoàn tất. Financial/audit ledger chỉ còn pseudonymous ID theo retention policy.
 
+## Data retention operation
+
+Billing reconciliation gọi cùng transaction boundary của maintenance workflow cho retention cleanup;
+operator cũng có thể gọi riêng `POST /internal/tasks/retention/cleanup` bằng Cloud Tasks OIDC. Defaults:
+raw Gemini output 30 ngày, processed payOS payload/signature 90 ngày, terminal outbox/notification 30 ngày
+và invitation terminal/hết hạn 90 ngày. Idempotency record bị xóa ngay sau `expires_at`.
+
+Cleanup chỉ redaction payload và xóa operational record đã terminal. Nó cố ý giữ webhook provider/event
+key để chống replay, package revision canonical, learning evidence, financial/cost ledger và audit log.
+Không giảm retention các record hợp đồng/pháp lý nếu chưa có legal approval và migration riêng. Sau mỗi
+lần đổi biến `RETENTION_*`, chạy staging cleanup trên snapshot và đối soát count trả về trước production.
+
 ## Release and rollback
 
 Image backend phải pin theo digest/commit SHA. Migration theo expand/contract; deploy schema tương thích

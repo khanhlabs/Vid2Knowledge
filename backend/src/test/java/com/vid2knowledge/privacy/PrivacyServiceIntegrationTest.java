@@ -3,6 +3,7 @@ package com.vid2knowledge.privacy;
 import com.vid2knowledge.auth.IdentityService;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.config.CommercialProperties;
+import com.vid2knowledge.config.RetentionProperties;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +20,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -71,6 +73,71 @@ class PrivacyServiceIntegrationTest {
         assertThat(exported.path("memberships").size()).isEqualTo(1);
         assertThat(exported.path("memberships").get(0).path("organizationId").asText())
                 .isEqualTo(organizationId.toString());
+    }
+
+    @Test
+    void retentionRemovesExpiredOperationalDataButKeepsWebhookDedupeEvidence() {
+        Instant now = Instant.parse("2026-09-06T12:00:00Z");
+        Instant old = now.minus(Duration.ofDays(120));
+        UUID invoice = UUID.randomUUID();
+        jdbc.update(
+                """
+                INSERT INTO idempotency_records(
+                    id, organization_id, operation, idempotency_key, request_hash, expires_at
+                ) VALUES (?, ?, 'test', 'expired-key', 'hash', ?)
+                """,
+                UUID.randomUUID(), organizationId, Timestamp.from(now.minusSeconds(1))
+        );
+        jdbc.update(
+                """
+                INSERT INTO payment_webhook_inbox(
+                    id, provider, event_key, signature, payload_json, received_at, processed_at
+                ) VALUES (?, 'PAYOS', 'retention-event', 'secret-signature', '{"data":"sensitive"}'::jsonb, ?, ?)
+                """,
+                UUID.randomUUID(), Timestamp.from(old), Timestamp.from(old)
+        );
+        jdbc.update(
+                """
+                INSERT INTO outbox_events(
+                    id, organization_id, event_type, event_version, aggregate_type, aggregate_id,
+                    correlation_id, payload_json, occurred_at, published_at
+                ) VALUES (?, ?, 'OldEvent', 1, 'Test', ?, 'retention', '{}'::jsonb, ?, ?)
+                """,
+                UUID.randomUUID(), organizationId, invoice, Timestamp.from(old), Timestamp.from(old)
+        );
+        jdbc.update(
+                """
+                INSERT INTO invitations(
+                    id, organization_id, email, normalized_email, role, token_hash,
+                    invited_by, expires_at, revoked_at, created_at
+                ) VALUES (?, ?, ?, ?, 'LEARNER', ?, ?, ?, ?, ?)
+                """,
+                UUID.randomUUID(), organizationId, "old@example.com", "old@example.com", UUID.randomUUID().toString(),
+                userId, Timestamp.from(old.plus(Duration.ofDays(1))), Timestamp.from(old.plusSeconds(1)),
+                Timestamp.from(old)
+        );
+        var service = new RetentionService(
+                jdbc,
+                new RetentionProperties(
+                        Duration.ofDays(30), Duration.ofDays(90), Duration.ofDays(30),
+                        Duration.ofDays(30), Duration.ofDays(90)
+                ),
+                Clock.fixed(now, java.time.ZoneOffset.UTC)
+        );
+
+        var result = service.cleanup();
+
+        assertThat(result.expiredIdempotencyRecords()).isEqualTo(1);
+        assertThat(result.redactedPaymentWebhookPayloads()).isEqualTo(1);
+        assertThat(result.deletedTerminalOutboxEvents()).isEqualTo(1);
+        assertThat(result.deletedTerminalInvitations()).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT signature FROM payment_webhook_inbox WHERE event_key = 'retention-event'", String.class
+        )).isEqualTo("REDACTED");
+        assertThat(jdbc.queryForObject(
+                "SELECT payload_json = '{}'::jsonb FROM payment_webhook_inbox WHERE event_key = 'retention-event'",
+                Boolean.class
+        )).isTrue();
     }
 
     @Test

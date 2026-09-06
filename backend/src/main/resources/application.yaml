@@ -124,3 +124,10 @@ rate-limit:
   payment-mutations: ${RATE_LIMIT_PAYMENT_MUTATIONS:20}
   window: ${RATE_LIMIT_WINDOW:1m}
   max-keys: ${RATE_LIMIT_MAX_KEYS:50000}
+
+retention:
+  generation-payload: ${RETENTION_GENERATION_PAYLOAD:30d}
+  payment-webhook-payload: ${RETENTION_PAYMENT_WEBHOOK_PAYLOAD:90d}
+  terminal-outbox: ${RETENTION_TERMINAL_OUTBOX:30d}
+  terminal-notification: ${RETENTION_TERMINAL_NOTIFICATION:30d}
+  terminal-invitation: ${RETENTION_TERMINAL_INVITATION:90d}

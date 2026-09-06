@@ -177,6 +177,11 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `POST /internal/tasks/reviews/schedule`.
 - `POST /internal/tasks/retention/cleanup`.
 
+Retention cleanup xóa idempotency đã hết hạn; redaction raw Gemini output và processed payment
+webhook body/signature; xóa outbox, notification và invitation đã terminal theo configurable window.
+Webhook provider/event key, package canonical, financial/cost ledger, audit và learning evidence không
+bị xóa bởi operational cleanup này. Billing reconciliation gọi cùng cleanup để không thêm Scheduler job.
+
 ### Privacy
 
 - `GET /api/v1/privacy/export` trả JSON portable của đúng authenticated subject, với
