@@ -107,7 +107,10 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `POST .../sources` validate source và rights attestation.
 - `POST .../analyses` với `Idempotency-Key`; trả `202` + job URI.
 - `GET/POST .../analysis-jobs/{jobId}` cho status/cancel/retry hợp lệ.
-- `GET/PATCH .../packages/{packageId}/draft` dùng ETag/If-Match.
+- `GET .../packages/{packageId}` trả ETag; `PATCH .../packages/{packageId}/draft` dùng If-Match.
+  UI chỉnh structured summary/section/takeaway/flashcard/quiz, reorder/duplicate trong giới hạn schema
+  và giữ bản chưa lưu trong local storage theo đúng package + base version. Mỗi lần lưu tạo revision
+  bất biến; HTTP 412 giữ lại local draft để người dùng đối chiếu thay vì silently overwrite.
 - `POST .../packages/{packageId}/submit-review|approve|reject|publish|archive`; reject bắt buộc
   reason 3–1000 ký tự. Khi `approvalRequired=false`, author publish là human verification;
   mặc định tổ chức mới vẫn bắt buộc reviewer approval.

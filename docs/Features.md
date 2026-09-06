@@ -48,16 +48,15 @@ The package must include source-verification metadata and schema versioning:
 ```json
 {
   "schemaVersion": "1.0",
-  "video": { "youtubeUrl": "https://www.youtube.com/watch?v=...", "videoId": "...", "title": "...", "detectedLanguage": "vi" },
-  "summary": { "overview": "...", "sections": [{ "title": "...", "content": ["..."], "sourceReference": { "timestampSeconds": 0, "verificationStatus": "unverified" } }] },
-  "keyTakeaways": ["..."],
-  "flashcards": [{ "id": "...", "question": "...", "answer": "...", "timestampSeconds": 0 }],
-  "quiz": [{ "id": "...", "question": "...", "options": ["...", "...", "...", "..."], "correctAnswerIndex": 0, "explanation": "...", "timestampSeconds": 0 }],
-  "generation": { "model": "...", "promptVersion": "..." }
+  "video": { "youtubeUrl": "https://www.youtube.com/watch?v=...", "videoId": "...", "title": "...", "language": "vi" },
+  "summary": { "overview": "...", "sections": [{ "id": "section-one", "title": "...", "content": ["..."], "source": { "timestampSeconds": 0, "evidence": "..." } }] },
+  "keyTakeaways": [{ "id": "takeaway-one", "text": "...", "source": { "timestampSeconds": 0, "evidence": "..." } }],
+  "flashcards": [{ "id": "card-one", "question": "...", "answer": "...", "source": { "timestampSeconds": 0, "evidence": "..." } }],
+  "quiz": [{ "id": "quiz-one", "question": "...", "options": ["...", "...", "...", "..."], "correctAnswerIndex": 0, "explanation": "...", "source": { "timestampSeconds": 0, "evidence": "..." } }]
 }
 ```
 
-The actual schema must specify required/optional fields, max sizes, enum values, validation errors, and migration rules. `verificationStatus` is assigned by a system or human verification process, not by model self-confidence. The client must not assume a timestamp exists merely because a card or section exists.
+The actual schema specifies required fields and server-side size/count/source validation. Revision `verificationState` is assigned by the workflow or a human reviewer, not by model self-confidence. Every learner-visible item must retain a validated timestamp and evidence string.
 
 ## 5. Scope by priority
 

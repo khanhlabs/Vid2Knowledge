@@ -103,7 +103,50 @@ export interface LearningPackage {
   revisionId: string
   revisionNo: number
   verificationState: string
-  content: Record<string, unknown>
+  content: LearningPackageContent
+}
+
+export interface SourceReference {
+  timestampSeconds: number
+  evidence: string
+}
+
+export interface LearningPackageContent {
+  schemaVersion: string
+  video: {
+    youtubeUrl: string
+    videoId: string
+    title: string
+    language: string
+  }
+  summary: {
+    overview: string
+    sections: Array<{
+      id: string
+      title: string
+      source: SourceReference
+      content: string[]
+    }>
+  }
+  keyTakeaways: Array<{
+    id: string
+    text: string
+    source: SourceReference
+  }>
+  flashcards: Array<{
+    id: string
+    question: string
+    answer: string
+    source: SourceReference
+  }>
+  quiz: Array<{
+    id: string
+    question: string
+    options: string[]
+    correctAnswerIndex: number
+    explanation: string
+    source: SourceReference
+  }>
 }
 
 export interface Member {
@@ -383,6 +426,20 @@ export const workspaceApi = {
   learningPackage: (organizationId: string, packageId: string) =>
     api<LearningPackage>(
       `/api/v1/organizations/${organizationId}/packages/${packageId}`,
+    ),
+  savePackageDraft: (
+    organizationId: string,
+    packageId: string,
+    version: number,
+    content: LearningPackageContent,
+  ) =>
+    api<LearningPackage>(
+      `/api/v1/organizations/${organizationId}/packages/${packageId}/draft`,
+      {
+        method: 'PATCH',
+        headers: { 'If-Match': `"${version}"` },
+        body: JSON.stringify({ content }),
+      },
     ),
   transitionPackage: (
     organizationId: string,

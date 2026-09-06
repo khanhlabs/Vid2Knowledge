@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { workspaceApi } from './api'
+import { ApiError } from '../../shared/api/client'
+import {
+  workspaceApi,
+  type LearningPackageContent,
+  type LearningPackage,
+} from './api'
+import { PackageEditor } from './PackageEditor'
 
 const actionsByState: Record<
   string,
@@ -21,15 +27,73 @@ const actionsByState: Record<
   PUBLISHED: [{ action: 'archive', label: 'Lưu trữ' }],
 }
 
+function localDraft(
+  key: string,
+  version: number | undefined,
+): LearningPackageContent | null {
+  if (version == null) return null
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as {
+      baseVersion: number
+      content: LearningPackageContent
+    }
+    return parsed.baseVersion === version ? parsed.content : null
+  } catch {
+    return null
+  }
+}
+
 export function PackageReviewPage() {
   const { packageId = '' } = useParams()
   const organizationId = localStorage.getItem('v2k.organizationId') ?? ''
   const queryClient = useQueryClient()
   const [rejectionReason, setRejectionReason] = useState('')
+  const [draft, setDraft] = useState<LearningPackageContent | null>(null)
+  const [dirty, setDirty] = useState(false)
   const result = useQuery({
     queryKey: ['package', organizationId, packageId],
     queryFn: () => workspaceApi.learningPackage(organizationId, packageId),
     enabled: Boolean(organizationId && packageId),
+  })
+  const me = useQuery({ queryKey: ['me'], queryFn: workspaceApi.me })
+  const draftKey = `v2k.package-draft.${organizationId}.${packageId}`
+  const storedDraft = localDraft(draftKey, result.data?.version)
+  const activeDraft = draft ?? storedDraft ?? result.data?.content ?? null
+  const hasUnsavedChanges = dirty || storedDraft != null
+
+  useEffect(() => {
+    if (!dirty || !activeDraft || !result.data) return
+    const timer = window.setTimeout(() => {
+      localStorage.setItem(
+        draftKey,
+        JSON.stringify({
+          baseVersion: result.data.version,
+          content: activeDraft,
+        }),
+      )
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [dirty, activeDraft, draftKey, result.data])
+
+  const saveDraft = useMutation({
+    mutationFn: () =>
+      workspaceApi.savePackageDraft(
+        organizationId,
+        packageId,
+        result.data!.version,
+        activeDraft!,
+      ),
+    onSuccess: (saved) => {
+      queryClient.setQueryData<LearningPackage>(
+        ['package', organizationId, packageId],
+        saved,
+      )
+      setDraft(saved.content)
+      setDirty(false)
+      localStorage.removeItem(draftKey)
+    },
   })
   const transition = useMutation({
     mutationFn: ({
@@ -61,6 +125,12 @@ export function PackageReviewPage() {
   if (result.isError)
     return <div className="screen-message error">Không thể tải học liệu.</div>
   const item = result.data
+  const membership = me.data?.organizations?.find(
+    (organization) => organization.id === organizationId,
+  )
+  const canEdit =
+    ['OWNER', 'ADMIN', 'INSTRUCTOR'].includes(membership?.role ?? '') &&
+    ['GENERATED', 'DRAFT', 'REJECTED'].includes(item.state)
   return (
     <main className="review-page">
       <div className="review-toolbar">
@@ -74,16 +144,55 @@ export function PackageReviewPage() {
       </div>
       <section className="panel review-content">
         <p className="eyebrow">BẢN NHÁP HỌC LIỆU</p>
-        <h1>
-          {String(
-            (item.content.video as { title?: string } | undefined)?.title ??
-              'Học liệu chưa đặt tên',
-          )}
-        </h1>
+        <h1>{item.content.video?.title ?? 'Học liệu chưa đặt tên'}</h1>
         <p>
           Kiểm tra tính chính xác, nguồn dẫn và câu trả lời trước khi xuất bản.
         </p>
-        <pre>{JSON.stringify(item.content, null, 2)}</pre>
+        {canEdit && activeDraft ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              saveDraft.mutate()
+            }}
+          >
+            {storedDraft && !draft && (
+              <p className="draft-notice">
+                Đã khôi phục thay đổi chưa lưu trên thiết bị này.
+              </p>
+            )}
+            <PackageEditor
+              value={activeDraft}
+              disabled={saveDraft.isPending}
+              onChange={(content) => {
+                setDraft(content)
+                setDirty(true)
+              }}
+            />
+            <div className="sticky-save-bar">
+              <span>
+                {hasUnsavedChanges
+                  ? 'Thay đổi được giữ cục bộ; chưa tạo revision mới.'
+                  : `Revision ${item.revisionNo} đã đồng bộ.`}
+              </span>
+              <button disabled={!hasUnsavedChanges || saveDraft.isPending}>
+                {saveDraft.isPending ? 'Đang lưu…' : 'Lưu revision mới'}
+              </button>
+            </div>
+            {saveDraft.isError && (
+              <p className="form-error" role="alert">
+                {saveDraft.error instanceof ApiError &&
+                saveDraft.error.status === 412
+                  ? 'Có người đã lưu phiên bản mới. Thay đổi cục bộ vẫn được giữ; hãy tải lại để đối chiếu trước khi lưu.'
+                  : 'Nội dung chưa đạt validation. Kiểm tra số lượng item, timestamp và các trường bắt buộc.'}
+              </p>
+            )}
+          </form>
+        ) : (
+          <details className="raw-package">
+            <summary>Xem JSON revision</summary>
+            <pre>{JSON.stringify(item.content, null, 2)}</pre>
+          </details>
+        )}
         {item.state === 'IN_REVIEW' && (
           <label className="review-reason">
             Lý do yêu cầu chỉnh sửa
@@ -107,6 +216,7 @@ export function PackageReviewPage() {
               }
               disabled={
                 transition.isPending ||
+                hasUnsavedChanges ||
                 (action === 'reject' && rejectionReason.trim().length < 3)
               }
               onClick={() =>
@@ -130,6 +240,11 @@ export function PackageReviewPage() {
             </button>
           )}
         </div>
+        {hasUnsavedChanges && (
+          <p className="draft-notice">
+            Lưu revision trước khi chuyển trạng thái kiểm duyệt.
+          </p>
+        )}
         {knowledgeIndex.data && (
           <p className="success-message">
             Đã lập chỉ mục {knowledgeIndex.data.chunks} đoạn bằng{' '}

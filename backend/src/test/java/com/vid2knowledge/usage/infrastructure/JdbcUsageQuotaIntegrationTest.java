@@ -65,6 +65,7 @@ import java.util.UUID;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicInteger;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -718,6 +719,24 @@ class JdbcUsageQuotaIntegrationTest {
                 new ObjectMapper()
         );
 
+        var original = packages.get(organizationId, packageId);
+        String sourceUri = jdbc.queryForObject(
+                "SELECT canonical_uri FROM sources WHERE id = ?", String.class, original.sourceId()
+        );
+        ObjectNode edited = validPackageContent(new ObjectMapper(), sourceUri);
+        ((ObjectNode) edited.path("summary")).put("overview", "Bản chỉnh sửa đã được đối chiếu nguồn.");
+        var saved = transactions.execute(status ->
+                packages.saveDraft(owner, packageId, original.version(), edited, "package-draft-1")
+        );
+        assertThat(saved).isNotNull();
+        assertThat(saved.revisionNo()).isEqualTo(original.revisionNo() + 1);
+        assertThat(saved.state()).isEqualTo("DRAFT");
+        assertThat(saved.content().path("summary").path("overview").asText()).contains("đối chiếu nguồn");
+        assertThatThrownBy(() -> transactions.execute(status -> packages.saveDraft(
+                owner, packageId, original.version(), edited, "package-draft-stale"
+        ))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("412");
+
         packages.transition(owner, packageId, PackageWorkflowService.Transition.SUBMIT_REVIEW, "package-1");
         packages.transition(owner, packageId, PackageWorkflowService.Transition.APPROVE, "package-2");
         var published = packages.transition(
@@ -732,13 +751,13 @@ class JdbcUsageQuotaIntegrationTest {
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM audit_logs WHERE resource_id = ?", Long.class, packageId
-        )).isEqualTo(3L);
+        )).isEqualTo(4L);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM review_decisions WHERE package_id = ?", Long.class, packageId
         )).isEqualTo(1L);
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM question_bank_items WHERE organization_id = ?", Long.class, organizationId
-        )).isEqualTo(2L);
+        )).isEqualTo(5L);
     }
 
     @Test
@@ -1560,8 +1579,10 @@ class JdbcUsageQuotaIntegrationTest {
         );
         jdbc.update(
                 """
-                INSERT INTO sources(id, organization_id, type, canonical_uri, external_id, created_by)
-                VALUES (?, ?, 'YOUTUBE', ?, ?, ?)
+                INSERT INTO sources(
+                    id, organization_id, type, canonical_uri, external_id, created_by,
+                    duration_seconds, metadata_verified_at
+                ) VALUES (?, ?, 'YOUTUBE', ?, ?, ?, 3600, CURRENT_TIMESTAMP)
                 """,
                 sourceId,
                 orgId,
@@ -1666,6 +1687,38 @@ class JdbcUsageQuotaIntegrationTest {
                 revisionId, state, packageId
         );
         return packageId;
+    }
+
+    private static ObjectNode validPackageContent(ObjectMapper mapper, String canonicalUri) {
+        String videoId = canonicalUri.substring(canonicalUri.lastIndexOf('=') + 1);
+        ObjectNode root = mapper.createObjectNode().put("schemaVersion", "1.0");
+        root.set("video", mapper.createObjectNode()
+                .put("youtubeUrl", canonicalUri)
+                .put("videoId", videoId).put("title", "Test").put("language", "vi"));
+        ObjectNode source = mapper.createObjectNode().put("timestampSeconds", 10).put("evidence", "Evidence");
+        var sections = mapper.createArrayNode().add(mapper.createObjectNode()
+                .put("id", "section-one").put("title", "One").set("source", source.deepCopy())
+                .set("content", mapper.createArrayNode().add("Text")));
+        root.set("summary", mapper.createObjectNode().put("overview", "Overview").set("sections", sections));
+        root.set("keyTakeaways", mapper.createArrayNode().add(mapper.createObjectNode()
+                .put("id", "takeaway-one").put("text", "One").set("source", source.deepCopy())));
+        var cards = mapper.createArrayNode();
+        for (int index = 1; index <= 10; index++) {
+            cards.add(mapper.createObjectNode().put("id", "flash-" + index)
+                    .put("question", "F" + index + "?").put("answer", "A" + index)
+                    .set("source", source.deepCopy()));
+        }
+        root.set("flashcards", cards);
+        var quiz = mapper.createArrayNode();
+        for (int index = 1; index <= 5; index++) {
+            quiz.add(mapper.createObjectNode().put("id", "quiz-" + index)
+                    .put("question", "Q" + index)
+                    .set("options", mapper.createArrayNode().add("A").add("B").add("C").add("D"))
+                    .put("correctAnswerIndex", 1).put("explanation", "Explanation")
+                    .set("source", source.deepCopy()));
+        }
+        root.set("quiz", quiz);
+        return root;
     }
 
     private static AiGenerationResult generation(String output) {

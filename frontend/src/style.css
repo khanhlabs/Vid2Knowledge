@@ -96,10 +96,101 @@
   margin-block: 1rem;
 }
 
+.package-editor {
+  display: grid;
+  gap: 1rem;
+  margin: 1.5rem 0;
+  padding: 0;
+  border: 0;
+}
+
+.package-editor > legend {
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.package-editor label,
+.source-fields label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 650;
+}
+
+.package-editor textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.editor-card {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: #f8faf6;
+}
+
+.editor-card h3 {
+  margin: 0;
+}
+
+.source-fields {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.35fr) minmax(14rem, 1fr);
+  gap: 0.75rem;
+}
+
+.editor-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.editor-row-actions button {
+  width: auto;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.sticky-save-bar {
+  position: sticky;
+  bottom: 1rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: #fff;
+  box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.12);
+}
+
+.draft-notice {
+  padding: 0.75rem;
+  border-left: 0.25rem solid #1e7a4f;
+  background: #e5f3eb;
+}
+
+.raw-package summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
 @media (max-width: 800px) {
   .integration-grid,
-  .event-options {
+  .event-options,
+  .source-fields {
     grid-template-columns: 1fr;
+  }
+
+  .sticky-save-bar {
+    bottom: 0.5rem;
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
