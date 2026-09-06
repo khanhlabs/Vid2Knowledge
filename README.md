@@ -2,7 +2,7 @@
 
 Vid2Knowledge is a web application that turns supported public YouTube videos into evidence-linked active-learning materials. A user submits a YouTube URL, and the backend uses Gemini to generate structured notes, key takeaways, flashcards, and quizzes.
 
-The project is currently in the early development stage. Its first product goal is to validate the quality, reliability, and unit economics of Gemini's direct YouTube URL understanding before expanding into a full MVP.
+The repository contains an actively implemented B2B2C MVP with tenant isolation, authoring and learning workflows, billing, privacy controls, buyer-outcome analytics, and account-level profitability controls. Public production launch remains gated by real paid-pilot evidence, the Gemini benchmark, legal review, and configured cloud/provider credentials.
 
 ## Technology Stack
 
@@ -17,7 +17,7 @@ The project is currently in the early development stage. Its first product goal 
 - Docker
 - GitHub Actions
 - Terraform
-- Cloud provider selection pending the Phase 0 operating decision
+- Cloudflare Pages/R2, Google Cloud Run/Tasks/Scheduler, and Supabase
 
 ## Product Direction
 
@@ -82,26 +82,26 @@ Vid2Knowledge/
 │   │   ├── assets/
 │   │   │   └── logo/                      # Brand assets
 │   │   ├── features/                      # Feature-based UI modules
-│   │   │   ├── analysis/
-│   │   │   │   ├── api/                   # Analysis API calls
-│   │   │   │   ├── components/            # Analysis-specific UI components
-│   │   │   │   └── pages/                 # Analysis pages
+│   │   │   ├── analysis/                  # Public analysis flow
 │   │   │   ├── auth/                      # Authentication UI
 │   │   │   ├── history/                   # Analysis-history UI
-│   │   │   └── usage/                     # Quota and usage UI
+│   │   │   ├── learner/                   # Assignment and learning experience
+│   │   │   ├── usage/                     # Quota and usage UI
+│   │   │   └── workspace/                 # Buyer operations, billing, authoring and analytics
 │   │   ├── shared/                        # Reusable frontend code
 │   │   │   ├── api/                       # Shared HTTP client and API utilities
 │   │   │   ├── components/                # Shared UI components
 │   │   │   ├── hooks/                     # Reusable React hooks
 │   │   │   ├── lib/                       # Framework-agnostic utilities
 │   │   │   └── styles/                    # Shared style definitions
-│   │   ├── main.jsx                       # React bootstrap entry point
+│   │   ├── test/                          # Frontend test setup
+│   │   ├── main.tsx                       # React bootstrap entry point
 │   │   └── style.css                      # Global styles
 │   ├── index.html                         # Vite HTML entry point
 │   ├── package.json                       # Frontend scripts and dependencies
 │   └── package-lock.json                  # Locked npm dependency versions
 ├── docs/
-│   ├── Features.md                        # Product strategy, scope, and monetisation hypotheses
+│   ├── features.md                        # Product strategy, scope, and monetisation hypotheses
 │   ├── Plan.md                            # Gated implementation and investment plan
 │   ├── Business-Model.md                  # Buyer, go-to-market, unit economics, and profit gates
 │   ├── Technical-Architecture.md           # Target stack, boundaries, security, deployment, and cost controls

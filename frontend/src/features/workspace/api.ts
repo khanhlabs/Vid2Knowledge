@@ -193,6 +193,54 @@ export interface CohortOutcome {
   completionRate: number
 }
 
+export interface EconomicProfile {
+  usdVndRate: number
+  paymentFeeBps: number
+  paymentFixedFeeVnd: number
+  monthlyInfrastructureVnd: number
+  monthlySupportMinutes: number
+  supportHourlyVnd: number
+  taxReserveBps: number
+  acquisitionCostVnd: number
+  monthlyLogoChurnBps: number
+  assumptionsConfirmed: boolean
+  updatedAt?: string
+}
+
+export interface ProfitabilityReport {
+  from: string
+  to: string
+  assumptionsConfirmed: boolean
+  status:
+    | 'UNCONFIGURED'
+    | 'NO_REVENUE'
+    | 'NEGATIVE'
+    | 'AI_COST_CRITICAL'
+    | 'BELOW_FLOOR'
+    | 'HEALTHY'
+    | 'WATCH'
+  grossCashVnd: number
+  netCashVnd: number
+  refundsVnd: number
+  recognizedRevenueVnd: number
+  actualAiCostVnd: number
+  shadowAiCostVnd: number
+  paymentFeesVnd: number
+  allocatedInfrastructureVnd: number
+  modeledSupportVnd: number
+  manualDirectCostsVnd: number
+  taxReserveVnd: number
+  grossProfitVnd: number
+  contributionProfitVnd: number
+  grossMargin?: number
+  contributionMargin?: number
+  shadowAiRevenueShare?: number
+  cacPaybackMonths?: number
+  monthlyContributionVnd: number
+  contributionLtvVnd?: number
+  ltvCacRatio?: number
+}
+
 export interface ContentTemplate {
   id: string
   name: string
@@ -347,6 +395,32 @@ export const workspaceApi = {
     downloadApi(
       `/api/v1/organizations/${organizationId}/analytics/cohorts.csv`,
       'ket-qua-cohort.csv',
+    ),
+  profitability: (organizationId: string) =>
+    api<ProfitabilityReport>(
+      `/api/v1/organizations/${organizationId}/analytics/profitability`,
+    ),
+  economicProfile: (organizationId: string) =>
+    api<EconomicProfile>(
+      `/api/v1/organizations/${organizationId}/analytics/profitability/assumptions`,
+    ),
+  updateEconomicProfile: (organizationId: string, profile: EconomicProfile) =>
+    api<EconomicProfile>(
+      `/api/v1/organizations/${organizationId}/analytics/profitability/assumptions`,
+      { method: 'PUT', body: JSON.stringify(profile) },
+    ),
+  addDirectCost: (
+    organizationId: string,
+    input: {
+      category: string
+      amountVnd: number
+      incurredAt: string
+      note: string
+    },
+  ) =>
+    api<{ id: string }>(
+      `/api/v1/organizations/${organizationId}/analytics/profitability/costs`,
+      { method: 'POST', body: JSON.stringify(input) },
     ),
   templates: (organizationId: string) =>
     api<ContentTemplate[]>(

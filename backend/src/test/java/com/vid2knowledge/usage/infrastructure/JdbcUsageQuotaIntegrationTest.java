@@ -35,6 +35,7 @@ import jakarta.validation.Validation;
 import com.vid2knowledge.billing.BillingService;
 import com.vid2knowledge.billing.PaymentGateway;
 import com.vid2knowledge.billing.PayOsSignature;
+import com.vid2knowledge.analytics.ProfitabilityService;
 import com.vid2knowledge.config.PayOsProperties;
 import com.vid2knowledge.notification.DisabledNotificationQueue;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
@@ -1256,6 +1257,69 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "SELECT state FROM invoices WHERE billing_order_id = ?", String.class, renewalOrderId
         )).isEqualTo("PAID");
+    }
+
+    @Test
+    void profitabilityRefusesGreenStatusUntilCostsAreConfirmedAndUsesReconciledRevenue() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        PaymentGateway gateway = (orderCode, amount, description) ->
+                new PaymentGateway.CheckoutLink("profit-link", URI.create("https://pay.payos.vn/web/profit-link"));
+        var billing = billing(gateway);
+        var checkout = billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000101"), "profitability-payment"
+        );
+        pay(billing, checkout, "profit-link", "profit-reference");
+        var profitability = new ProfitabilityService(jdbc);
+        Instant from = Instant.now().minus(Duration.ofDays(1));
+        Instant to = Instant.now().plus(Duration.ofDays(31));
+
+        assertThat(profitability.report(organizationId, from, to).status()).isEqualTo("UNCONFIGURED");
+        profitability.updateProfile(owner, new ProfitabilityService.EconomicProfile(
+                26_000, 150, 0, 100_000, 120, 200_000,
+                1_000, 1_000_000, 300, true, null
+        ));
+        profitability.addCost(owner, "SUPPORT", 10_000, Instant.now(), "Support trực tiếp bổ sung");
+
+        var report = profitability.report(organizationId, from, to);
+        assertThat(report.grossCashVnd()).isEqualTo(790_000L);
+        assertThat(report.recognizedRevenueVnd()).isEqualTo(790_000L);
+        assertThat(report.paymentFeesVnd()).isEqualTo(11_850L);
+        assertThat(report.manualDirectCostsVnd()).isEqualTo(10_000L);
+        assertThat(report.status()).isEqualTo("BELOW_FLOOR");
+        assertThat(report.cacPaybackMonths()).isPositive();
+        assertThat(report.contributionLtvVnd()).isPositive();
+        assertThat(report.ltvCacRatio()).isPositive();
+
+        UUID paymentId = jdbc.queryForObject(
+                "SELECT id FROM payments WHERE organization_id = ? AND provider_reference = ?",
+                UUID.class, organizationId, "profit-reference"
+        );
+        UUID invoiceId = jdbc.queryForObject(
+                "SELECT id FROM invoices WHERE organization_id = ? AND billing_order_id = ?",
+                UUID.class, organizationId, checkout.orderId()
+        );
+        Instant refundedAt = Instant.now();
+        jdbc.update(
+                """
+                INSERT INTO refund_requests(
+                    id, organization_id, payment_id, invoice_id, amount_vnd, reason,
+                    state, provider_reference, requested_by, requested_at, resolved_at
+                ) VALUES (?, ?, ?, ?, 790000, 'Customer cancellation', 'SUCCEEDED', ?, ?, ?, ?)
+                """,
+                UUID.randomUUID(), organizationId, paymentId, invoiceId, "profit-refund-reference",
+                ownerId, Timestamp.from(refundedAt), Timestamp.from(refundedAt)
+        );
+        var refundPeriod = profitability.report(
+                organizationId, refundedAt.minus(Duration.ofHours(1)), refundedAt.plus(Duration.ofHours(1))
+        );
+        assertThat(refundPeriod.netCashVnd()).isZero();
+        assertThat(refundPeriod.recognizedRevenueVnd()).isNegative();
+        assertThat(refundPeriod.taxReserveVnd()).isZero();
+        assertThat(refundPeriod.status()).isEqualTo("NEGATIVE");
     }
 
     @Test

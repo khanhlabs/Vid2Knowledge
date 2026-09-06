@@ -47,6 +47,67 @@ describe('AnalyticsPage', () => {
           }),
         )
       }
+      if (url.endsWith('/api/v1/me')) {
+        return Promise.resolve(
+          response({
+            id: 'user-1',
+            email: 'owner@example.com',
+            displayName: 'Owner',
+            organizations: [
+              {
+                id: 'organization-1',
+                name: 'Acme',
+                slug: 'acme',
+                role: 'OWNER',
+              },
+            ],
+          }),
+        )
+      }
+      if (url.endsWith('/analytics/profitability/assumptions')) {
+        return Promise.resolve(
+          response({
+            usdVndRate: 26000,
+            paymentFeeBps: 150,
+            paymentFixedFeeVnd: 0,
+            monthlyInfrastructureVnd: 100000,
+            monthlySupportMinutes: 120,
+            supportHourlyVnd: 200000,
+            taxReserveBps: 1000,
+            acquisitionCostVnd: 1000000,
+            monthlyLogoChurnBps: 300,
+            assumptionsConfirmed: true,
+          }),
+        )
+      }
+      if (url.endsWith('/analytics/profitability')) {
+        return Promise.resolve(
+          response({
+            assumptionsConfirmed: true,
+            status: 'HEALTHY',
+            grossCashVnd: 790000,
+            netCashVnd: 790000,
+            refundsVnd: 0,
+            recognizedRevenueVnd: 790000,
+            actualAiCostVnd: 0,
+            shadowAiCostVnd: 40000,
+            paymentFeesVnd: 11850,
+            allocatedInfrastructureVnd: 100000,
+            modeledSupportVnd: 400000,
+            manualDirectCostsVnd: 0,
+            taxReserveVnd: 79000,
+            grossProfitVnd: 638150,
+            contributionProfitVnd: 238150,
+            grossMargin: 0.8078,
+            contributionMargin: 0.3015,
+            shadowAiRevenueShare: 0.0506,
+            cacPaybackMonths: 5,
+            monthlyContributionVnd: 238150,
+            contributionLtvVnd: 7938333,
+            ltvCacRatio: 7.94,
+          }),
+        )
+      }
       return Promise.resolve(
         response([
           {
@@ -79,6 +140,8 @@ describe('AnalyticsPage', () => {
     expect(await screen.findAllByText('80%')).toHaveLength(2)
     expect(screen.getByText('70%')).toBeInTheDocument()
     expect(screen.getByText('Sales tháng 9')).toBeInTheDocument()
+    expect(await screen.findByText('Biên lợi nhuận tốt')).toBeInTheDocument()
+    expect(screen.getByText('7.9×')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Xuất CSV đối soát' }),
     ).toBeInTheDocument()

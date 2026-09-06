@@ -40,6 +40,12 @@ CAC payback months = acquisition cost / monthly contribution margin
 
 The model must show base, adverse, and high-usage cases. Gemini YouTube URL preview is assigned a conservative shadow price based on video tokens/minute and a safety multiplier. Free preview pricing is never counted as durable margin.
 
+The in-product account P&L uses reconciled payment/refund data, prorated subscription revenue,
+paid top-ups, shadow AI cost, payment fees, allocated infrastructure/support, exceptional direct
+costs, tax reserve, CAC and logo churn. Default assumptions are placeholders and can never yield a
+green status until an OWNER/ADMIN explicitly confirms them against contracts and invoices. Refunds
+remain visible in the period in which they are resolved, including a negative-revenue period.
+
 ## 5. Provisional commercial gates
 
 These thresholds are hypotheses to revise with evidence, not promises:

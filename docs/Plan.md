@@ -336,7 +336,10 @@ Chi tiết kiến trúc nằm tại `Technical-Architecture.md`; data model, API
 ## 14. Phase 11 — Profit và scale optimisation
 
 - Model routing theo output profile và quality tier; batch cho non-interactive; cache prompt/context khi có lợi.
-- Cost ledger đến organization/job/feature; cảnh báo margin âm theo account.
+- Cost ledger đến organization/job/feature; account P&L dùng reconciled revenue/refund và shadow AI cost.
+- OWNER/ADMIN phải xác nhận tỷ giá, payment fee, infra, support, tax, CAC và churn trước khi
+  dashboard được phép báo healthy; theo dõi gross/contribution margin, AI/revenue, payback và LTV/CAC.
+- Direct-cost ledger chỉ nhận chi phí ngoại lệ ngoài monthly allocation, có tenant scope và audit log.
 - Pricing review hàng quý: allowance, overage, annual discount, service cost và provider price.
 - Tự động onboarding/support; knowledge base và in-app diagnostics giảm ticket.
 - Scale từng acquisition channel khi contribution LTV/CAC ≥ 3 và CAC payback ≤ 12 tháng.

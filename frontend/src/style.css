@@ -546,6 +546,78 @@ button:disabled {
 .metric-grid strong {
   font-size: 1.3rem;
 }
+.profitability-panel {
+  margin-bottom: 0.8rem;
+}
+.profit-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  background: #fff0c9;
+  color: #76520b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.status-healthy {
+  background: #dcefe3;
+  color: #176744;
+}
+.status-negative,
+.status-ai_cost_critical {
+  background: #f9dfdc;
+  color: #932e27;
+}
+.profit-warning {
+  padding: 0.9rem;
+  border-left: 4px solid #ca8b18;
+  background: #fff7df;
+}
+.profit-settings {
+  margin-top: 1.2rem;
+  border-top: 1px solid #d1d5ca;
+  padding-top: 1rem;
+}
+.profit-settings summary {
+  cursor: pointer;
+  color: #294d3b;
+  font-weight: 750;
+}
+.profit-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+.profit-form label:not(.profit-confirmation) {
+  display: grid;
+  gap: 0.3rem;
+  color: #5d675f;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.profit-form input,
+.cost-form input,
+.cost-form select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.profit-confirmation,
+.profit-form > button,
+.profit-form > .form-error {
+  grid-column: 1 / -1;
+}
+.cost-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr auto;
+  align-items: end;
+  gap: 0.7rem;
+  margin-top: 1.5rem;
+}
+.cost-form h3,
+.cost-form .form-error {
+  grid-column: 1 / -1;
+}
 .workspace-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(340px, 0.6fr);
@@ -1069,8 +1141,17 @@ aside span {
   .pricing-grid,
   .metric-grid,
   .workspace-grid,
-  .lesson-layout {
+  .lesson-layout,
+  .profit-form,
+  .cost-form {
     grid-template-columns: 1fr;
+  }
+  .profit-confirmation,
+  .profit-form > button,
+  .profit-form > .form-error,
+  .cost-form h3,
+  .cost-form .form-error {
+    grid-column: 1;
   }
   .workspace-heading {
     align-items: stretch;

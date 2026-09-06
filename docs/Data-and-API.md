@@ -156,6 +156,14 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `GET .../analytics/cohorts.csv` xuất báo cáo permissioned, escape RFC 4180 và chặn
   spreadsheet-formula injection. Denominator là số assignment-recipient đã publish/closed;
   timezone báo cáo là `Asia/Ho_Chi_Minh` và timestamp nguồn vẫn lưu UTC.
+- `GET .../analytics/profitability` chỉ cho OWNER/ADMIN, đối soát cash/refund với doanh thu
+  subscription phân bổ theo kỳ và top-up tại ngày thu tiền; chi phí AI dùng cả actual và
+  shadow price. Kỳ refund có thể tạo doanh thu âm, không bị clamp để làm đẹp dashboard.
+- `GET|PUT .../analytics/profitability/assumptions` quản lý tỷ giá, payment fee, hạ tầng,
+  support, tax reserve, CAC và logo churn. Trạng thái luôn `UNCONFIGURED` đến khi buyer-side
+  operator xác nhận giả định; LTV/CAC và payback không hiện nếu thiếu mẫu số hợp lệ.
+- `POST .../analytics/profitability/costs` ghi khoản trực tiếp ngoại lệ có audit trail;
+  không dùng để ghi lại chi phí support/infra đã nằm trong phân bổ tháng.
 - `GET .../analytics/costs` với filter có limit.
 - `POST .../exports`, `GET .../exports/{id}` trả presigned URL khi ready.
 - CRUD API keys/webhooks cho plan cho phép.
