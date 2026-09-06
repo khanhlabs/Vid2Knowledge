@@ -1,6 +1,6 @@
 package com.vid2knowledge.common.outbox;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -15,7 +15,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Repository
-@ConditionalOnBean(JdbcTemplate.class)
+@ConditionalOnProperty(prefix = "features", name = "persistence-enabled", havingValue = "true", matchIfMissing = true)
 public class JdbcOutboxStore implements OutboxStore {
 
     private final JdbcTemplate jdbc;

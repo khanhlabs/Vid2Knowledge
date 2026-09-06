@@ -7,7 +7,7 @@ import com.vid2knowledge.analysis.domain.AnalysisJob;
 import com.vid2knowledge.analysis.domain.AnalysisWorkItem;
 import com.vid2knowledge.analysis.domain.GenerationAccounting;
 import com.vid2knowledge.common.id.UuidV7Generator;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-@ConditionalOnBean(JdbcTemplate.class)
+@ConditionalOnProperty(prefix = "features", name = "persistence-enabled", havingValue = "true", matchIfMissing = true)
 public class JdbcAnalysisJobStore implements AnalysisJobStore {
 
     private final JdbcTemplate jdbc;

@@ -25,9 +25,10 @@ features:
   # This synchronous endpoint has no tenant quota and is intentionally local-only.
   analysis-preview-enabled: false
   auth-enabled: true
+  outbox-poller-enabled: ${OUTBOX_POLLER_ENABLED:false}
 
 task-queue:
   mode: CLOUD_TASKS
 
 payos:
-  enabled: true
+  enabled: ${PAYOS_ENABLED:false}

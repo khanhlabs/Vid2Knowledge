@@ -13,6 +13,11 @@ Thumbs.db
 backend/target/
 frontend/node_modules/
 frontend/dist/
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfvars
+!infra/terraform/terraform.tfvars.example
 
 # Local runtime data
 *.log

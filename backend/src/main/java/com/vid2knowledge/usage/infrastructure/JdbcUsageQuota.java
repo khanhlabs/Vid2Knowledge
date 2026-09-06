@@ -7,7 +7,8 @@ import com.vid2knowledge.usage.application.UsageQuota;
 import com.vid2knowledge.usage.domain.QuotaExceededException;
 import com.vid2knowledge.usage.domain.UsageMetric;
 import com.vid2knowledge.usage.domain.UsageReservation;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -24,13 +25,14 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Repository
-@ConditionalOnBean(JdbcTemplate.class)
+@ConditionalOnProperty(prefix = "features", name = "persistence-enabled", havingValue = "true", matchIfMissing = true)
 public class JdbcUsageQuota implements UsageQuota {
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
+    @Autowired
     public JdbcUsageQuota(JdbcTemplate jdbc, TransactionTemplate transactions) {
         this(jdbc, transactions, Clock.systemUTC());
     }
