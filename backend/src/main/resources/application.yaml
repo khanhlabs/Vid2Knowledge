@@ -131,6 +131,14 @@ notifications:
   max-attempts: ${NOTIFICATION_MAX_ATTEMPTS:8}
   lease-duration: ${NOTIFICATION_LEASE_DURATION:2m}
 
+integrations:
+  enabled: ${INTEGRATIONS_ENABLED:false}
+  encryption-key: ${INTEGRATION_ENCRYPTION_KEY:}
+  dispatch-batch-size: ${INTEGRATION_DISPATCH_BATCH_SIZE:25}
+  max-attempts: ${INTEGRATION_MAX_ATTEMPTS:8}
+  lease-duration: ${INTEGRATION_LEASE_DURATION:2m}
+  request-timeout: ${INTEGRATION_REQUEST_TIMEOUT:10s}
+
 rate-limit:
   enabled: ${RATE_LIMIT_ENABLED:true}
   general-mutations: ${RATE_LIMIT_GENERAL_MUTATIONS:240}
@@ -145,3 +153,5 @@ retention:
   terminal-outbox: ${RETENTION_TERMINAL_OUTBOX:30d}
   terminal-notification: ${RETENTION_TERMINAL_NOTIFICATION:30d}
   terminal-invitation: ${RETENTION_TERMINAL_INVITATION:90d}
+  terminal-webhook-delivery: ${RETENTION_TERMINAL_WEBHOOK_DELIVERY:30d}
+  terminal-integration-credential: ${RETENTION_TERMINAL_INTEGRATION_CREDENTIAL:90d}

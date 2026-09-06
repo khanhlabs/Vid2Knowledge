@@ -66,7 +66,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    @Order(2)
+    @Order(3)
     public SecurityFilterChain publicApiSecurityFilterChain(HttpSecurity http) throws Exception {
         common(http);
         if (authEnabled) {

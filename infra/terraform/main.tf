@@ -22,10 +22,14 @@ locals {
     RESEND_API_KEY              = var.secret_ids.resend_api_key
     NOTIFICATION_ENCRYPTION_KEY = var.secret_ids.notification_encryption_key
   }
+  integration_secret_env = {
+    INTEGRATION_ENCRYPTION_KEY = var.secret_ids.integration_encryption_key
+  }
   secret_env = merge(
     local.core_secret_env,
     var.payos_enabled ? local.payos_secret_env : {},
-    var.notifications_enabled ? local.notification_secret_env : {}
+    var.notifications_enabled ? local.notification_secret_env : {},
+    var.integrations_enabled ? local.integration_secret_env : {}
   )
   worker_plain_env = {
     SPRING_PROFILES_ACTIVE             = "prod"
@@ -39,6 +43,7 @@ locals {
     PAYOS_RETURN_URL                   = var.payos_return_url
     PAYOS_CANCEL_URL                   = var.payos_cancel_url
     NOTIFICATIONS_ENABLED              = tostring(var.notifications_enabled)
+    INTEGRATIONS_ENABLED               = tostring(var.integrations_enabled)
     NOTIFICATION_FROM                  = var.notification_from
     FRONTEND_BASE_URL                  = var.frontend_origin
     LEGAL_POLICY_SET_VERSION           = var.legal_policies.policy_set_version
@@ -480,6 +485,20 @@ resource "google_logging_metric" "notification_dead_letter" {
   depends_on = [google_project_service.required]
 }
 
+resource "google_logging_metric" "webhook_dead_letter" {
+  name        = "${local.prefix}-webhook-dead-letter"
+  description = "Counts paid Business webhook deliveries that exhausted retry or were permanently rejected."
+  filter      = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.api.name}\" AND (jsonPayload.message : \"WEBHOOK_DELIVERY_FAILED\" OR textPayload : \"WEBHOOK_DELIVERY_FAILED\") AND (jsonPayload.message : \"deadLetter=true\" OR textPayload : \"deadLetter=true\")"
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+
+  depends_on = [google_project_service.required]
+}
+
 resource "google_monitoring_alert_policy" "commercial_integrity_events" {
   display_name = "${local.prefix}: commercial integrity event"
   combiner     = "OR"
@@ -530,6 +549,22 @@ resource "google_monitoring_alert_policy" "commercial_integrity_events" {
     display_name = "Notification reached dead-letter"
     condition_threshold {
       filter          = "resource.type = \"cloud_run_revision\" AND metric.type = \"logging.googleapis.com/user/${google_logging_metric.notification_dead_letter.name}\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+      trigger { count = 1 }
+    }
+  }
+
+  conditions {
+    display_name = "Business webhook reached dead-letter"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND metric.type = \"logging.googleapis.com/user/${google_logging_metric.webhook_dead_letter.name}\""
       comparison      = "COMPARISON_GT"
       threshold_value = 0
       duration        = "0s"

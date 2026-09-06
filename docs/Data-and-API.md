@@ -166,7 +166,25 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
   không dùng để ghi lại chi phí support/infra đã nằm trong phân bổ tháng.
 - `GET .../analytics/costs` với filter có limit.
 - `POST .../exports`, `GET .../exports/{id}` trả presigned URL khi ready.
-- CRUD API keys/webhooks cho plan cho phép.
+- Business integration management (OWNER/ADMIN, JWT):
+  - `GET|POST .../integrations/api-keys`, `DELETE .../integrations/api-keys/{keyId}`.
+    Token `v2k_live_*` chỉ trả một lần, server chỉ lưu SHA-256; scope allowlist hiện tại là
+    `catalog:read` và `analytics:read`, expiry tối đa 365 ngày, tối đa 10 key active/account.
+  - `GET|POST .../integrations/webhook-endpoints`, `DELETE .../{endpointId}`,
+    `POST .../{endpointId}/rotate-secret`, `GET .../{endpointId}/deliveries`. Signing secret
+    `whsec_*` chỉ trả một lần, AES-256-GCM at rest với version/AAD; tối đa 10 endpoint active/account.
+- Business data API dùng `Authorization: Bearer v2k_live_*` tại
+  `/api/v1/integrations/v1/organizations/{organizationId}/courses|analytics/overview|analytics/cohorts`.
+  Key bị tenant-bind, scope-check, rate-limit và ngừng hoạt động ngay khi revoke/expire hoặc subscription
+  Business không còn active. Owner/Admin vẫn xem và revoke/disable credential cũ sau khi gói hết hạn;
+  chỉ create/rotate yêu cầu Business active. Không dùng API key thay user JWT trên API quản trị.
+- Webhook chỉ nhận public HTTPS port 443; resolve và chặn loopback/private/link-local/CGNAT/ULA lúc tạo
+  và trước mỗi attempt để giảm SSRF/DNS-rebinding risk. Không follow redirect. Envelope có
+  `id`, `type`, `version`, `occurredAt`, `organizationId`, `data`; header gồm `X-V2K-Delivery`,
+  `X-V2K-Event`, `X-V2K-Timestamp`, `X-V2K-Signature`.
+- Chữ ký là `v1=hex(HMAC-SHA256(secret, timestampEpochSeconds + "." + exactRawBody))`. Consumer phải
+  constant-time compare, từ chối timestamp lệch quá 5 phút và dedupe `X-V2K-Delivery`. Mỗi outbox
+  event/endpoint chỉ tạo một delivery; 408/425/429/5xx retry bounded, 4xx khác dead-letter ngay.
 
 ## 5. Internal API
 
@@ -180,7 +198,9 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 Retention cleanup xóa idempotency đã hết hạn; redaction raw Gemini output và processed payment
 webhook body/signature; xóa outbox, notification và invitation đã terminal theo configurable window.
 Webhook provider/event key, package canonical, financial/cost ledger, audit và learning evidence không
-bị xóa bởi operational cleanup này. Billing reconciliation gọi cùng cleanup để không thêm Scheduler job.
+bị xóa bởi operational cleanup này. Terminal outbound webhook delivery giữ 30 ngày; API key hết hạn/thu
+hồi, endpoint disabled và secret version cũ giữ 90 ngày nếu không còn delivery tham chiếu. Billing
+reconciliation gọi cùng cleanup để không thêm Scheduler job.
 
 ### Privacy
 

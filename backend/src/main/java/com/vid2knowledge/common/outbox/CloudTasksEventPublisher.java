@@ -5,6 +5,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.ObjectProvider;
+import com.vid2knowledge.integration.WebhookFanout;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
@@ -18,15 +20,22 @@ public class CloudTasksEventPublisher implements EventPublisher {
 
     private final TaskQueueProperties properties;
     private final GcpMetadataAccessTokenProvider tokens;
+    private final ObjectProvider<WebhookFanout> webhooks;
     private final RestClient cloudTasks = RestClient.create("https://cloudtasks.googleapis.com/v2");
 
-    public CloudTasksEventPublisher(TaskQueueProperties properties, GcpMetadataAccessTokenProvider tokens) {
+    public CloudTasksEventPublisher(
+            TaskQueueProperties properties,
+            GcpMetadataAccessTokenProvider tokens,
+            ObjectProvider<WebhookFanout> webhooks
+    ) {
         this.properties = properties;
         this.tokens = tokens;
+        this.webhooks = webhooks;
     }
 
     @Override
     public void publish(OutboxEvent event) {
+        webhooks.ifAvailable(fanout -> fanout.fanout(event));
         if (!"AnalysisRequested".equals(event.eventType())) {
             return;
         }

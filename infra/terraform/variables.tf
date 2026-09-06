@@ -66,6 +66,11 @@ variable "notifications_enabled" {
   type    = bool
   default = false
 }
+variable "integrations_enabled" {
+  description = "Enable paid Business API keys and outbound webhooks after the encryption secret exists."
+  type        = bool
+  default     = false
+}
 variable "notification_from" {
   description = "Verified Resend sender, for example Vid2Knowledge <hello@example.com>."
   type        = string
@@ -113,6 +118,7 @@ variable "secret_ids" {
     payos_checksum_key          = string
     resend_api_key              = string
     notification_encryption_key = string
+    integration_encryption_key  = string
   })
   default = {
     db_url                      = "v2k-db-url"
@@ -125,5 +131,6 @@ variable "secret_ids" {
     payos_checksum_key          = "v2k-payos-checksum-key"
     resend_api_key              = "v2k-resend-api-key"
     notification_encryption_key = "v2k-notification-encryption-key"
+    integration_encryption_key  = "v2k-integration-encryption-key"
   }
 }

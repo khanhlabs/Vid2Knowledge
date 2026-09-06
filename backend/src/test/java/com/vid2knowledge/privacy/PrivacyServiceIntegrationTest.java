@@ -120,7 +120,8 @@ class PrivacyServiceIntegrationTest {
                 jdbc,
                 new RetentionProperties(
                         Duration.ofDays(30), Duration.ofDays(90), Duration.ofDays(30),
-                        Duration.ofDays(30), Duration.ofDays(90)
+                        Duration.ofDays(30), Duration.ofDays(90), Duration.ofDays(30),
+                        Duration.ofDays(90)
                 ),
                 Clock.fixed(now, java.time.ZoneOffset.UTC)
         );

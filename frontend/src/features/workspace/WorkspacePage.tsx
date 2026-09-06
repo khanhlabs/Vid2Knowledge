@@ -262,6 +262,7 @@ export function WorkspacePage() {
           <div className="workspace-links">
             <Link to="/app/authoring">Studio & kiểm duyệt</Link>
             <Link to="/app/catalog">Chương trình</Link>
+            {canManageMembers && <Link to="/app/integrations">Tích hợp</Link>}
           </div>
         )}
       </section>

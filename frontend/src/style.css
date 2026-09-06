@@ -66,6 +66,43 @@
   gap: 0.35rem;
 }
 
+.integration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+}
+
+.integration-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.integration-list article,
+.secret-reveal {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.integration-list code,
+.secret-reveal code {
+  overflow-wrap: anywhere;
+}
+
+.event-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin-block: 1rem;
+}
+
+@media (max-width: 800px) {
+  .integration-grid,
+  .event-options {
+    grid-template-columns: 1fr;
+  }
+}
+
 .template-list {
   margin-top: 1.25rem;
 }

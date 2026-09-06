@@ -54,11 +54,50 @@ public class RetentionService {
                 """,
                 Timestamp.from(now.minus(retention.paymentWebhookPayload()))
         );
+        int webhookDeliveries = jdbc.update(
+                """
+                DELETE FROM webhook_deliveries
+                WHERE state IN ('DELIVERED', 'DEAD_LETTER') AND created_at < ?
+                """,
+                Timestamp.from(now.minus(retention.terminalWebhookDelivery()))
+        );
+        int integrationSecrets = jdbc.update(
+                """
+                DELETE FROM webhook_endpoint_secrets s
+                USING webhook_endpoints e
+                WHERE e.id = s.endpoint_id AND s.version <> e.current_secret_version
+                  AND s.created_at < ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM webhook_deliveries d
+                    WHERE d.endpoint_id = s.endpoint_id AND d.secret_version = s.version
+                  )
+                """,
+                Timestamp.from(now.minus(retention.terminalIntegrationCredential()))
+        );
+        int integrationApiKeys = jdbc.update(
+                """
+                DELETE FROM integration_api_keys
+                WHERE COALESCE(revoked_at, expires_at) < ?
+                  AND (revoked_at IS NOT NULL OR expires_at < ?)
+                """,
+                Timestamp.from(now.minus(retention.terminalIntegrationCredential())), Timestamp.from(now)
+        );
+        int webhookEndpoints = jdbc.update(
+                """
+                DELETE FROM webhook_endpoints e
+                WHERE e.state = 'DISABLED' AND e.updated_at < ?
+                  AND NOT EXISTS (SELECT 1 FROM webhook_deliveries d WHERE d.endpoint_id = e.id)
+                """,
+                Timestamp.from(now.minus(retention.terminalIntegrationCredential()))
+        );
         int outboxEvents = jdbc.update(
                 """
                 DELETE FROM outbox_events
                 WHERE COALESCE(published_at, dead_lettered_at) < ?
                   AND (published_at IS NOT NULL OR dead_lettered_at IS NOT NULL)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM webhook_deliveries d WHERE d.outbox_event_id = outbox_events.id
+                  )
                 """,
                 Timestamp.from(now.minus(retention.terminalOutbox()))
         );
@@ -78,7 +117,8 @@ public class RetentionService {
                 Timestamp.from(now.minus(retention.terminalInvitation())), Timestamp.from(now)
         );
         return new CleanupResult(
-                expiredIdempotency, generationPayloads, webhookPayloads,
+                expiredIdempotency, generationPayloads, webhookPayloads, webhookDeliveries,
+                integrationSecrets, integrationApiKeys, webhookEndpoints,
                 outboxEvents, notifications, invitations
         );
     }
@@ -87,6 +127,10 @@ public class RetentionService {
             int expiredIdempotencyRecords,
             int redactedGenerationPayloads,
             int redactedPaymentWebhookPayloads,
+            int deletedTerminalWebhookDeliveries,
+            int deletedOldIntegrationSecrets,
+            int deletedTerminalIntegrationApiKeys,
+            int deletedDisabledWebhookEndpoints,
             int deletedTerminalOutboxEvents,
             int deletedTerminalNotifications,
             int deletedTerminalInvitations

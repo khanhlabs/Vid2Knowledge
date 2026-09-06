@@ -9,6 +9,7 @@ import { WorkspacePage } from '../features/workspace/WorkspacePage'
 import { CatalogPage } from '../features/workspace/CatalogPage'
 import { AnalyticsPage } from '../features/workspace/AnalyticsPage'
 import { AuthoringPage } from '../features/workspace/AuthoringPage'
+import { IntegrationsPage } from '../features/workspace/IntegrationsPage'
 import { LandingPage } from './LandingPage'
 import { LegalDocumentPlaceholder } from './LegalDocumentPlaceholder'
 
@@ -56,6 +57,14 @@ export default function App() {
         element={
           <RequireAuth>
             <AuthoringPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/app/integrations"
+        element={
+          <RequireAuth>
+            <IntegrationsPage />
           </RequireAuth>
         }
       />

@@ -273,6 +273,48 @@ export interface QuestionBankItem {
   usageCount: number
 }
 
+export interface IntegrationApiKey {
+  id: string
+  name: string
+  tokenPrefix: string
+  scopes: string[]
+  expiresAt: string
+  lastUsedAt: string | null
+  revokedAt: string | null
+  createdAt: string
+}
+
+export interface IntegrationApiKeyCreated extends IntegrationApiKey {
+  token: string
+}
+
+export interface WebhookEndpoint {
+  id: string
+  name: string
+  url: string
+  eventTypes: string[]
+  state: 'ACTIVE' | 'DISABLED'
+  secretVersion: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WebhookEndpointCreated extends WebhookEndpoint {
+  signingSecret: string
+}
+
+export interface WebhookDelivery {
+  id: string
+  eventType: string
+  eventVersion: number
+  state: 'PENDING' | 'DELIVERED' | 'DEAD_LETTER'
+  attemptCount: number
+  responseStatus: number | null
+  lastError: string | null
+  deliveredAt: string | null
+  createdAt: string
+}
+
 export const workspaceApi = {
   me: () => api<Me>('/api/v1/me'),
   createOrganization: (name: string, slug: string) =>
@@ -454,6 +496,58 @@ export const workspaceApi = {
     api<{ approvalRequired: boolean }>(
       `/api/v1/organizations/${organizationId}/authoring/settings`,
       { method: 'PATCH', body: JSON.stringify({ approvalRequired }) },
+    ),
+  integrationApiKeys: (organizationId: string) =>
+    api<IntegrationApiKey[]>(
+      `/api/v1/organizations/${organizationId}/integrations/api-keys`,
+    ),
+  createIntegrationApiKey: (
+    organizationId: string,
+    name: string,
+    scopes: string[],
+    expiresAt: string,
+  ) =>
+    api<IntegrationApiKeyCreated>(
+      `/api/v1/organizations/${organizationId}/integrations/api-keys`,
+      { method: 'POST', body: JSON.stringify({ name, scopes, expiresAt }) },
+    ),
+  revokeIntegrationApiKey: (organizationId: string, keyId: string) =>
+    api<void>(
+      `/api/v1/organizations/${organizationId}/integrations/api-keys/${keyId}`,
+      { method: 'DELETE' },
+    ),
+  webhookEndpoints: (organizationId: string) =>
+    api<WebhookEndpoint[]>(
+      `/api/v1/organizations/${organizationId}/integrations/webhook-endpoints`,
+    ),
+  createWebhookEndpoint: (
+    organizationId: string,
+    name: string,
+    url: string,
+    eventTypes: string[],
+  ) =>
+    api<WebhookEndpointCreated>(
+      `/api/v1/organizations/${organizationId}/integrations/webhook-endpoints`,
+      { method: 'POST', body: JSON.stringify({ name, url, eventTypes }) },
+    ),
+  rotateWebhookSecret: (organizationId: string, endpointId: string) =>
+    api<{
+      endpointId: string
+      secretVersion: number
+      signingSecret: string
+      rotatedAt: string
+    }>(
+      `/api/v1/organizations/${organizationId}/integrations/webhook-endpoints/${endpointId}/rotate-secret`,
+      { method: 'POST' },
+    ),
+  disableWebhookEndpoint: (organizationId: string, endpointId: string) =>
+    api<void>(
+      `/api/v1/organizations/${organizationId}/integrations/webhook-endpoints/${endpointId}`,
+      { method: 'DELETE' },
+    ),
+  webhookDeliveries: (organizationId: string, endpointId: string) =>
+    api<WebhookDelivery[]>(
+      `/api/v1/organizations/${organizationId}/integrations/webhook-endpoints/${endpointId}/deliveries`,
     ),
   launchProgram: (
     organizationId: string,

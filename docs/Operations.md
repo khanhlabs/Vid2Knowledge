@@ -39,13 +39,18 @@ RPO ban đầu 24 giờ, RTO 4 giờ. Nếu hợp đồng yêu cầu tốt hơn,
   audit logs và revoke các credential liên quan. Không commit secret đã lộ vào lịch sử.
 - Privacy deletion: task local pseudonymize và block subject; operator xóa Supabase Auth identity,
   ghi ticket/bằng chứng hoàn tất. Financial/audit ledger chỉ còn pseudonymous ID theo retention policy.
+- Business webhook dead-letter: xem delivery log theo endpoint, phân loại permanent 4xx với transient
+  408/425/429/5xx, yêu cầu buyer sửa receiver trước khi rotate/re-enable. Không gửi lại thủ công bằng cách
+  tạo event giả và không gửi payload sang ticket/chat. Key/secret lộ phải revoke/rotate ngay; pending
+  delivery giữ secret version đã chốt để rotation không làm sai chữ ký giữa chừng.
 
 ## Monitoring and alert drill
 
 Terraform dùng trực tiếp Cloud Monitoring metrics để không phải trả thêm APM vendor: API/worker 5xx lớn hơn
 5 trong 5 phút là critical; Cloud Tasks non-OK attempt lớn hơn 5 trong 5 phút là critical; queue depth lớn
 hơn 50 liên tục 10 phút là warning. Log-based metrics báo critical ngay khi AI circuit mở, payOS reconciliation
-lệch hoặc email hết retry. Mỗi alert phải có tối thiểu hai email production đã xác thực.
+lệch, email hết retry hoặc Business webhook vào dead-letter. Mỗi alert phải có tối thiểu hai email
+production đã xác thực.
 
 Trước launch và mỗi quý, tạo lỗi có kiểm soát ở staging hoặc hạ threshold tạm thời bằng một reviewed
 Terraform change, xác nhận cả hai người nhận thấy alert và recovery notification, rồi apply lại threshold
@@ -67,7 +72,8 @@ có thể truy vấn không cần parse tự do. Chỉ thêm APM trả phí khi 
 Billing reconciliation gọi cùng transaction boundary của maintenance workflow cho retention cleanup;
 operator cũng có thể gọi riêng `POST /internal/tasks/retention/cleanup` bằng Cloud Tasks OIDC. Defaults:
 raw Gemini output 30 ngày, processed payOS payload/signature 90 ngày, terminal outbox/notification 30 ngày
-và invitation terminal/hết hạn 90 ngày. Idempotency record bị xóa ngay sau `expires_at`.
+và invitation terminal/hết hạn 90 ngày. Outbound webhook terminal giữ 30 ngày; integration credential
+terminal/version cũ giữ 90 ngày. Idempotency record bị xóa ngay sau `expires_at`.
 
 Cleanup chỉ redaction payload và xóa operational record đã terminal. Nó cố ý giữ webhook provider/event
 key để chống replay, package revision canonical, learning evidence, financial/cost ledger và audit log.

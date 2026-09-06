@@ -27,7 +27,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         String path = request.getRequestURI();
-        if (!path.startsWith("/api/v1/") || !MUTATIONS.contains(request.getMethod())) {
+        boolean integrationRequest = path.startsWith("/api/v1/integrations/v1/");
+        if (!path.startsWith("/api/v1/") || (!integrationRequest && !MUTATIONS.contains(request.getMethod()))) {
             return true;
         }
         int limit = selectLimit(path);
