@@ -19,8 +19,8 @@ import java.util.UUID;
 @ConditionalOnProperty(prefix = "features", name = "persistence-enabled", havingValue = "true", matchIfMissing = true)
 public class AnalysisWorker {
 
-    static final String PROMPT_VERSION = "learning-package-v1";
-    static final String SCHEMA_VERSION = "learning-package-v1";
+    static final String PROMPT_VERSION = "learning-package-v2";
+    static final String SCHEMA_VERSION = LearningPackageCodec.SCHEMA_VERSION;
 
     private final AnalysisJobStore jobs;
     private final VideoAnalysisProvider provider;
@@ -87,7 +87,9 @@ public class AnalysisWorker {
                 costProperties.shadow().toRateCard().estimateMicrousd(generation)
         );
         try {
-            var learningPackage = codec.parseAndValidate(generation.output(), item.sourceUri());
+            var learningPackage = codec.parseAndValidate(
+                    generation.output(), item.sourceUri(), item.billedUnits()
+            );
             completion.complete(
                     item, workerId, accounting, codec.write(learningPackage),
                     PROMPT_VERSION, SCHEMA_VERSION, clock.instant()

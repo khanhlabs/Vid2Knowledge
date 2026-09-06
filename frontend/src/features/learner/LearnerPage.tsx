@@ -60,7 +60,7 @@ export function LearnerPage() {
                 <h2>Điểm cần nhớ</h2>
                 <ul>
                   {lesson.content.keyTakeaways.map((item) => (
-                    <li key={item}>{item}</li>
+                    <li key={item.id}>{item.text}</li>
                   ))}
                 </ul>
               </>

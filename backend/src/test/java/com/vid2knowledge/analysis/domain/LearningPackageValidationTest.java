@@ -52,25 +52,29 @@ public class LearningPackageValidationTest {
     private LearningPackage validPackage(int flashCardCount, int quizCount){
         List<LearningPackage.Flashcard> flashcards = IntStream.range(0, flashCardCount)
                 .mapToObj(index -> new LearningPackage.Flashcard(
+                        "card-" + index,
                         "Question" + index,
                         "Answer" + index,
-                        "00:00"
+                        new LearningPackage.SourceReference(index, "Evidence " + index)
                 ))
                 .toList();
 
         List<LearningPackage.QuizQuestion> quiz = IntStream.range(0, quizCount)
                 .mapToObj(index -> new LearningPackage.QuizQuestion(
+                        "quiz-" + index,
                         "Quiz questions" + index,
                         List.of("Option A", "Option B", "Option C", "Option D"),
                         0,
                         "Explanation" + index,
-                        "00:00"
+                        new LearningPackage.SourceReference(index, "Evidence " + index)
                 ))
                 .toList();
 
         return new LearningPackage(
+                "learning-package-v2",
                 new LearningPackage.Video(
                         "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                        "dQw4w9WgXcQ",
                         "Test video",
                         "en"
                 ),
@@ -78,13 +82,17 @@ public class LearningPackageValidationTest {
                 new LearningPackage.Summary(
                         "Test overview",
                         List.of(new LearningPackage.Section(
+                                "section-01",
                                 "Introduction",
-                                "00:00",
+                                new LearningPackage.SourceReference(0, "Opening statement"),
                                 List.of("Test content")
                         ))
                 ),
 
-                List.of("Test takeaway"),
+                List.of(new LearningPackage.EvidenceItem(
+                        "takeaway-01", "Test takeaway",
+                        new LearningPackage.SourceReference(0, "Opening statement")
+                )),
                 flashcards,
                 quiz
         );

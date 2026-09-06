@@ -21,7 +21,11 @@ export interface Assignment extends AssignmentSummary {
       overview?: string
       sections?: Array<{ title: string; content: string[] }>
     }
-    keyTakeaways?: string[]
+    keyTakeaways?: Array<{
+      id: string
+      text: string
+      source: { timestampSeconds: number; evidence: string }
+    }>
     flashcards?: Array<{ question: string; answer: string }>
     quiz?: QuizQuestion[]
   }

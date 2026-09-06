@@ -18,8 +18,10 @@ public class LearningPackagePromptFactory {
 
                 The JSON must use exactly this structure:
                 {
+                  "schemaVersion": "learning-package-v2",
                   "video": {
                     "youtubeUrl": "string",
+                    "videoId": "11-character YouTube ID",
                     "title": "string",
                     "language": "string"
                   },
@@ -27,27 +29,36 @@ public class LearningPackagePromptFactory {
                     "overview": "string",
                     "sections": [
                       {
+                        "id": "section-01",
                         "title": "string",
-                        "timestamp": "MM:SS or HH:MM:SS, optional",
+                        "source": {"timestampSeconds": 0, "evidence": "short supporting quote or close paraphrase"},
                         "content": ["string"]
                       }
                     ]
                   },
-                  "keyTakeaways": ["string"],
+                  "keyTakeaways": [
+                    {
+                      "id": "takeaway-01",
+                      "text": "string",
+                      "source": {"timestampSeconds": 0, "evidence": "short supporting quote or close paraphrase"}
+                    }
+                  ],
                   "flashcards": [
                     {
+                      "id": "card-01",
                       "question": "string",
                       "answer": "string",
-                      "timestamp": "MM:SS or HH:MM:SS, optional"
+                      "source": {"timestampSeconds": 0, "evidence": "short supporting quote or close paraphrase"}
                     }
                   ],
                   "quiz": [
                     {
+                      "id": "quiz-01",
                       "question": "string",
                       "options": ["string", "string", "string", "string"],
                       "correctAnswerIndex": 0,
                       "explanation": "string",
-                      "timestamp": "MM:SS or HH:MM:SS, optional"
+                      "source": {"timestampSeconds": 0, "evidence": "short supporting quote or close paraphrase"}
                     }
                   ]
                 }
@@ -59,7 +70,11 @@ public class LearningPackagePromptFactory {
                 - Generate 5 to 10 quiz questions.
                 - Every quiz question must have exactly 4 options.
                 - correctAnswerIndex must be an integer from 0 to 3.
-                - Use timestamps only when supported by the video content.
+                - Every section, takeaway, flashcard, and quiz question must have a source object.
+                - timestampSeconds is an integer at or after zero and must be within the video duration.
+                - evidence must be a short quote or close paraphrase that directly supports the item.
+                - IDs must be unique lowercase slugs and stable within this output.
+                - Questions and the four options within a question must not be duplicates.
                 - Do not invent facts, timestamps, or details that are not supported by the video.
                 - video.youtubeUrl must be the exact canonical YouTube URL provided in the video input.
                 - Never use placeholders such as VIDEO_ID.

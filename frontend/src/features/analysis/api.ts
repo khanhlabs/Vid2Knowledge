@@ -1,18 +1,44 @@
 export interface LearningPackage {
-  video: { youtubeUrl: string; title: string; language: string }
+  schemaVersion: string
+  video: {
+    youtubeUrl: string
+    videoId: string
+    title: string
+    language: string
+  }
   summary: {
     overview: string
-    sections: Array<{ title: string; timestamp?: string; content: string[] }>
+    sections: Array<{
+      id: string
+      title: string
+      source: SourceReference
+      content: string[]
+    }>
   }
-  keyTakeaways: string[]
-  flashcards: Array<{ question: string; answer: string; timestamp?: string }>
+  keyTakeaways: Array<{
+    id: string
+    text: string
+    source: SourceReference
+  }>
+  flashcards: Array<{
+    id: string
+    question: string
+    answer: string
+    source: SourceReference
+  }>
   quiz: Array<{
+    id: string
     question: string
     options: string[]
     correctAnswerIndex: number
     explanation: string
-    timestamp?: string
+    source: SourceReference
   }>
+}
+
+interface SourceReference {
+  timestampSeconds: number
+  evidence: string
 }
 
 interface ApiError {

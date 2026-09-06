@@ -110,7 +110,9 @@ export function PreviewPage() {
           <h3>Ý chính</h3>
           <ul>
             {preview.data.keyTakeaways.map((item) => (
-              <li key={item}>{item}</li>
+              <li key={item.id}>
+                {item.text} <small>· {item.source.timestampSeconds}s</small>
+              </li>
             ))}
           </ul>
         </section>

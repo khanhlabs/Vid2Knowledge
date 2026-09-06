@@ -48,16 +48,31 @@ describe('PreviewPage', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
+          schemaVersion: 'learning-package-v2',
           video: {
             youtubeUrl: 'https://www.youtube.com/watch?v=abcdefghijk',
+            videoId: 'abcdefghijk',
             title: 'Bài học thử',
             language: 'vi',
           },
           summary: {
             overview: 'Tổng quan bài học',
-            sections: [{ title: 'Mở đầu', content: ['Nội dung'] }],
+            sections: [
+              {
+                id: 'section-01',
+                title: 'Mở đầu',
+                source: { timestampSeconds: 0, evidence: 'Nội dung' },
+                content: ['Nội dung'],
+              },
+            ],
           },
-          keyTakeaways: ['Ý chính đầu tiên'],
+          keyTakeaways: [
+            {
+              id: 'takeaway-01',
+              text: 'Ý chính đầu tiên',
+              source: { timestampSeconds: 0, evidence: 'Nội dung' },
+            },
+          ],
           flashcards: Array.from({ length: 10 }, (_, index) => ({
             question: `Q${index}`,
             answer: `A${index}`,

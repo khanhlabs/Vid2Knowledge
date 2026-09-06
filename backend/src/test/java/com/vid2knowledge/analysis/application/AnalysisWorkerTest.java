@@ -51,7 +51,7 @@ class AnalysisWorkerTest {
                 org.mockito.ArgumentMatchers.argThat(cost ->
                         cost.actualCostMicrousd() == 188 && cost.shadowCostMicrousd() == 375),
                 org.mockito.ArgumentMatchers.contains(item.sourceUri()),
-                eq("learning-package-v1"), eq("learning-package-v1"), eq(NOW)
+                eq("learning-package-v2"), eq("learning-package-v2"), eq(NOW)
         );
         verify(completion, never()).fail(any(), any(), any(), any(), any(),
                 org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(), any());
@@ -71,7 +71,7 @@ class AnalysisWorkerTest {
 
         verify(completion).fail(
                 eq(item), eq("worker-1"), any(), eq("INVALID_AI_OUTPUT"), any(), eq(true),
-                eq(NOW), eq("learning-package-v1"), eq("learning-package-v1"), eq(NOW)
+                eq(NOW), eq("learning-package-v2"), eq("learning-package-v2"), eq(NOW)
         );
     }
 
@@ -91,8 +91,8 @@ class AnalysisWorkerTest {
 
         verify(completion).fail(
                 eq(item), eq("worker-1"), eq(null), eq("PROVIDER_ERROR"), eq("temporary outage"),
-                eq(false), eq(NOW.plusSeconds(60)), eq("learning-package-v1"),
-                eq("learning-package-v1"), eq(NOW)
+                eq(false), eq(NOW.plusSeconds(60)), eq("learning-package-v2"),
+                eq("learning-package-v2"), eq(NOW)
         );
     }
 
@@ -139,19 +139,30 @@ class AnalysisWorkerTest {
 
     private static LearningPackage validPackage() {
         var cards = java.util.stream.IntStream.range(0, 10)
-                .mapToObj(index -> new LearningPackage.Flashcard("Question " + index, "Answer " + index, null))
+                .mapToObj(index -> new LearningPackage.Flashcard(
+                        "card-" + index, "Question " + index, "Answer " + index,
+                        new LearningPackage.SourceReference(index, "Evidence " + index)
+                ))
                 .toList();
         var quiz = java.util.stream.IntStream.range(0, 5)
                 .mapToObj(index -> new LearningPackage.QuizQuestion(
-                        "Quiz " + index, List.of("A", "B", "C", "D"), 0, "Because", null
+                        "quiz-" + index, "Quiz " + index,
+                        List.of("A", "B", "C", "D"), 0, "Because",
+                        new LearningPackage.SourceReference(index, "Evidence " + index)
                 ))
                 .toList();
         return new LearningPackage(
-                new LearningPackage.Video("ignored", "Title", "vi"),
+                "learning-package-v2",
+                new LearningPackage.Video("ignored", "abcdefghijk", "Title", "vi"),
                 new LearningPackage.Summary(
-                        "Overview", List.of(new LearningPackage.Section("Section", null, List.of("Content")))
+                        "Overview", List.of(new LearningPackage.Section(
+                                "section-01", "Section",
+                                new LearningPackage.SourceReference(0, "Evidence"), List.of("Content")
+                        ))
                 ),
-                List.of("Takeaway"), cards, quiz
+                List.of(new LearningPackage.EvidenceItem(
+                        "takeaway-01", "Takeaway", new LearningPackage.SourceReference(0, "Evidence")
+                )), cards, quiz
         );
     }
 }

@@ -64,19 +64,23 @@ public class PackageWorkflowService {
             JsonNode content,
             String correlationId
     ) {
-        List<String> sourceUris = jdbc.query(
+        List<PackageSource> sources = jdbc.query(
                 """
-                SELECT s.canonical_uri FROM learning_packages p
+                SELECT s.canonical_uri, s.duration_seconds FROM learning_packages p
                 JOIN sources s ON s.id = p.source_id AND s.organization_id = p.organization_id
                 WHERE p.id = ? AND p.organization_id = ? AND p.publication_state <> 'ARCHIVED'
                 FOR UPDATE OF p
                 """,
-                (result, row) -> result.getString("canonical_uri"), packageId, actor.organizationId()
+                (result, row) -> new PackageSource(
+                        result.getString("canonical_uri"), result.getLong("duration_seconds")
+                ), packageId, actor.organizationId()
         );
-        String sourceUri = sourceUris.stream().findFirst().orElseThrow(() ->
+        PackageSource source = sources.stream().findFirst().orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Package not found")
         );
-        String validated = codec.write(codec.parseAndValidate(content.toString(), sourceUri));
+        String validated = codec.write(codec.parseAndValidate(
+                content.toString(), source.uri(), source.durationSeconds()
+        ));
         Integer nextRevision = jdbc.queryForObject(
                 "SELECT COALESCE(MAX(revision_no), 0) + 1 FROM package_revisions WHERE package_id = ?",
                 Integer.class, packageId
@@ -214,5 +218,8 @@ public class PackageWorkflowService {
             String verificationState,
             JsonNode content
     ) {
+    }
+
+    private record PackageSource(String uri, long durationSeconds) {
     }
 }
