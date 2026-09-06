@@ -10,6 +10,7 @@ import tools.jackson.databind.JsonNode;
 import java.net.URI;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 
 @Component
 @ConditionalOnProperty(prefix = "payos", name = "enabled", havingValue = "true")
@@ -61,5 +62,27 @@ public class PayOsPaymentGateway implements PaymentGateway {
             throw new IllegalStateException("payOS returned an incomplete checkout link");
         }
         return new CheckoutLink(id, URI.create(checkoutUrl));
+    }
+
+    @Override
+    public Optional<PaymentStatus> getPayment(long orderCode) {
+        JsonNode response = client.get()
+                .uri("/v2/payment-requests/{orderCode}", orderCode)
+                .retrieve()
+                .body(JsonNode.class);
+        if (response == null || !"00".equals(response.path("code").asText())) {
+            throw new IllegalStateException("payOS did not return payment information");
+        }
+        JsonNode data = response.path("data");
+        long returnedOrderCode = data.path("orderCode").asLong(-1);
+        long amount = data.path("amount").asLong(-1);
+        long amountPaid = data.path("amountPaid").asLong(-1);
+        String status = data.path("status").asText();
+        String providerId = data.path("id").asText();
+        if (returnedOrderCode != orderCode || amount <= 0 || amountPaid < 0
+                || status.isBlank() || providerId.isBlank()) {
+            throw new IllegalStateException("payOS returned malformed payment information");
+        }
+        return Optional.of(new PaymentStatus(returnedOrderCode, amount, amountPaid, status, providerId));
     }
 }

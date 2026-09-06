@@ -33,6 +33,28 @@ export interface Plan {
   processedVideoSeconds: number
 }
 
+export interface Subscription {
+  id: string
+  planCode: string
+  planName: string
+  status: 'ACTIVE' | 'PAST_DUE'
+  periodStart: string
+  periodEnd: string
+  cancelAtPeriodEnd: boolean
+}
+
+export interface Invoice {
+  id: string
+  invoiceNumber: string
+  state: 'OPEN' | 'PAID' | 'VOID' | 'REFUNDED'
+  currency: 'VND'
+  amountDueVnd: number
+  amountPaidVnd: number
+  dueAt: string
+  paidAt?: string
+  createdAt: string
+}
+
 export interface AnalysisJob {
   id: string
   sourceId: string
@@ -117,6 +139,17 @@ export const workspaceApi = {
   usage: (organizationId: string) =>
     api<Usage>(`/api/v1/organizations/${organizationId}/billing/usage`),
   plans: () => api<Plan[]>('/api/v1/billing/plans'),
+  subscription: (organizationId: string) =>
+    api<Subscription | null>(
+      `/api/v1/organizations/${organizationId}/billing/subscription`,
+    ),
+  invoices: (organizationId: string) =>
+    api<Invoice[]>(`/api/v1/organizations/${organizationId}/billing/invoices`),
+  cancelSubscription: (organizationId: string, subscriptionId: string) =>
+    api<void>(
+      `/api/v1/organizations/${organizationId}/billing/subscriptions/${subscriptionId}/cancel`,
+      { method: 'POST' },
+    ),
   registerSource: (organizationId: string, youtubeUrl: string) =>
     api<{ id: string; title: string; durationSeconds: number }>(
       `/api/v1/organizations/${organizationId}/sources`,

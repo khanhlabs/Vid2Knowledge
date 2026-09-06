@@ -56,6 +56,16 @@ export function WorkspacePage() {
   })
   const canManageMembers =
     organization?.role === 'OWNER' || organization?.role === 'ADMIN'
+  const subscription = useQuery({
+    queryKey: ['subscription', activeOrganizationId],
+    queryFn: () => workspaceApi.subscription(activeOrganizationId),
+    enabled: Boolean(activeOrganizationId && canManageMembers),
+  })
+  const invoices = useQuery({
+    queryKey: ['invoices', activeOrganizationId],
+    queryFn: () => workspaceApi.invoices(activeOrganizationId),
+    enabled: Boolean(activeOrganizationId && canManageMembers),
+  })
   const members = useQuery({
     queryKey: ['members', activeOrganizationId],
     queryFn: () => workspaceApi.members(activeOrganizationId),
@@ -115,6 +125,14 @@ export function WorkspacePage() {
     mutationFn: (planId: string) =>
       workspaceApi.checkout(activeOrganizationId, planId),
     onSuccess: ({ checkoutUrl }) => window.location.assign(checkoutUrl),
+  })
+  const cancelSubscription = useMutation({
+    mutationFn: (subscriptionId: string) =>
+      workspaceApi.cancelSubscription(activeOrganizationId, subscriptionId),
+    onSuccess: async () =>
+      queryClient.invalidateQueries({
+        queryKey: ['subscription', activeOrganizationId],
+      }),
   })
   const invite = useMutation({
     mutationFn: () =>
@@ -305,6 +323,33 @@ export function WorkspacePage() {
             <section className="panel plans-panel">
               <p className="eyebrow">NÂNG CẤP</p>
               <h2>Mua quota theo nhu cầu thật</h2>
+              {subscription.data && (
+                <article className="plan-row current-subscription">
+                  <div>
+                    <strong>{subscription.data.planName} đang hoạt động</strong>
+                    <span>
+                      Dùng đến{' '}
+                      {new Date(subscription.data.periodEnd).toLocaleDateString(
+                        'vi-VN',
+                      )}
+                      {subscription.data.cancelAtPeriodEnd
+                        ? ' · sẽ dừng cuối kỳ'
+                        : ''}
+                    </span>
+                  </div>
+                  {!subscription.data.cancelAtPeriodEnd && (
+                    <button
+                      className="text-button"
+                      disabled={cancelSubscription.isPending}
+                      onClick={() =>
+                        cancelSubscription.mutate(subscription.data!.id)
+                      }
+                    >
+                      Dừng cuối kỳ
+                    </button>
+                  )}
+                </article>
+              )}
               {plans.data?.map((plan) => (
                 <article className="plan-row" key={plan.id}>
                   <div>
@@ -335,6 +380,29 @@ export function WorkspacePage() {
                 Thanh toán qua PayOS. Quyền lợi chỉ được cấp sau khi webhook đã
                 được xác thực.
               </p>
+              {invoices.data && invoices.data.length > 0 && (
+                <div className="member-list" aria-label="Hóa đơn gần đây">
+                  {invoices.data.slice(0, 5).map((invoice) => (
+                    <div key={invoice.id}>
+                      <span>
+                        <strong>{invoice.invoiceNumber}</strong>
+                        <small>
+                          {new Date(invoice.createdAt).toLocaleDateString(
+                            'vi-VN',
+                          )}{' '}
+                          · {invoice.state}
+                        </small>
+                      </span>
+                      <span>{money(invoice.amountPaidVnd)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {cancelSubscription.isError && (
+                <p className="form-error">
+                  Không thể cập nhật gia hạn. Vui lòng thử lại.
+                </p>
+              )}
             </section>
           </div>
           <p className="learner-shortcut">

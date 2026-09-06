@@ -469,16 +469,18 @@ class JdbcUsageQuotaIntegrationTest {
         CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
         AtomicInteger gatewayCalls = new AtomicInteger();
         PaymentGateway gateway = (orderCode, amount, description) -> {
-            gatewayCalls.incrementAndGet();
+            int call = gatewayCalls.incrementAndGet();
             assertThat(amount).isEqualTo(790_000);
-            return new PaymentGateway.CheckoutLink("pay-link-1", URI.create("https://pay.payos.vn/web/pay-link-1"));
+            return new PaymentGateway.CheckoutLink(
+                    "pay-link-" + call, URI.create("https://pay.payos.vn/web/pay-link-" + call)
+            );
         };
         var properties = new PayOsProperties(
                 true, "client", "api", "secret", URI.create("https://api-merchant.payos.vn"),
                 URI.create("https://app.example/success"), URI.create("https://app.example/cancel"),
                 Duration.ofMinutes(30)
         );
-        var billing = new BillingService(jdbc, transactions, gateway, properties, new ObjectMapper());
+        var billing = new BillingService(jdbc, transactions, gateway, properties);
         UUID planId = UUID.fromString("00000000-0000-7000-8000-000000000101");
 
         var checkout = billing.checkout(owner, planId, "checkout-key-1");
@@ -514,10 +516,191 @@ class JdbcUsageQuotaIntegrationTest {
                 .isEqualTo(1L);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM subscriptions WHERE billing_order_id = ?", Long.class, checkout.orderId()))
                 .isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM invoices WHERE billing_order_id = ?", Long.class, checkout.orderId()))
+                .isEqualTo(1L);
         assertThat(jdbc.queryForObject(
                 "SELECT allowance FROM entitlements WHERE organization_id = ? ORDER BY period_start DESC LIMIT 1",
                 Long.class, organizationId
         )).isEqualTo(18_000L);
+    }
+
+    @Test
+    void signedUnknownWebhookIsRetainedWithoutGrantingAccess() {
+        PaymentGateway gateway = (orderCode, amount, description) ->
+                new PaymentGateway.CheckoutLink("unused", URI.create("https://pay.payos.vn/web/unused"));
+        var billing = billing(gateway);
+        var mapper = new ObjectMapper();
+        var data = mapper.createObjectNode()
+                .put("orderCode", 999_999_999L)
+                .put("amount", 10_000)
+                .put("reference", "payos-confirmation-sample")
+                .put("currency", "VND")
+                .put("paymentLinkId", "sample-link")
+                .put("code", "00");
+        var envelope = mapper.createObjectNode()
+                .put("code", "00")
+                .put("success", true)
+                .set("data", data);
+        envelope.put("signature", PayOsSignature.signWebhook(data, "secret"));
+
+        billing.processWebhook(envelope);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT error_code FROM payment_webhook_inbox WHERE event_key = ?",
+                String.class, "payos-confirmation-sample|999999999"
+        )).isEqualTo("REJECTED_400");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM payments WHERE provider_reference = ?",
+                Long.class, "payos-confirmation-sample"
+        )).isZero();
+    }
+
+    @Test
+    void reconciliationRecoversPaidOrderAndCreatesRevenueRecordsOnce() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        class ReconcilingGateway implements PaymentGateway {
+            @Override
+            public CheckoutLink createCheckout(long orderCode, long amountVnd, String description) {
+                return new CheckoutLink("reconcile-link", URI.create("https://pay.payos.vn/web/reconcile-link"));
+            }
+
+            @Override
+            public java.util.Optional<PaymentStatus> getPayment(long orderCode) {
+                return java.util.Optional.of(new PaymentStatus(
+                        orderCode, 790_000, 790_000, "PAID", "reconcile-link"
+                ));
+            }
+        }
+        var billing = billing(new ReconcilingGateway());
+        var checkout = billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000101"), "reconcile-checkout"
+        );
+
+        var first = billing.reconcilePendingPayments();
+        var replay = billing.reconcilePendingPayments();
+
+        assertThat(first.paid()).isEqualTo(1);
+        assertThat(replay.paid()).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM payments WHERE billing_order_id = ?", Long.class, checkout.orderId()
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM invoices WHERE billing_order_id = ?", Long.class, checkout.orderId()
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM subscription_billing_periods WHERE billing_order_id = ?",
+                Long.class, checkout.orderId()
+        )).isEqualTo(1L);
+    }
+
+    @Test
+    void failedCheckoutProviderCallReleasesClaimForSafeRetry() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        AtomicInteger calls = new AtomicInteger();
+        PaymentGateway gateway = (orderCode, amount, description) -> {
+            if (calls.incrementAndGet() == 1) {
+                throw new IllegalStateException("temporary provider outage");
+            }
+            return new PaymentGateway.CheckoutLink("recovered-link", URI.create("https://pay.payos.vn/web/recovered"));
+        };
+        var billing = billing(gateway);
+        UUID planId = UUID.fromString("00000000-0000-7000-8000-000000000101");
+
+        assertThatThrownBy(() -> billing.checkout(owner, planId, "recoverable-checkout"))
+                .isInstanceOf(IllegalStateException.class);
+        var recovered = billing.checkout(owner, planId, "recoverable-checkout");
+
+        assertThat(recovered.checkoutUrl()).endsWith("/recovered");
+        assertThat(calls).hasValue(2);
+        assertThat(jdbc.queryForObject(
+                "SELECT checkout_claim_token IS NULL FROM billing_orders WHERE id = ?",
+                Boolean.class, recovered.orderId()
+        )).isTrue();
+    }
+
+    @Test
+    void samePlanRenewalExtendsOneSubscriptionAndKeepsEachPaidPeriod() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        AtomicInteger links = new AtomicInteger();
+        PaymentGateway gateway = (orderCode, amount, description) -> {
+            String id = "renew-link-" + links.incrementAndGet();
+            return new PaymentGateway.CheckoutLink(id, URI.create("https://pay.payos.vn/web/" + id));
+        };
+        var billing = billing(gateway);
+        UUID planId = UUID.fromString("00000000-0000-7000-8000-000000000101");
+
+        var first = billing.checkout(owner, planId, "renew-first");
+        pay(billing, first, "renew-link-1", "renew-reference-1");
+        var second = billing.checkout(owner, planId, "renew-second");
+        pay(billing, second, "renew-link-2", "renew-reference-2");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM subscriptions WHERE organization_id = ?", Long.class, organizationId
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM subscription_billing_periods WHERE organization_id = ?",
+                Long.class, organizationId
+        )).isEqualTo(2L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM invoices WHERE organization_id = ? AND state = 'PAID'",
+                Long.class, organizationId
+        )).isEqualTo(2L);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT EXTRACT(EPOCH FROM (current_period_end - current_period_start)) > 5000000
+                FROM subscriptions WHERE organization_id = ?
+                """,
+                Boolean.class, organizationId
+        )).isTrue();
+    }
+
+    @Test
+    void cancellingSubscriptionWritesAuditAndOutboxAtomically() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        PaymentGateway gateway = (orderCode, amount, description) ->
+                new PaymentGateway.CheckoutLink("cancel-link", URI.create("https://pay.payos.vn/web/cancel-link"));
+        var billing = billing(gateway);
+        var checkout = billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000101"), "cancel-checkout"
+        );
+        pay(billing, checkout, "cancel-link", "cancel-reference");
+        UUID subscriptionId = billing.subscription(organizationId).orElseThrow().id();
+
+        billing.cancelAtPeriodEnd(owner, subscriptionId, "cancel-correlation");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT cancel_at_period_end FROM subscriptions WHERE id = ?", Boolean.class, subscriptionId
+        )).isTrue();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM audit_logs
+                WHERE resource_id = ? AND action = 'SUBSCRIPTION_CANCEL_AT_PERIOD_END'
+                """,
+                Long.class, subscriptionId
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM outbox_events
+                WHERE aggregate_id = ? AND event_type = 'SubscriptionCancellationScheduled'
+                """,
+                Long.class, subscriptionId
+        )).isEqualTo(1L);
     }
 
     @Test
@@ -796,6 +979,37 @@ class JdbcUsageQuotaIntegrationTest {
 
     private UUID seedPublishedPackage(UUID orgId, UUID ownerId) {
         return seedPackage(orgId, ownerId, "PUBLISHED");
+    }
+
+    private BillingService billing(PaymentGateway gateway) {
+        var properties = new PayOsProperties(
+                true, "client", "api", "secret", URI.create("https://api-merchant.payos.vn"),
+                URI.create("https://app.example/success"), URI.create("https://app.example/cancel"),
+                Duration.ofMinutes(30)
+        );
+        return new BillingService(jdbc, transactions, gateway, properties);
+    }
+
+    private static void pay(
+            BillingService billing,
+            BillingService.Checkout checkout,
+            String paymentLinkId,
+            String reference
+    ) {
+        var mapper = new ObjectMapper();
+        var data = mapper.createObjectNode()
+                .put("orderCode", checkout.orderCode())
+                .put("amount", checkout.amountVnd())
+                .put("reference", reference)
+                .put("currency", "VND")
+                .put("paymentLinkId", paymentLinkId)
+                .put("code", "00");
+        var envelope = mapper.createObjectNode()
+                .put("code", "00")
+                .put("success", true)
+                .set("data", data);
+        envelope.put("signature", PayOsSignature.signWebhook(data, "secret"));
+        billing.processWebhook(envelope);
     }
 
     private UUID seedPackage(UUID orgId, UUID ownerId, String state) {

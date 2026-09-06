@@ -2,6 +2,8 @@ package com.vid2knowledge.billing;
 
 import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.auth.TenantAccessService;
+import com.vid2knowledge.common.api.CorrelationIdFilter;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -73,17 +75,29 @@ public class BillingController {
         return billing.subscription(organizationId).orElse(null);
     }
 
+    @GetMapping("/organizations/{organizationId}/billing/invoices")
+    public List<BillingService.InvoiceView> invoices(
+            @PathVariable UUID organizationId,
+            Authentication authentication
+    ) {
+        access.require(organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN);
+        return billing.invoices(organizationId);
+    }
+
     @PostMapping("/organizations/{organizationId}/billing/subscriptions/{subscriptionId}/cancel")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void cancel(
             @PathVariable UUID organizationId,
             @PathVariable UUID subscriptionId,
-            Authentication authentication
+            Authentication authentication,
+            HttpServletRequest request
     ) {
         CurrentActor actor = access.require(
                 organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN
         );
-        billing.cancelAtPeriodEnd(actor, subscriptionId);
+        billing.cancelAtPeriodEnd(
+                actor, subscriptionId, request.getAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE).toString()
+        );
     }
 
     @PostMapping("/webhooks/payos")

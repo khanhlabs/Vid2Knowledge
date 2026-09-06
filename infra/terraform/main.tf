@@ -263,3 +263,26 @@ resource "google_cloud_scheduler_job" "outbox" {
   }
   depends_on = [google_cloud_run_v2_service_iam_member.public_api]
 }
+
+resource "google_cloud_scheduler_job" "billing_reconciliation" {
+  name             = "${local.prefix}-billing-reconciliation"
+  region           = var.region
+  schedule         = "*/10 * * * *"
+  time_zone        = "Etc/UTC"
+  attempt_deadline = "60s"
+  retry_config {
+    retry_count          = 2
+    min_backoff_duration = "30s"
+    max_backoff_duration = "120s"
+  }
+  http_target {
+    http_method = "POST"
+    uri         = "${google_cloud_run_v2_service.api.uri}/internal/tasks/billing/reconcile"
+    headers     = { "Content-Type" = "application/json" }
+    oidc_token {
+      service_account_email = google_service_account.task_invoker.email
+      audience              = local.internal_audience
+    }
+  }
+  depends_on = [google_cloud_run_v2_service_iam_member.public_api]
+}
