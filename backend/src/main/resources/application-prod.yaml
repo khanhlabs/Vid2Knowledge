@@ -41,5 +41,8 @@ task-queue:
 payos:
   enabled: ${PAYOS_ENABLED:false}
 
+billing:
+  require-profile-before-checkout: true
+
 legal:
   require-production-readiness: ${LEGAL_REQUIRE_PRODUCTION_READINESS:true}

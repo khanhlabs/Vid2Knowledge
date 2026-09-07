@@ -89,9 +89,29 @@ export interface Invoice {
   amountDueVnd: number
   amountPaidVnd: number
   promotionCode?: string | null
+  buyerType?: 'BUSINESS' | 'INDIVIDUAL' | null
+  buyerLegalName?: string | null
+  buyerTaxIdentifier?: string | null
+  buyerAddress?: string | null
+  buyerEmail?: string | null
+  buyerCountryCode?: string | null
+  billingProfileVersion?: number | null
+  taxDocumentRequested: boolean
   dueAt: string
   paidAt?: string
   createdAt: string
+}
+
+export interface BillingProfile {
+  buyerType: 'BUSINESS' | 'INDIVIDUAL'
+  legalName: string
+  taxIdentifier?: string | null
+  billingAddress: string
+  billingEmail: string
+  countryCode: 'VN'
+  invoiceRequested: boolean
+  version: number
+  updatedAt: string
 }
 
 export interface BillingQuote {
@@ -451,6 +471,28 @@ export const workspaceApi = {
     ),
   invoices: (organizationId: string) =>
     api<Invoice[]>(`/api/v1/organizations/${organizationId}/billing/invoices`),
+  exportInvoices: (organizationId: string) =>
+    downloadApi(
+      `/api/v1/organizations/${organizationId}/billing/invoices.csv`,
+      'vid2knowledge-invoices.csv',
+    ),
+  billingProfile: (organizationId: string) =>
+    api<BillingProfile | null>(
+      `/api/v1/organizations/${organizationId}/billing/profile`,
+    ),
+  updateBillingProfile: (
+    organizationId: string,
+    profile: Omit<BillingProfile, 'updatedAt' | 'version'> & {
+      expectedVersion: number
+    },
+  ) =>
+    api<BillingProfile>(
+      `/api/v1/organizations/${organizationId}/billing/profile`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(profile),
+      },
+    ),
   refunds: (organizationId: string) =>
     api<Refund[]>(`/api/v1/organizations/${organizationId}/billing/refunds`),
   requestRefund: (organizationId: string, invoiceId: string, reason: string) =>

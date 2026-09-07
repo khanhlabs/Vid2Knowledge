@@ -92,8 +92,10 @@ All four belong to the target product. Evidence determines implementation order,
 - Self-serve trial, subscription billing, invoicing, credits/overages, promotion/referral attribution,
   dunning, cancellation, refund, entitlement, and revenue analytics. Promotion đã có server-side quote,
   immutable price snapshot, capacity reservation, one-redemption-per-organization, channel-specific
-  margin ceiling và attributed revenue/discount reporting. Proration và tax-ready invoice profile vẫn là
-  phần việc trước production commercial, không được mô tả như đã hoàn tất.
+  margin ceiling và attributed revenue/discount reporting. Tax-ready buyer profile đã có version/audit,
+  immutable invoice snapshot và safe CSV handoff cho kế toán. Đây vẫn là chứng từ nội bộ, không tự nhận là
+  hóa đơn điện tử hợp pháp; proration và kết nối nhà cung cấp hóa đơn điện tử còn là phần việc trước
+  production commercial.
 - Integrations through API/webhooks plus evidence-led LMS/SSO connections for higher-value accounts.
 - In-app onboarding dùng sáu bằng chứng server-side từ source đến learner completion; trial deadline,
   next-best action và annual-saving upgrade surface giúp buyer đi tới giá trị đầu tiên mà không tạo

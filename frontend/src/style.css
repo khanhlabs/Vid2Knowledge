@@ -872,6 +872,90 @@ button:disabled {
   border-top: 1px solid #dde0d8;
 }
 
+.billing-profile-form {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #d9d3bf;
+  border-radius: 0.75rem;
+  background: #fbfaf5;
+}
+
+.billing-profile-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.billing-profile-heading strong,
+.billing-profile-heading small {
+  display: block;
+}
+
+.billing-profile-heading small,
+.invoice-buyer {
+  color: #687169;
+}
+
+.billing-profile-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.billing-profile-fields label,
+.billing-profile-fields input,
+.billing-profile-fields select,
+.billing-profile-fields textarea {
+  display: block;
+  width: 100%;
+}
+
+.billing-profile-fields label {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.billing-profile-fields input,
+.billing-profile-fields select,
+.billing-profile-fields textarea {
+  margin-top: 0.35rem;
+}
+
+.billing-address-field {
+  grid-column: 1 / -1;
+}
+
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.inline-check input {
+  flex: 0 0 auto;
+}
+
+.form-success {
+  margin-left: 0.75rem;
+  color: #1f6a49;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.invoice-summary {
+  max-width: 55%;
+  text-align: right;
+}
+
+.invoice-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
 .promotion-form {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
@@ -1001,6 +1085,18 @@ button:disabled {
 
   .promotion-form {
     grid-template-columns: 1fr;
+  }
+
+  .billing-profile-heading {
+    flex-direction: column;
+  }
+
+  .billing-profile-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-address-field {
+    grid-column: auto;
   }
 }
 .plan-row span,

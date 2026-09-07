@@ -106,7 +106,13 @@ Track gross revenue retention, net revenue retention, expansion MRR, contraction
 - Không bán lifetime deal và không dùng từ “unlimited”.
 - Overage dùng credit pack trả trước; giá sàn phải bao phủ p95 shadow cost, payment, support và contribution margin mục tiêu.
 - Custom integration/SLA tính setup fee hoặc minimum annual commitment riêng.
-- payOS xử lý payment không thay thế nghĩa vụ hợp đồng, thuế hoặc hóa đơn; cần kế toán/tư vấn pháp lý trước commercial launch.
+- payOS xử lý payment không thay thế nghĩa vụ hợp đồng, thuế hoặc hóa đơn. App thu thập và snapshot
+  thông tin người mua nhưng mã `V2K-*` chỉ là số chứng từ nội bộ, không phải số hóa đơn điện tử được cơ
+  quan thuế chấp nhận. Trước commercial launch phải có kế toán/tư vấn pháp lý, thông tin pháp nhân người
+  bán và tích hợp nhà cung cấp hóa đơn điện tử theo quy định hiện hành. Nghị định 254/2026/NĐ-CP yêu cầu
+  nội dung hóa đơn gồm thông tin người bán, người mua và chi tiết tiền/thuế; không được suy diễn rằng
+  payment receipt hiện tại đã đáp ứng nghĩa vụ này:
+  https://xaydungchinhsach.chinhphu.vn/toan-van-nghi-dinh-so-254-2026-nd-cp-ve-hoa-don-dien-tu-chung-tu-dien-tu-119260713164251972.htm
 
 ## 11. Mục tiêu lợi nhuận
 

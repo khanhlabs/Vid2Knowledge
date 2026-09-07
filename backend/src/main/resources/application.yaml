@@ -121,6 +121,9 @@ payos:
   cancel-url: ${PAYOS_CANCEL_URL:}
   checkout-ttl: ${PAYOS_CHECKOUT_TTL:30m}
 
+billing:
+  require-profile-before-checkout: ${BILLING_REQUIRE_PROFILE_BEFORE_CHECKOUT:false}
+
 notifications:
   enabled: ${NOTIFICATIONS_ENABLED:false}
   api-key: ${RESEND_API_KEY:}

@@ -7,6 +7,7 @@ import { useAuth } from '../auth/auth-context'
 import {
   workspaceApi,
   type AnalysisJob,
+  type BillingProfile,
   type BillingQuote,
   type NotificationPreferences,
 } from './api'
@@ -76,6 +77,10 @@ export function WorkspacePage() {
     planId: string
     quote: BillingQuote
   } | null>(null)
+  const [billingProfileEdit, setBillingProfileEdit] = useState<{
+    organizationId: string
+    profile: Omit<BillingProfile, 'updatedAt'>
+  } | null>(null)
   const me = useQuery({ queryKey: ['me'], queryFn: workspaceApi.me })
   const plans = useQuery({ queryKey: ['plans'], queryFn: workspaceApi.plans })
   const deletionRequest = useQuery({
@@ -133,6 +138,40 @@ export function WorkspacePage() {
     queryFn: () => workspaceApi.invoices(activeOrganizationId),
     enabled: Boolean(activeOrganizationId && canManageMembers),
   })
+  const billingProfile = useQuery({
+    queryKey: ['billing-profile', activeOrganizationId],
+    queryFn: () => workspaceApi.billingProfile(activeOrganizationId),
+    enabled: Boolean(activeOrganizationId && canManageMembers),
+  })
+  const billingProfileDraft =
+    billingProfileEdit?.organizationId === activeOrganizationId
+      ? billingProfileEdit.profile
+      : billingProfile.isFetched
+        ? billingProfile.data
+          ? {
+              buyerType: billingProfile.data.buyerType,
+              legalName: billingProfile.data.legalName,
+              taxIdentifier: billingProfile.data.taxIdentifier,
+              billingAddress: billingProfile.data.billingAddress,
+              billingEmail: billingProfile.data.billingEmail,
+              countryCode: 'VN' as const,
+              invoiceRequested: billingProfile.data.invoiceRequested,
+              version: billingProfile.data.version,
+            }
+          : {
+              buyerType: 'BUSINESS' as const,
+              legalName: '',
+              taxIdentifier: '',
+              billingAddress: '',
+              billingEmail: '',
+              countryCode: 'VN' as const,
+              invoiceRequested: true,
+              version: 0,
+            }
+        : null
+  const setBillingProfileDraft = (
+    profile: Omit<BillingProfile, 'updatedAt'>,
+  ) => setBillingProfileEdit({ organizationId: activeOrganizationId, profile })
   const refunds = useQuery({
     queryKey: ['refunds', activeOrganizationId],
     queryFn: () => workspaceApi.refunds(activeOrganizationId),
@@ -285,6 +324,40 @@ export function WorkspacePage() {
       ),
     onSuccess: (quote) =>
       setAppliedPromotion({ planId: promotionPlanId, quote }),
+  })
+  const saveBillingProfile = useMutation({
+    mutationFn: () => {
+      if (!billingProfileDraft) throw new Error('Thông tin xuất hóa đơn chưa sẵn sàng.')
+      return workspaceApi.updateBillingProfile(activeOrganizationId, {
+        buyerType: billingProfileDraft.buyerType,
+        legalName: billingProfileDraft.legalName,
+        taxIdentifier: billingProfileDraft.taxIdentifier,
+        billingAddress: billingProfileDraft.billingAddress,
+        billingEmail: billingProfileDraft.billingEmail,
+        countryCode: 'VN',
+        invoiceRequested: billingProfileDraft.invoiceRequested,
+        expectedVersion: billingProfileDraft.version,
+      })
+    },
+    onSuccess: (saved) => {
+      queryClient.setQueryData(
+        ['billing-profile', activeOrganizationId],
+        saved,
+      )
+      setBillingProfileDraft({
+        buyerType: saved.buyerType,
+        legalName: saved.legalName,
+        taxIdentifier: saved.taxIdentifier,
+        billingAddress: saved.billingAddress,
+        billingEmail: saved.billingEmail,
+        countryCode: 'VN',
+        invoiceRequested: saved.invoiceRequested,
+        version: saved.version,
+      })
+    },
+  })
+  const exportInvoices = useMutation({
+    mutationFn: () => workspaceApi.exportInvoices(activeOrganizationId),
   })
   const cancelSubscription = useMutation({
     mutationFn: (subscriptionId: string) =>
@@ -687,6 +760,140 @@ export function WorkspacePage() {
                   )}
                 </article>
               )}
+              {billingProfileDraft && (
+                <form
+                  className="billing-profile-form"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    saveBillingProfile.mutate()
+                  }}
+                >
+                  <div className="billing-profile-heading">
+                    <div>
+                      <strong>Thông tin người mua</strong>
+                      <small>
+                        Được chụp bất biến vào chứng từ khi tạo; sửa sau không
+                        làm thay đổi lịch sử.
+                      </small>
+                    </div>
+                    <label className="inline-check">
+                      <input
+                        type="checkbox"
+                        checked={billingProfileDraft.invoiceRequested}
+                        onChange={(event) =>
+                          setBillingProfileDraft({
+                            ...billingProfileDraft,
+                            invoiceRequested: event.target.checked,
+                          })
+                        }
+                      />
+                      Yêu cầu chứng từ thuế
+                    </label>
+                  </div>
+                  <div className="billing-profile-fields">
+                    <label>
+                      Loại người mua
+                      <select
+                        value={billingProfileDraft.buyerType}
+                        onChange={(event) =>
+                          setBillingProfileDraft({
+                            ...billingProfileDraft,
+                            buyerType: event.target.value as
+                              | 'BUSINESS'
+                              | 'INDIVIDUAL',
+                            taxIdentifier:
+                              event.target.value === 'INDIVIDUAL'
+                                ? ''
+                                : billingProfileDraft.taxIdentifier,
+                          })
+                        }
+                      >
+                        <option value="BUSINESS">Doanh nghiệp / tổ chức</option>
+                        <option value="INDIVIDUAL">Cá nhân</option>
+                      </select>
+                    </label>
+                    <label>
+                      {billingProfileDraft.buyerType === 'BUSINESS'
+                        ? 'Tên pháp lý'
+                        : 'Họ tên'}
+                      <input
+                        required
+                        maxLength={240}
+                        value={billingProfileDraft.legalName}
+                        onChange={(event) =>
+                          setBillingProfileDraft({
+                            ...billingProfileDraft,
+                            legalName: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    {billingProfileDraft.buyerType === 'BUSINESS' && (
+                      <label>
+                        Mã số thuế
+                        <input
+                          required
+                          maxLength={14}
+                          inputMode="numeric"
+                          placeholder="10 số hoặc 10 số-3 số"
+                          value={billingProfileDraft.taxIdentifier ?? ''}
+                          onChange={(event) =>
+                            setBillingProfileDraft({
+                              ...billingProfileDraft,
+                              taxIdentifier: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                    )}
+                    <label>
+                      Email nhận chứng từ
+                      <input
+                        required
+                        type="email"
+                        maxLength={320}
+                        value={billingProfileDraft.billingEmail}
+                        onChange={(event) =>
+                          setBillingProfileDraft({
+                            ...billingProfileDraft,
+                            billingEmail: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="billing-address-field">
+                      Địa chỉ đăng ký
+                      <textarea
+                        required
+                        maxLength={500}
+                        value={billingProfileDraft.billingAddress}
+                        onChange={(event) =>
+                          setBillingProfileDraft({
+                            ...billingProfileDraft,
+                            billingAddress: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <button
+                    className="small-button"
+                    disabled={saveBillingProfile.isPending}
+                  >
+                    {saveBillingProfile.isPending
+                      ? 'Đang lưu…'
+                      : 'Lưu thông tin người mua'}
+                  </button>
+                  {saveBillingProfile.isSuccess && (
+                    <span className="form-success">Đã lưu phiên bản mới.</span>
+                  )}
+                  {saveBillingProfile.isError && (
+                    <p className="form-error">
+                      {errorMessage(saveBillingProfile.error)}
+                    </p>
+                  )}
+                </form>
+              )}
               <form
                 className="promotion-form"
                 onSubmit={(event) => {
@@ -799,11 +1006,14 @@ export function WorkspacePage() {
                         className="small-button"
                         disabled={
                           checkout.isPending ||
+                          !billingProfile.data ||
                           (plan.productType === 'TOP_UP' && !subscription.data)
                         }
                         title={
                           plan.productType === 'TOP_UP' && !subscription.data
                             ? 'Cần có thuê bao đang hoạt động trước khi nạp credit'
+                            : !billingProfile.data
+                              ? 'Hãy lưu thông tin người mua trước khi thanh toán'
                             : undefined
                         }
                         onClick={() => checkout.mutate(plan.id)}
@@ -824,8 +1034,24 @@ export function WorkspacePage() {
                 được xác thực.
               </p>
               {invoices.data && invoices.data.length > 0 && (
-                <div className="member-list" aria-label="Hóa đơn gần đây">
-                  {invoices.data.slice(0, 5).map((invoice) => (
+                <div>
+                  <div className="invoice-list-heading">
+                    <strong>Chứng từ thanh toán gần đây</strong>
+                    <button
+                      className="text-button"
+                      disabled={exportInvoices.isPending}
+                      onClick={() => exportInvoices.mutate()}
+                    >
+                      Xuất CSV cho kế toán
+                    </button>
+                  </div>
+                  {exportInvoices.isError && (
+                    <p className="form-error">
+                      {errorMessage(exportInvoices.error)}
+                    </p>
+                  )}
+                  <div className="member-list" aria-label="Hóa đơn gần đây">
+                    {invoices.data.slice(0, 5).map((invoice) => (
                     <div key={invoice.id}>
                       <span>
                         <strong>{invoice.invoiceNumber}</strong>
@@ -836,15 +1062,28 @@ export function WorkspacePage() {
                           · {invoice.state}
                         </small>
                       </span>
-                      <span>{money(invoice.amountPaidVnd)}</span>
-                      {invoice.discountVnd > 0 && (
-                        <small className="invoice-discount">
-                          Giảm {money(invoice.discountVnd)}
-                          {invoice.promotionCode
-                            ? ` · ${invoice.promotionCode}`
-                            : ''}
-                        </small>
-                      )}
+                      <span className="invoice-summary">
+                        <strong>{money(invoice.amountPaidVnd)}</strong>
+                        {invoice.discountVnd > 0 && (
+                          <small className="invoice-discount">
+                            Giảm {money(invoice.discountVnd)}
+                            {invoice.promotionCode
+                              ? ` · ${invoice.promotionCode}`
+                              : ''}
+                          </small>
+                        )}
+                        {invoice.buyerLegalName && (
+                          <small className="invoice-buyer">
+                            {invoice.buyerLegalName}
+                            {invoice.buyerTaxIdentifier
+                              ? ` · MST ${invoice.buyerTaxIdentifier}`
+                              : ''}
+                            {invoice.taxDocumentRequested
+                              ? ' · Đã yêu cầu chứng từ thuế'
+                              : ''}
+                          </small>
+                        )}
+                      </span>
                       {invoice.invoiceType === 'TOP_UP' &&
                         invoice.state === 'PAID' &&
                         !refunds.data?.some(
@@ -858,7 +1097,8 @@ export function WorkspacePage() {
                           </button>
                         )}
                     </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               )}
               {refundInvoiceId && (

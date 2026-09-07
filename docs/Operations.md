@@ -92,6 +92,26 @@ Khi có payment mismatch, không sửa redemption/invoice bằng SQL. Chạy rec
 reservation được release. Nếu cần correction tài chính, dùng audited adjustment/refund workflow và giữ
 nguyên price snapshot ban đầu.
 
+## Billing profile and accounting handoff
+
+OWNER/ADMIN nhập đúng tên, địa chỉ và MST theo hồ sơ đăng ký của người mua trước checkout. Update dùng
+profile version; lỗi `409` nghĩa là admin khác đã sửa và client phải reload, không retry mù. Invoice mới
+snapshot profile đúng lúc record được tạo; invoice cũ không đổi khi profile thay đổi. CSV kế toán phải
+được lấy từ endpoint có auth, không gửi qua public URL và không chỉnh số tiền/snapshot bằng spreadsheet.
+Production luôn bật `billing.require-profile-before-checkout=true`; frontend cũng khóa nút thanh toán
+đến khi profile đã được lưu. Renewal nội bộ vẫn chạy cho subscription cũ để tránh vô tình cắt doanh thu,
+nhưng operator phải backfill profile cho mọi account đang hoạt động trước launch.
+
+`V2K-*` là internal payment record, không phải hóa đơn điện tử hợp pháp. `taxDocumentRequested=true` chỉ
+ghi nhận nhu cầu của buyer để kế toán xử lý; không được đổi wording thành “đã phát hành”. Trước khi nhận
+tiền production, chọn nhà cung cấp hóa đơn điện tử, cấu hình seller identity/tax rate/signature, map
+provider document ID về invoice và chạy accountant reconciliation. Quy định thay đổi phải được counsel/
+kế toán xác nhận; tham chiếu hiện hành là Nghị định 254/2026/NĐ-CP trên Cổng TTĐT Chính phủ.
+
+Billing profile chứa dữ liệu liên hệ tài chính. Log không được ghi request body; chỉ audit version và cờ
+yêu cầu chứng từ. Snapshot invoice/financial ledger giữ theo retention pháp lý đã duyệt, không xóa theo
+privacy cleanup thông thường. Chỉ OWNER/ADMIN được xem, sửa hoặc export.
+
 ## Data retention operation
 
 Billing reconciliation gọi cùng transaction boundary của maintenance workflow cho retention cleanup;

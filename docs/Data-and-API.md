@@ -52,6 +52,9 @@
 - `promotion_campaigns`, `promotion_campaign_events`, `promotion_redemptions`; campaign code và
   discount bất biến sau khi tạo, deactivate có audit event, redemption giữ snapshot giá niêm yết,
   tiền giảm và giá thực thu. Unique `(campaign, organization)` chặn lạm dụng nhiều lần.
+- `organization_billing_profiles` giữ thông tin người mua cho thị trường Việt Nam với optimistic
+  version/audit. Mỗi invoice chụp buyer type, legal name, mã số thuế, địa chỉ, email, quốc gia và
+  profile version tại lúc tạo; sửa profile không viết lại chứng từ lịch sử.
 - `entitlements`, `usage_reservations`, `usage_ledger`, `cost_ledger`; ledger append-only.
 - `payment_webhook_inbox`, `outbox_events`, `idempotency_records`.
 - `notification_jobs`, `notification_deliveries`, `notification_preferences`,
@@ -162,6 +165,11 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 ### Billing
 
 - `GET /api/v1/billing/plans`, `GET .../usage`, `GET .../invoices`, `GET .../refunds`.
+- `GET|PUT .../billing/profile` chỉ OWNER/ADMIN; business Việt Nam bắt buộc MST 10 số hoặc mã chi
+  nhánh 10 số-3 số, request dùng `expectedVersion` để chặn lost update. `GET .../billing/invoices.csv`
+  xuất UTF-8 BOM, `private, no-store` và neutralize spreadsheet formula cho handoff kế toán.
+  Customer-initiated checkout trong production bị từ chối nếu chưa có profile; renewal nội bộ được miễn
+  guard để không làm gián đoạn subscription legacy.
 - `POST .../billing/quotes` kiểm tra promotion mà không giữ chỗ; trả list price, discount và net price.
   `POST .../checkout-sessions` nhận `promotionCode` tùy chọn, khóa campaign/capacity trong transaction,
   giữ redemption đến khi order hết hạn và luôn gửi net price do server tính sang payOS. Idempotency

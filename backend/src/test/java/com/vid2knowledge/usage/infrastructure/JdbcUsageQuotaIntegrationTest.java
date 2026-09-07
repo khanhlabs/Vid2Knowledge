@@ -33,6 +33,7 @@ import com.vid2knowledge.delivery.PackageWorkflowService;
 import com.vid2knowledge.analysis.application.LearningPackageCodec;
 import jakarta.validation.Validation;
 import com.vid2knowledge.billing.BillingService;
+import com.vid2knowledge.billing.BillingProfileService;
 import com.vid2knowledge.billing.PaymentGateway;
 import com.vid2knowledge.billing.PayOsSignature;
 import com.vid2knowledge.billing.PromotionService;
@@ -1024,6 +1025,76 @@ class JdbcUsageQuotaIntegrationTest {
     }
 
     @Test
+    void paidInvoiceKeepsImmutableVietnameseBuyerSnapshot() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        var profiles = new BillingProfileService(jdbc);
+        var first = profiles.update(owner, new BillingProfileService.UpdateProfile(
+                BillingProfileService.BuyerType.BUSINESS,
+                "Công ty TNHH Học Tốt", "0312345678", "12 Nguyễn Huệ, TP Hồ Chí Minh",
+                "ketoan@hoctot.vn", "VN", true, 0
+        ));
+        assertThat(first.version()).isEqualTo(1);
+        assertThatThrownBy(() -> profiles.update(owner, new BillingProfileService.UpdateProfile(
+                BillingProfileService.BuyerType.BUSINESS,
+                "Tên ghi đè", "0312345678", "12 Nguyễn Huệ, TP Hồ Chí Minh",
+                "ketoan@hoctot.vn", "VN", true, 0
+        ))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("reload");
+
+        BillingService billing = billing((orderCode, amount, description) ->
+                new PaymentGateway.CheckoutLink("tax-link", URI.create("https://pay.payos.vn/web/tax-link"))
+        );
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                billing, "requireProfileBeforeCheckout", true
+        );
+        var checkout = billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000101"), "tax-snapshot-checkout"
+        );
+        pay(billing, checkout, "tax-link", "tax-snapshot-reference");
+
+        profiles.update(owner, new BillingProfileService.UpdateProfile(
+                BillingProfileService.BuyerType.BUSINESS,
+                "Công ty TNHH Học Tốt - Tên mới", "0312345678", "99 Lê Lợi, TP Hồ Chí Minh",
+                "invoice@hoctot.vn", "VN", true, 1
+        ));
+        var invoice = billing.invoices(organizationId).getFirst();
+        assertThat(invoice.buyerLegalName()).isEqualTo("Công ty TNHH Học Tốt");
+        assertThat(invoice.buyerTaxIdentifier()).isEqualTo("0312345678");
+        assertThat(invoice.buyerAddress()).isEqualTo("12 Nguyễn Huệ, TP Hồ Chí Minh");
+        assertThat(invoice.buyerEmail()).isEqualTo("ketoan@hoctot.vn");
+        assertThat(invoice.billingProfileVersion()).isEqualTo(1L);
+        assertThat(invoice.taxDocumentRequested()).isTrue();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM audit_logs WHERE organization_id = ? AND action = 'BILLING_PROFILE_UPDATED'",
+                Long.class, organizationId
+        )).isEqualTo(2L);
+    }
+
+    @Test
+    void productionCheckoutGuardRejectsMissingBillingProfile() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        BillingService billing = billing((orderCode, amount, description) ->
+                new PaymentGateway.CheckoutLink("unused", URI.create("https://pay.payos.vn/web/unused"))
+        );
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                billing, "requireProfileBeforeCheckout", true
+        );
+
+        assertThatThrownBy(() -> billing.checkout(
+                owner, UUID.fromString("00000000-0000-7000-8000-000000000101"), null, "profile-required"
+        )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("billing information");
+    }
+
+    @Test
     void signedUnknownWebhookIsRetainedWithoutGrantingAccess() {
         PaymentGateway gateway = (orderCode, amount, description) ->
                 new PaymentGateway.CheckoutLink("unused", URI.create("https://pay.payos.vn/web/unused"));
@@ -1641,6 +1712,7 @@ class JdbcUsageQuotaIntegrationTest {
     private UUID seedSourceWithRights(UUID orgId) {
         UUID sourceId = UuidV7Generator.generate();
         UUID attestationId = UuidV7Generator.generate();
+        String videoId = sourceId.toString().replace("-", "").substring(21);
         UUID ownerId = jdbc.queryForObject(
                 "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
                 UUID.class,
@@ -1655,8 +1727,8 @@ class JdbcUsageQuotaIntegrationTest {
                 """,
                 sourceId,
                 orgId,
-                "https://www.youtube.com/watch?v=" + sourceId.toString().substring(0, 11),
-                sourceId.toString().substring(0, 11),
+                "https://www.youtube.com/watch?v=" + videoId,
+                videoId,
                 ownerId
         );
         jdbc.update(

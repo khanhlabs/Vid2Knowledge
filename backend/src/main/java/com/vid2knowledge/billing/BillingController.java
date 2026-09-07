@@ -94,6 +94,35 @@ public class BillingController {
         return billing.invoices(organizationId);
     }
 
+    @GetMapping(value = "/organizations/{organizationId}/billing/invoices.csv", produces = "text/csv")
+    public org.springframework.http.ResponseEntity<byte[]> exportInvoices(
+            @PathVariable UUID organizationId,
+            Authentication authentication
+    ) {
+        access.require(organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN);
+        StringBuilder csv = new StringBuilder("\uFEFFinvoice_number,state,type,created_at,paid_at,currency,"
+                + "list_price_vnd,discount_vnd,amount_due_vnd,amount_paid_vnd,promotion_code,"
+                + "buyer_type,buyer_legal_name,buyer_tax_identifier,buyer_address,buyer_email,"
+                + "buyer_country_code,billing_profile_version,tax_document_requested\r\n");
+        for (BillingService.InvoiceView invoice : billing.invoices(organizationId)) {
+            csv.append(csv(invoice.invoiceNumber())).append(',').append(csv(invoice.state())).append(',')
+                    .append(csv(invoice.invoiceType())).append(',').append(invoice.createdAt()).append(',')
+                    .append(invoice.paidAt() == null ? "" : invoice.paidAt()).append(',')
+                    .append(csv(invoice.currency())).append(',').append(invoice.listPriceVnd()).append(',')
+                    .append(invoice.discountVnd()).append(',').append(invoice.amountDueVnd()).append(',')
+                    .append(invoice.amountPaidVnd()).append(',').append(csv(invoice.promotionCode())).append(',')
+                    .append(csv(invoice.buyerType())).append(',').append(csv(invoice.buyerLegalName())).append(',')
+                    .append(csv(invoice.buyerTaxIdentifier())).append(',').append(csv(invoice.buyerAddress())).append(',')
+                    .append(csv(invoice.buyerEmail())).append(',').append(csv(invoice.buyerCountryCode())).append(',')
+                    .append(invoice.billingProfileVersion() == null ? "" : invoice.billingProfileVersion()).append(',')
+                    .append(invoice.taxDocumentRequested()).append("\r\n");
+        }
+        return org.springframework.http.ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=vid2knowledge-invoices.csv")
+                .header("Cache-Control", "private, no-store")
+                .body(csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     @GetMapping("/organizations/{organizationId}/billing/refunds")
     public List<BillingService.RefundView> refunds(
             @PathVariable UUID organizationId,
@@ -148,5 +177,11 @@ public class BillingController {
             @NotNull UUID invoiceId,
             @NotNull @Size(min = 10, max = 1000) String reason
     ) {
+    }
+
+    private static String csv(String value) {
+        String safe = value == null ? "" : value;
+        if (!safe.isEmpty() && "=+-@\t\r".indexOf(safe.charAt(0)) >= 0) safe = "'" + safe;
+        return '"' + safe.replace("\"", "\"\"") + '"';
     }
 }

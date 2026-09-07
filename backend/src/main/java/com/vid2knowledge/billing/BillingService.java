@@ -10,6 +10,7 @@ import com.vid2knowledge.usage.domain.UsageMetric;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,9 @@ public class BillingService {
     private final PayOsProperties payOs;
     private final NotificationQueue notifications;
     private final Clock clock;
+
+    @Value("${billing.require-profile-before-checkout:false}")
+    private boolean requireProfileBeforeCheckout;
 
     public BillingService(
             JdbcTemplate jdbc,
@@ -155,6 +159,10 @@ public class BillingService {
                 SELECT i.id, i.invoice_number, i.state, i.currency, i.invoice_type, i.amount_due_vnd,
                        i.amount_paid_vnd, COALESCE(i.list_price_vnd, i.amount_due_vnd) AS list_price_vnd,
                        i.discount_vnd, c.code AS promotion_code,
+                       i.buyer_type_snapshot, i.buyer_legal_name_snapshot,
+                       i.buyer_tax_identifier_snapshot, i.buyer_address_snapshot,
+                       i.buyer_email_snapshot, i.buyer_country_code_snapshot,
+                       i.billing_profile_version, i.tax_document_requested,
                        i.due_at, i.paid_at, i.created_at
                 FROM invoices i LEFT JOIN promotion_campaigns c ON c.id = i.promotion_campaign_id
                 WHERE i.organization_id = ?
@@ -166,6 +174,11 @@ public class BillingService {
                         result.getLong("list_price_vnd"), result.getLong("discount_vnd"),
                         result.getLong("amount_due_vnd"), result.getLong("amount_paid_vnd"),
                         result.getString("promotion_code"),
+                        result.getString("buyer_type_snapshot"), result.getString("buyer_legal_name_snapshot"),
+                        result.getString("buyer_tax_identifier_snapshot"), result.getString("buyer_address_snapshot"),
+                        result.getString("buyer_email_snapshot"), result.getString("buyer_country_code_snapshot"),
+                        result.getObject("billing_profile_version", Long.class),
+                        result.getBoolean("tax_document_requested"),
                         result.getTimestamp("due_at").toInstant(),
                         result.getTimestamp("paid_at") == null ? null : result.getTimestamp("paid_at").toInstant(),
                         result.getTimestamp("created_at").toInstant()
@@ -228,12 +241,18 @@ public class BillingService {
     }
 
     public Checkout checkout(CurrentActor actor, UUID planId, String idempotencyKey) {
-        return checkout(actor, planId, null, idempotencyKey);
+        return checkout(actor, planId, null, idempotencyKey, false);
     }
 
     public Checkout checkout(CurrentActor actor, UUID planId, String promotionCode, String idempotencyKey) {
+        return checkout(actor, planId, promotionCode, idempotencyKey, true);
+    }
+
+    private Checkout checkout(
+            CurrentActor actor, UUID planId, String promotionCode, String idempotencyKey, boolean customerInitiated
+    ) {
         PendingOrder pending = transactions.execute(status ->
-                createOrLoadPending(actor, planId, promotionCode, idempotencyKey)
+                createOrLoadPending(actor, planId, promotionCode, idempotencyKey, customerInitiated)
         );
         if (pending == null) {
             throw new IllegalStateException("Could not create billing order");
@@ -281,7 +300,7 @@ public class BillingService {
     }
 
     private PendingOrder createOrLoadPending(
-            CurrentActor actor, UUID planId, String promotionCode, String idempotencyKey
+            CurrentActor actor, UUID planId, String promotionCode, String idempotencyKey, boolean customerInitiated
     ) {
         jdbc.queryForObject(
                 "SELECT CAST(pg_advisory_xact_lock(hashtextextended(?, 0)) AS text)",
@@ -331,6 +350,12 @@ public class BillingService {
                     Timestamp.from(clock.instant()), found.id(), Timestamp.from(clock.instant())
             );
             return claimed == 1 ? found.withClaim(claimToken) : found;
+        }
+        if (customerInitiated && requireProfileBeforeCheckout
+                && billingProfileSnapshot(actor.organizationId()) == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY, "Complete billing information before checkout"
+            );
         }
         Promotion promotion = normalizedPromotion == null ? null : lockPromotion(
                 actor.organizationId(), plan, normalizedPromotion
@@ -743,18 +768,26 @@ public class BillingService {
             Long invoiceSequence = jdbc.queryForObject("SELECT nextval('invoice_number_seq')", Long.class);
             invoiceId = UuidV7Generator.generate();
             invoiceNumber = "V2K-" + invoiceSequence;
+            BillingProfileSnapshot buyer = billingProfileSnapshot(order.organizationId());
             jdbc.update(
                     """
                     INSERT INTO invoices(
                         id, organization_id, subscription_id, billing_order_id, invoice_number,
                         state, amount_due_vnd, amount_paid_vnd, due_at, paid_at, created_at, updated_at,
-                        invoice_type, list_price_vnd, discount_vnd, promotion_campaign_id
-                    ) VALUES (?, ?, ?, ?, ?, 'PAID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        invoice_type, list_price_vnd, discount_vnd, promotion_campaign_id,
+                        buyer_type_snapshot, buyer_legal_name_snapshot, buyer_tax_identifier_snapshot,
+                        buyer_address_snapshot, buyer_email_snapshot, buyer_country_code_snapshot,
+                        billing_profile_version, tax_document_requested
+                    ) VALUES (?, ?, ?, ?, ?, 'PAID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     invoiceId, order.organizationId(), subscriptionId, order.id(),
                     invoiceNumber, order.amountVnd(), order.amountVnd(), Timestamp.from(now),
                     Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), invoiceType,
-                    order.listPriceVnd(), order.discountVnd(), order.promotionCampaignId()
+                    order.listPriceVnd(), order.discountVnd(), order.promotionCampaignId(),
+                    buyer == null ? null : buyer.buyerType(), buyer == null ? null : buyer.legalName(),
+                    buyer == null ? null : buyer.taxIdentifier(), buyer == null ? null : buyer.address(),
+                    buyer == null ? null : buyer.email(), buyer == null ? null : buyer.countryCode(),
+                    buyer == null ? null : buyer.version(), buyer != null && buyer.invoiceRequested()
             );
         } else {
             invoiceId = existing.getFirst().id();
@@ -1008,17 +1041,26 @@ public class BillingService {
         Long invoiceSequence = jdbc.queryForObject("SELECT nextval('invoice_number_seq')", Long.class);
         UUID invoiceId = UuidV7Generator.generate();
         String invoiceNumber = "V2K-" + invoiceSequence;
+        BillingProfileSnapshot buyer = billingProfileSnapshot(candidate.organizationId());
         jdbc.update(
                 """
                 INSERT INTO invoices(
                     id, organization_id, subscription_id, billing_order_id, invoice_number,
                     state, amount_due_vnd, amount_paid_vnd, due_at, created_at, updated_at,
-                    invoice_type, list_price_vnd, discount_vnd
-                ) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, 0, ?, ?, ?, 'SUBSCRIPTION', ?, 0)
+                    invoice_type, list_price_vnd, discount_vnd,
+                    buyer_type_snapshot, buyer_legal_name_snapshot, buyer_tax_identifier_snapshot,
+                    buyer_address_snapshot, buyer_email_snapshot, buyer_country_code_snapshot,
+                    billing_profile_version, tax_document_requested
+                ) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, 0, ?, ?, ?, 'SUBSCRIPTION', ?, 0,
+                    ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 invoiceId, candidate.organizationId(), candidate.subscriptionId(), checkout.orderId(),
                 invoiceNumber, checkout.amountVnd(), Timestamp.from(candidate.periodEnd()),
-                Timestamp.from(now), Timestamp.from(now), checkout.amountVnd()
+                Timestamp.from(now), Timestamp.from(now), checkout.amountVnd(),
+                buyer == null ? null : buyer.buyerType(), buyer == null ? null : buyer.legalName(),
+                buyer == null ? null : buyer.taxIdentifier(), buyer == null ? null : buyer.address(),
+                buyer == null ? null : buyer.email(), buyer == null ? null : buyer.countryCode(),
+                buyer == null ? null : buyer.version(), buyer != null && buyer.invoiceRequested()
         );
         jdbc.update(
                 """
@@ -1375,7 +1417,9 @@ public class BillingService {
     public record InvoiceView(
             UUID id, String invoiceNumber, String state, String currency, String invoiceType,
             long listPriceVnd, long discountVnd, long amountDueVnd, long amountPaidVnd,
-            String promotionCode, Instant dueAt, Instant paidAt, Instant createdAt
+            String promotionCode, String buyerType, String buyerLegalName, String buyerTaxIdentifier,
+            String buyerAddress, String buyerEmail, String buyerCountryCode, Long billingProfileVersion,
+            boolean taxDocumentRequested, Instant dueAt, Instant paidAt, Instant createdAt
     ) {
     }
 
@@ -1412,6 +1456,27 @@ public class BillingService {
 
     private record Promotion(
             UUID id, String code, int discountBps, String attributionChannel, int maxRedemptions
+    ) { }
+
+    private BillingProfileSnapshot billingProfileSnapshot(UUID organizationId) {
+        return jdbc.query(
+                """
+                SELECT buyer_type, legal_name, tax_identifier, billing_address, billing_email,
+                       country_code, invoice_requested, version
+                FROM organization_billing_profiles WHERE organization_id = ?
+                """,
+                (result, row) -> new BillingProfileSnapshot(
+                        result.getString("buyer_type"), result.getString("legal_name"),
+                        result.getString("tax_identifier"), result.getString("billing_address"),
+                        result.getString("billing_email"), result.getString("country_code"),
+                        result.getBoolean("invoice_requested"), result.getLong("version")
+                ), organizationId
+        ).stream().findFirst().orElse(null);
+    }
+
+    private record BillingProfileSnapshot(
+            String buyerType, String legalName, String taxIdentifier, String address,
+            String email, String countryCode, boolean invoiceRequested, long version
     ) { }
 
     private record SubscriptionCandidate(UUID id, UUID planId, String status, Instant periodEnd) {
