@@ -2,7 +2,7 @@
 
 Vid2Knowledge turns supported public YouTube videos and authorised buyer-owned private videos into evidence-linked active-learning materials. The backend uses Gemini to generate structured notes, key takeaways, flashcards, and quizzes while enforcing tenant rights, quota, and cost controls.
 
-The repository contains an actively implemented B2B2C MVP with tenant isolation, authoring and learning workflows, billing, privacy controls, buyer-outcome analytics, and account-level profitability controls. Public production launch remains gated by real paid-pilot evidence, the Gemini benchmark, legal review, and configured cloud/provider credentials.
+The repository contains an actively implemented B2B2C MVP with tenant isolation, evidence-based buyer onboarding, authoring and learning workflows, billing, privacy controls, buyer-outcome analytics, and account-level profitability controls. Public production launch remains gated by real paid-pilot evidence, the Gemini benchmark, legal review, and configured cloud/provider credentials.
 
 ## Technology Stack
 

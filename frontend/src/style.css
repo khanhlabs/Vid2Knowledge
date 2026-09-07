@@ -845,6 +845,90 @@ button:disabled {
   padding: 1rem 0;
   border-top: 1px solid #dde0d8;
 }
+
+.activation-panel {
+  margin-bottom: 1.5rem;
+}
+
+.activation-heading,
+.trial-conversion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.activation-heading h2 {
+  margin-bottom: 0;
+}
+
+.activation-progress {
+  height: 0.5rem;
+  margin: 1.25rem 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #d8dbd2;
+}
+
+.activation-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #1f6a49;
+  transition: width 240ms ease;
+}
+
+.activation-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.activation-steps li {
+  display: flex;
+  gap: 0.5rem;
+  color: #687169;
+}
+
+.activation-steps li.complete {
+  color: #172019;
+}
+
+.activation-steps li.complete span,
+.saving-label {
+  color: #1f6a49;
+}
+
+.trial-conversion {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.75rem;
+  background: #e5f3eb;
+}
+
+.saving-label {
+  display: block;
+  margin-top: 0.2rem;
+  font-weight: 700;
+}
+
+.annual-plan {
+  border-color: #8db8a2;
+}
+
+@media (max-width: 800px) {
+  .activation-heading,
+  .trial-conversion {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .activation-steps {
+    grid-template-columns: 1fr;
+  }
+}
 .plan-row span,
 .plan-row strong,
 .plan-row b {

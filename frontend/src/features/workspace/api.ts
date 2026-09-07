@@ -28,6 +28,28 @@ export interface Usage {
   periodEnd: string
 }
 
+export interface ActivationStep {
+  code:
+    | 'ADD_SOURCE'
+    | 'REVIEW_PACKAGE'
+    | 'CREATE_COURSE'
+    | 'INVITE_LEARNER'
+    | 'LAUNCH_PROGRAM'
+    | 'PROVE_OUTCOME'
+  title: string
+  complete: boolean
+}
+
+export interface ActivationStatus {
+  completedSteps: number
+  totalSteps: number
+  activated: boolean
+  paid: boolean
+  trialEndsAt?: string
+  nextAction: ActivationStep['code'] | 'REVIEW_OUTCOMES'
+  steps: ActivationStep[]
+}
+
 export interface Plan {
   id: string
   code: string
@@ -398,6 +420,8 @@ export const workspaceApi = {
     }),
   usage: (organizationId: string) =>
     api<Usage>(`/api/v1/organizations/${organizationId}/billing/usage`),
+  activation: (organizationId: string) =>
+    api<ActivationStatus>(`/api/v1/organizations/${organizationId}/activation`),
   plans: () => api<Plan[]>('/api/v1/billing/plans'),
   subscription: (organizationId: string) =>
     api<Subscription | null>(

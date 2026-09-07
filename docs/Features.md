@@ -91,7 +91,10 @@ All four belong to the target product. Evidence determines implementation order,
   denominator và timezone; CSV export có phân quyền và không thể kích hoạt công thức bảng tính.
 - Self-serve trial, subscription billing, invoicing, credits/overages, coupons, proration, tax-ready records, dunning, cancellation, refund, entitlement, and revenue analytics.
 - Integrations through API/webhooks plus evidence-led LMS/SSO connections for higher-value accounts.
-- In-app onboarding, sample course, templates, lifecycle email, notifications, referral/partner attribution, support tooling, and upgrade surfaces.
+- In-app onboarding dùng sáu bằng chứng server-side từ source đến learner completion; trial deadline,
+  next-best action và annual-saving upgrade surface giúp buyer đi tới giá trị đầu tiên mà không tạo
+  metric ảo từ click phía client. Sample course, lifecycle email, referral/partner attribution và
+  support tooling tiếp tục được triển khai theo cùng funnel.
 - Markdown/PDF/Word and controlled sharing/export where they improve buyer workflow or close commercial deals.
 
 ### Supported-source boundary

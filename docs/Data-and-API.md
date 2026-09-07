@@ -166,6 +166,9 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 
 ### Analytics/export/integration
 
+- `GET .../activation` trả checklist kích hoạt được suy ra từ dữ liệu canonical: source,
+  package revision, course, learner, program launch và learner completion. Response kèm trạng thái
+  paid/trial, hạn trial và next action; không nhận trạng thái hoàn thành do client tự khai báo.
 - `GET .../analytics/overview|cohorts` tổng hợp activation, completion, practice score,
   delayed-recall score, learner feedback và lỗi nội dung từ dữ liệu server canonical.
 - `GET .../analytics/cohorts/{cohortId}/insights` trả điểm yếu theo exact assessment

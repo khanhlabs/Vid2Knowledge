@@ -22,9 +22,33 @@ function money(value: number) {
   }).format(value)
 }
 
+const activationLinks: Record<string, string> = {
+  ADD_SOURCE: '/app#create-learning-material',
+  REVIEW_PACKAGE: '/app/authoring',
+  CREATE_COURSE: '/app/catalog',
+  INVITE_LEARNER: '/app#members',
+  LAUNCH_PROGRAM: '/app/catalog',
+  PROVE_OUTCOME: '/app/analytics',
+  REVIEW_OUTCOMES: '/app/analytics',
+}
+
+function annualSaving(
+  planCode: string,
+  amountVnd: number,
+  plans: { code: string; amountVnd: number }[],
+) {
+  if (!planCode.endsWith('_ANNUAL')) return null
+  const monthly = plans.find(
+    (candidate) => candidate.code === planCode.replace('_ANNUAL', '_MONTHLY'),
+  )
+  if (!monthly) return null
+  return monthly.amountVnd * 12 - amountVnd
+}
+
 export function WorkspacePage() {
   const auth = useAuth()
   const queryClient = useQueryClient()
+  const [renderedAt] = useState(() => Date.now())
   const [organizationId, setOrganizationId] = useState(
     () => localStorage.getItem('v2k.organizationId') ?? '',
   )
@@ -73,6 +97,12 @@ export function WorkspacePage() {
     organization?.role === 'ADMIN' ||
     organization?.role === 'INSTRUCTOR'
   const canUseStaffWorkspace = organization?.role !== 'LEARNER'
+  const activation = useQuery({
+    queryKey: ['activation', activeOrganizationId],
+    queryFn: () => workspaceApi.activation(activeOrganizationId),
+    enabled: Boolean(activeOrganizationId && canUseStaffWorkspace),
+    refetchInterval: (query) => (query.state.data?.activated ? false : 15_000),
+  })
   const templates = useQuery({
     queryKey: ['content-templates', activeOrganizationId],
     queryFn: () => workspaceApi.templates(activeOrganizationId),
@@ -150,6 +180,9 @@ export function WorkspacePage() {
       void queryClient.invalidateQueries({
         queryKey: ['usage', activeOrganizationId],
       })
+      void queryClient.invalidateQueries({
+        queryKey: ['activation', activeOrganizationId],
+      })
     },
   })
   const analyzeUpload = useMutation({
@@ -212,6 +245,9 @@ export function WorkspacePage() {
       void queryClient.invalidateQueries({
         queryKey: ['usage', activeOrganizationId],
       })
+      void queryClient.invalidateQueries({
+        queryKey: ['activation', activeOrganizationId],
+      })
     },
   })
   const checkout = useMutation({
@@ -252,6 +288,9 @@ export function WorkspacePage() {
       )
       await queryClient.invalidateQueries({
         queryKey: ['invitations', activeOrganizationId],
+      })
+      await queryClient.invalidateQueries({
+        queryKey: ['activation', activeOrganizationId],
       })
     },
   })
@@ -364,6 +403,69 @@ export function WorkspacePage() {
         </section>
       ) : (
         <>
+          {activation.data && canUseStaffWorkspace && (
+            <section
+              className="panel activation-panel"
+              aria-label="Tiến độ kích hoạt"
+            >
+              <div className="activation-heading">
+                <div>
+                  <p className="eyebrow">LỘ TRÌNH ĐẾN GIÁ TRỊ THẬT</p>
+                  <h2>
+                    {activation.data.activated
+                      ? 'Workspace đã tạo được outcome đầu tiên'
+                      : `${activation.data.completedSteps}/${activation.data.totalSteps} bước đã hoàn thành`}
+                  </h2>
+                </div>
+                <Link
+                  className="button-link"
+                  to={activationLinks[activation.data.nextAction] ?? '/app'}
+                >
+                  {activation.data.activated
+                    ? 'Xem kết quả'
+                    : 'Làm bước tiếp theo'}
+                </Link>
+              </div>
+              <div className="activation-progress" aria-hidden="true">
+                <span
+                  style={{
+                    width: `${(activation.data.completedSteps / activation.data.totalSteps) * 100}%`,
+                  }}
+                />
+              </div>
+              <ol className="activation-steps">
+                {activation.data.steps.map((step) => (
+                  <li
+                    className={step.complete ? 'complete' : ''}
+                    key={step.code}
+                  >
+                    <span>{step.complete ? '✓' : '○'}</span>
+                    {step.title}
+                  </li>
+                ))}
+              </ol>
+              {!activation.data.paid && activation.data.trialEndsAt && (
+                <div className="trial-conversion">
+                  <span>
+                    Trial còn{' '}
+                    <strong>
+                      {Math.max(
+                        0,
+                        Math.ceil(
+                          (new Date(activation.data.trialEndsAt).getTime() -
+                            renderedAt) /
+                            86_400_000,
+                        ),
+                      )}{' '}
+                      ngày
+                    </strong>
+                    . Gói năm tiết kiệm hai tháng và giữ nguyên giá trong cả kỳ.
+                  </span>
+                  <a href="#billing">Xem gói trả năm →</a>
+                </div>
+              )}
+            </section>
+          )}
           <section className="metric-grid" aria-label="Tổng quan sử dụng">
             <article>
               <small>Quota còn lại</small>
@@ -415,7 +517,7 @@ export function WorkspacePage() {
           </section>
 
           <div className="workspace-grid">
-            <section className="panel">
+            <section className="panel" id="create-learning-material">
               <p className="eyebrow">TẠO HỌC LIỆU</p>
               <h2>Phân tích video có quyền sử dụng</h2>
               <p>
@@ -518,7 +620,7 @@ export function WorkspacePage() {
               )}
             </section>
 
-            <section className="panel plans-panel">
+            <section className="panel plans-panel" id="billing">
               <p className="eyebrow">NÂNG CẤP</p>
               <h2>Mua quota theo nhu cầu thật</h2>
               {subscription.data && (
@@ -548,46 +650,61 @@ export function WorkspacePage() {
                   )}
                 </article>
               )}
-              {plans.data?.map((plan) => (
-                <article className="plan-row" key={plan.id}>
-                  <div>
-                    <strong>{plan.name}</strong>
-                    <span>
-                      {Math.floor(
-                        plan.processedVideoSeconds / 60,
-                      ).toLocaleString('vi-VN')}{' '}
-                      phút ·{' '}
-                      {new Intl.NumberFormat('vi-VN').format(plan.qaQueries)}{' '}
-                      lượt hỏi AI ·{' '}
-                      {plan.productType === 'TOP_UP'
-                        ? 'credit dùng đến cuối kỳ hiện tại'
-                        : plan.interval === 'YEAR'
-                          ? 'năm'
-                          : 'tháng'}
-                    </span>
-                  </div>
-                  <div>
-                    <b>{money(plan.amountVnd)}</b>
-                    <button
-                      className="small-button"
-                      disabled={
-                        checkout.isPending ||
-                        (plan.productType === 'TOP_UP' && !subscription.data)
-                      }
-                      title={
-                        plan.productType === 'TOP_UP' && !subscription.data
-                          ? 'Cần có thuê bao đang hoạt động trước khi nạp credit'
-                          : undefined
-                      }
-                      onClick={() => checkout.mutate(plan.id)}
-                    >
-                      {plan.productType === 'TOP_UP'
-                        ? 'Nạp credit'
-                        : 'Chọn gói'}
-                    </button>
-                  </div>
-                </article>
-              ))}
+              {plans.data?.map((plan) => {
+                const saving = annualSaving(
+                  plan.code,
+                  plan.amountVnd,
+                  plans.data,
+                )
+                return (
+                  <article
+                    className={`plan-row ${saving ? 'annual-plan' : ''}`}
+                    key={plan.id}
+                  >
+                    <div>
+                      <strong>{plan.name}</strong>
+                      {saving ? (
+                        <small className="saving-label">
+                          Tiết kiệm {money(saving)} so với trả tháng
+                        </small>
+                      ) : null}
+                      <span>
+                        {Math.floor(
+                          plan.processedVideoSeconds / 60,
+                        ).toLocaleString('vi-VN')}{' '}
+                        phút ·{' '}
+                        {new Intl.NumberFormat('vi-VN').format(plan.qaQueries)}{' '}
+                        lượt hỏi AI ·{' '}
+                        {plan.productType === 'TOP_UP'
+                          ? 'credit dùng đến cuối kỳ hiện tại'
+                          : plan.interval === 'YEAR'
+                            ? 'năm'
+                            : 'tháng'}
+                      </span>
+                    </div>
+                    <div>
+                      <b>{money(plan.amountVnd)}</b>
+                      <button
+                        className="small-button"
+                        disabled={
+                          checkout.isPending ||
+                          (plan.productType === 'TOP_UP' && !subscription.data)
+                        }
+                        title={
+                          plan.productType === 'TOP_UP' && !subscription.data
+                            ? 'Cần có thuê bao đang hoạt động trước khi nạp credit'
+                            : undefined
+                        }
+                        onClick={() => checkout.mutate(plan.id)}
+                      >
+                        {plan.productType === 'TOP_UP'
+                          ? 'Nạp credit'
+                          : 'Chọn gói'}
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
               {checkout.isError && (
                 <p className="form-error">{errorMessage(checkout.error)}</p>
               )}
@@ -690,7 +807,7 @@ export function WorkspacePage() {
             <Link to={`/learn/${activeOrganizationId}`}>Mở cổng học viên</Link>
           </p>
           {canManageMembers && (
-            <section className="panel member-panel">
+            <section className="panel member-panel" id="members">
               <div>
                 <p className="eyebrow">ĐỘI NGŨ & HỌC VIÊN</p>
                 <h2>Mời đúng người, đúng quyền</h2>
