@@ -55,6 +55,10 @@
 - `organization_billing_profiles` giữ thông tin người mua cho thị trường Việt Nam với optimistic
   version/audit. Mỗi invoice chụp buyer type, legal name, mã số thuế, địa chỉ, email, quốc gia và
   profile version tại lúc tạo; sửa profile không viết lại chứng từ lịch sử.
+- `support_access_grants`, `support_access_events`: chỉ OWNER tạo/thu hồi tối đa ba diagnostic grant
+  đồng thời, mỗi grant tối đa 24 giờ;
+  internal service account phải trình exact grant ID, mỗi access lưu subject hash. Không có support
+  impersonation, không trả email learner, content, prompt/output, payment payload hoặc secret.
 - `entitlements`, `usage_reservations`, `usage_ledger`, `cost_ledger`; ledger append-only.
 - `payment_webhook_inbox`, `outbox_events`, `idempotency_records`.
 - `notification_jobs`, `notification_deliveries`, `notification_preferences`,
@@ -244,6 +248,9 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `GET|POST /internal/promotions`, `DELETE /internal/promotions/{campaignId}` chỉ dành cho service
   account nội bộ. List trả cả reserved, redeemed, attributed revenue và discount granted để đánh giá
   economics theo channel; `partnerReference` chỉ được dùng opaque ID, không lưu email/số điện thoại.
+- `GET /internal/support/organizations/{organizationId}/diagnostics?grantId=...` dùng cùng OIDC service
+  account boundary nhưng còn bắt buộc explicit unexpired owner grant. Response chỉ có org/subscription
+  status, aggregate job state 7 ngày, pending billing/dead delivery count và thời điểm payment gần nhất.
 
 Retention cleanup xóa idempotency đã hết hạn; redaction raw Gemini output và processed payment
 webhook body/signature; xóa outbox, notification, invitation và metadata source upload terminal theo

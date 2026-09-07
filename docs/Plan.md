@@ -351,6 +351,9 @@ Chi tiết kiến trúc nằm tại `Technical-Architecture.md`; data model, API
   revenue trừ discount, CAC và support vẫn đạt contribution-margin/payback gate; không dùng redemption
   count làm proxy cho lợi nhuận.
 - Tự động onboarding/support; knowledge base và in-app diagnostics giảm ticket.
+- Support diagnostics chỉ qua tối đa ba explicit OWNER grant đồng thời, mỗi grant 15 phút–24 giờ,
+  internal OIDC, aggregate read-only/no-store response và immutable access event. Không triển khai
+  impersonation hay blanket support role.
 - Scale từng acquisition channel khi contribution LTV/CAC ≥ 3 và CAC payback ≤ 12 tháng.
 - Theo dõi revenue concentration; không để một account tạo phần lớn doanh thu mà không có contract/SLA tương ứng.
 - Provider contingency drill và migration test định kỳ.

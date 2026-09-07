@@ -40,6 +40,7 @@ import com.vid2knowledge.billing.PromotionService;
 import com.vid2knowledge.analytics.ProfitabilityService;
 import com.vid2knowledge.config.PayOsProperties;
 import com.vid2knowledge.notification.DisabledNotificationQueue;
+import com.vid2knowledge.support.SupportAccessService;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.domain.QuotaExceededException;
 import com.vid2knowledge.usage.domain.UsageMetric;
@@ -1092,6 +1093,52 @@ class JdbcUsageQuotaIntegrationTest {
                 owner, UUID.fromString("00000000-0000-7000-8000-000000000101"), null, "profile-required"
         )).isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
                 .hasMessageContaining("billing information");
+    }
+
+    @Test
+    void supportDiagnosticsRequireShortLivedExplicitOwnerGrantAndAreFullyAudited() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        var support = new SupportAccessService(jdbc);
+        var grant = support.create(owner, new SupportAccessService.CreateGrant(
+                "Investigate failed content generation reported by buyer", "SUP-1042", 30
+        ));
+
+        assertThat(grant.state()).isEqualTo("ACTIVE");
+        assertThat(grant.expiresAt()).isAfter(grant.createdAt());
+        var diagnostics = support.diagnostics(organizationId, grant.id(), "support-service-account");
+        assertThat(diagnostics.organizationName()).isEqualTo("Test Organization");
+        assertThat(diagnostics.activeMembers()).isEqualTo(1);
+        assertThat(diagnostics.analysisJobsLast7Days()).isEmpty();
+        assertThat(diagnostics.pendingBillingOrders()).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM support_access_events WHERE support_access_grant_id = ?",
+                Long.class, grant.id()
+        )).isEqualTo(2L);
+        assertThat(jdbc.queryForObject(
+                "SELECT support_subject_hash FROM support_access_events WHERE support_access_grant_id = ? AND action = 'ACCESSED'",
+                String.class, grant.id()
+        )).hasSize(64).doesNotContain("support-service-account");
+
+        support.create(owner, new SupportAccessService.CreateGrant("Second bounded diagnostic session", null, 15));
+        support.create(owner, new SupportAccessService.CreateGrant("Third bounded diagnostic session", null, 15));
+        assertThatThrownBy(() -> support.create(owner, new SupportAccessService.CreateGrant(
+                "Too many concurrent grants", null, 15
+        ))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("At most 3");
+
+        support.revoke(owner, grant.id());
+        assertThatThrownBy(() -> support.diagnostics(organizationId, grant.id(), "support-service-account"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("explicit support grant");
+        assertThat(support.grants(organizationId)).filteredOn(item -> item.id().equals(grant.id()))
+                .singleElement().extracting(SupportAccessService.Grant::state).isEqualTo("REVOKED");
+        assertThatThrownBy(() -> support.create(owner, new SupportAccessService.CreateGrant(
+                "Unsafe long-lived access", null, 1_441
+        ))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
     }
 
     @Test

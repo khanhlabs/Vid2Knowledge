@@ -103,8 +103,9 @@ All four belong to the target product. Evidence determines implementation order,
   durable queue, tự dừng khi buyer đã đạt mục tiêu hoặc đã trả tiền, và có opt-out hướng dẫn sản phẩm.
   Nhắc assignment mới, deadline trước 24 giờ và digest thẻ đến hạn lúc 08:00 dùng dữ liệu học tập
   canonical, dedupe và tự hủy nếu learner đã hoàn thành/opt-out. Marketing mặc định tắt và có consent
-  ledger. Referral/partner attribution đã nối vào checkout/invoice; sample course và support tooling
-  tiếp tục được triển khai theo cùng funnel.
+  ledger. Referral/partner attribution đã nối vào checkout/invoice. Support diagnostics đã có explicit
+  OWNER grant tối đa 24 giờ, read-only aggregate data và immutable access trail; không impersonate.
+  Sample course tiếp tục được triển khai theo cùng funnel.
 - Markdown portable và Word OpenXML đã có controlled tenant export/audit; Word là Training
   Team/Business differentiator. PDF/controlled sharing chỉ thêm khi pilot chứng minh buyer cần,
   tránh vận hành renderer/storage bất đồng bộ trước khi tạo doanh thu.

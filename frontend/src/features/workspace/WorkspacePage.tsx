@@ -71,6 +71,9 @@ export function WorkspacePage() {
   const [inviteLink, setInviteLink] = useState('')
   const [refundInvoiceId, setRefundInvoiceId] = useState('')
   const [refundReason, setRefundReason] = useState('')
+  const [supportReason, setSupportReason] = useState('')
+  const [supportTicket, setSupportTicket] = useState('')
+  const [supportDuration, setSupportDuration] = useState(60)
   const [promotionCode, setPromotionCode] = useState('')
   const [promotionPlanId, setPromotionPlanId] = useState('')
   const [appliedPromotion, setAppliedPromotion] = useState<{
@@ -186,6 +189,11 @@ export function WorkspacePage() {
     queryKey: ['invitations', activeOrganizationId],
     queryFn: () => workspaceApi.invitations(activeOrganizationId),
     enabled: Boolean(activeOrganizationId && canManageMembers),
+  })
+  const supportGrants = useQuery({
+    queryKey: ['support-access-grants', activeOrganizationId],
+    queryFn: () => workspaceApi.supportAccessGrants(activeOrganizationId),
+    enabled: Boolean(activeOrganizationId && organization?.role === 'OWNER'),
   })
   const jobQuery = useQuery({
     queryKey: ['analysis-job', activeOrganizationId, job?.id],
@@ -404,6 +412,30 @@ export function WorkspacePage() {
     onSuccess: async () =>
       queryClient.invalidateQueries({
         queryKey: ['invitations', activeOrganizationId],
+      }),
+  })
+  const createSupportGrant = useMutation({
+    mutationFn: () =>
+      workspaceApi.createSupportAccessGrant(
+        activeOrganizationId,
+        supportReason,
+        supportTicket,
+        supportDuration,
+      ),
+    onSuccess: async () => {
+      setSupportReason('')
+      setSupportTicket('')
+      await queryClient.invalidateQueries({
+        queryKey: ['support-access-grants', activeOrganizationId],
+      })
+    },
+  })
+  const revokeSupportGrant = useMutation({
+    mutationFn: (grantId: string) =>
+      workspaceApi.revokeSupportAccessGrant(activeOrganizationId, grantId),
+    onSuccess: async () =>
+      queryClient.invalidateQueries({
+        queryKey: ['support-access-grants', activeOrganizationId],
       }),
   })
   const exportPersonalData = useMutation({
@@ -1297,6 +1329,103 @@ export function WorkspacePage() {
                 <p className="form-error">
                   Không thể lưu lựa chọn thông báo. Vui lòng thử lại.
                 </p>
+              )}
+            </section>
+          )}
+          {organization?.role === 'OWNER' && (
+            <section className="panel support-access-panel">
+              <div>
+                <p className="eyebrow">HỖ TRỢ AN TOÀN</p>
+                <h2>Cấp quyền chẩn đoán có thời hạn</h2>
+                <p>
+                  Nhân viên hỗ trợ không thể đăng nhập thay bạn hoặc đọc nội
+                  dung học. Grant chỉ mở số liệu trạng thái kỹ thuật tối thiểu,
+                  hết hạn tối đa sau 24 giờ và mọi lần truy cập đều được audit.
+                </p>
+              </div>
+              <form
+                className="stacked-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  createSupportGrant.mutate()
+                }}
+              >
+                <label htmlFor="support-reason">Vấn đề cần hỗ trợ</label>
+                <textarea
+                  id="support-reason"
+                  required
+                  maxLength={500}
+                  aria-describedby="support-reason-privacy"
+                  value={supportReason}
+                  onChange={(event) => setSupportReason(event.target.value)}
+                />
+                <small id="support-reason-privacy">
+                  Không nhập tên người học, email, nội dung bài học hoặc dữ
+                  liệu cá nhân vào mô tả này. Tối đa 3 quyền được mở cùng lúc.
+                </small>
+                <div className="support-grant-fields">
+                  <label>
+                    Mã ticket (nếu có)
+                    <input
+                      maxLength={120}
+                      value={supportTicket}
+                      onChange={(event) => setSupportTicket(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Thời hạn
+                    <select
+                      value={supportDuration}
+                      onChange={(event) =>
+                        setSupportDuration(Number(event.target.value))
+                      }
+                    >
+                      <option value={30}>30 phút</option>
+                      <option value={60}>1 giờ</option>
+                      <option value={240}>4 giờ</option>
+                      <option value={1440}>24 giờ</option>
+                    </select>
+                  </label>
+                </div>
+                <button disabled={createSupportGrant.isPending}>
+                  {createSupportGrant.isPending
+                    ? 'Đang cấp…'
+                    : 'Cấp quyền chẩn đoán'}
+                </button>
+                {createSupportGrant.isError && (
+                  <p className="form-error">
+                    {errorMessage(createSupportGrant.error)}
+                  </p>
+                )}
+              </form>
+              {supportGrants.data && supportGrants.data.length > 0 && (
+                <div className="member-list">
+                  {supportGrants.data.slice(0, 5).map((grant) => (
+                    <div key={grant.id}>
+                      <span>
+                        <strong>
+                          {grant.state} · đến{' '}
+                          {new Date(grant.expiresAt).toLocaleString('vi-VN')}
+                        </strong>
+                        <small>
+                          {grant.reason}
+                          {grant.ticketReference
+                            ? ` · ${grant.ticketReference}`
+                            : ''}
+                        </small>
+                      </span>
+                      {grant.state === 'ACTIVE' && (
+                        <button
+                          className="text-button"
+                          disabled={revokeSupportGrant.isPending}
+                          onClick={() => revokeSupportGrant.mutate(grant.id)}
+                        >
+                          Thu hồi ngay
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </section>
           )}

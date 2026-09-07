@@ -270,6 +270,17 @@ export interface InvitationCreated {
   expiresAt: string
 }
 
+export interface SupportAccessGrant {
+  id: string
+  scope: 'DIAGNOSTICS'
+  reason: string
+  ticketReference?: string | null
+  state: 'ACTIVE' | 'EXPIRED' | 'REVOKED'
+  createdAt: string
+  expiresAt: string
+  revokedAt?: string | null
+}
+
 export interface PackageSummary {
   id: string
   sourceId: string
@@ -660,6 +671,28 @@ export const workspaceApi = {
         method: 'POST',
         body: JSON.stringify({ email, role }),
       },
+    ),
+  supportAccessGrants: (organizationId: string) =>
+    api<SupportAccessGrant[]>(
+      `/api/v1/organizations/${organizationId}/support-access-grants`,
+    ),
+  createSupportAccessGrant: (
+    organizationId: string,
+    reason: string,
+    ticketReference: string,
+    durationMinutes: number,
+  ) =>
+    api<SupportAccessGrant>(
+      `/api/v1/organizations/${organizationId}/support-access-grants`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason, ticketReference, durationMinutes }),
+      },
+    ),
+  revokeSupportAccessGrant: (organizationId: string, grantId: string) =>
+    api<void>(
+      `/api/v1/organizations/${organizationId}/support-access-grants/${grantId}`,
+      { method: 'DELETE' },
     ),
   revokeInvitation: (organizationId: string, invitationId: string) =>
     api<void>(

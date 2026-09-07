@@ -112,6 +112,26 @@ Billing profile chứa dữ liệu liên hệ tài chính. Log không được g
 yêu cầu chứng từ. Snapshot invoice/financial ledger giữ theo retention pháp lý đã duyệt, không xóa theo
 privacy cleanup thông thường. Chỉ OWNER/ADMIN được xem, sửa hoặc export.
 
+## Explicit support diagnostics
+
+Support không được dùng JWT của buyer, impersonation hoặc SQL console. OWNER tạo grant
+`DIAGNOSTICS` trong app với reason, optional ticket và TTL 15 phút–24 giờ; có thể revoke ngay. Support
+service account gọi internal diagnostics bằng exact organization/grant ID. Cả OIDC boundary và grant
+đều phải hợp lệ; mỗi lần access lưu hash của service subject, không lưu raw credential.
+Mỗi organization chỉ được có tối đa ba grant còn hiệu lực. Việc tạo grant được serialize theo
+organization và lượt diagnostics giữ shared row lock trong transaction để revoke không thể bị race.
+
+Diagnostics cố ý chỉ trả aggregate operational state: org/subscription, số member, analysis state 7
+ngày, pending order, dead notification/webhook và last payment time. Không mở learner identity, nội dung
+học, AI prompt/output, webhook/payment body hay secret. Nếu cần dữ liệu ngoài scope, OWNER phải cung cấp
+artifact riêng; không nới endpoint tùy ticket. Grant hết hạn/revoked trả 403 và không có fail-open.
+Response bắt buộc `Cache-Control: no-store`; reason/ticket không được chứa learner identity, nội dung
+học hoặc dữ liệu cá nhân.
+
+Khi xử lý ticket, support ghi grant ID trong ticket, lấy diagnostics một lần nếu đủ, rồi yêu cầu OWNER
+revoke sớm. Hàng tháng review số grant, access/grant, thời gian sống và ticket thiếu reference; bất thường
+phải được điều tra như privacy incident. Access event và grant giữ theo audit retention đã duyệt.
+
 ## Data retention operation
 
 Billing reconciliation gọi cùng transaction boundary của maintenance workflow cho retention cleanup;

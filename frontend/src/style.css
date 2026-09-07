@@ -1131,6 +1131,37 @@ button:disabled {
   gap: 1.5rem;
   margin-top: 1.5rem;
 }
+
+.support-access-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(320px, 1fr);
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.support-access-panel .member-list {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.support-grant-fields {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  gap: 0.75rem;
+}
+
+.support-grant-fields input,
+.support-grant-fields select {
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
+@media (max-width: 800px) {
+  .support-access-panel,
+  .support-grant-fields {
+    grid-template-columns: 1fr;
+  }
+}
 .preference-list {
   display: grid;
   gap: 0.75rem;
