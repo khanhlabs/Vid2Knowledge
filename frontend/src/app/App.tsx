@@ -12,6 +12,7 @@ import { AuthoringPage } from '../features/workspace/AuthoringPage'
 import { IntegrationsPage } from '../features/workspace/IntegrationsPage'
 import { LandingPage } from './LandingPage'
 import { LegalDocumentPlaceholder } from './LegalDocumentPlaceholder'
+import { SampleCoursePage } from './SampleCoursePage'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/preview" element={<PreviewPage />} />
+      <Route path="/sample" element={<SampleCoursePage />} />
       <Route path="/legal/:policy" element={<LegalDocumentPlaceholder />} />
       <Route
         path="/app"

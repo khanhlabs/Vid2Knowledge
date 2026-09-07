@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom'
 import logo from '../../assets/logo/full_horizontal.png'
 import { supabase } from '../../shared/lib/supabase'
 import { useAuth } from './auth-context'
+import { acquisitionSource, appDestination } from './acquisition'
 
 export function LoginPage() {
   const auth = useAuth()
@@ -13,11 +14,12 @@ export function LoginPage() {
   const requestedDestination = (location.state as { from?: string } | null)
     ?.from
   const invitationToken = new URLSearchParams(location.search).get('invitation')
+  const source = acquisitionSource(location.search)
   const destination =
     requestedDestination ??
     (invitationToken
       ? `/accept-invitation?token=${encodeURIComponent(invitationToken)}`
-      : '/app')
+      : appDestination(source))
   if (auth.session) return <Navigate to={destination} replace />
 
   const magicLink = async (event: FormEvent) => {

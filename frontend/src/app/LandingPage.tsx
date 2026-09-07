@@ -26,7 +26,7 @@ export function LandingPage() {
             <Link className="button-link" to="/login">
               Bắt đầu trial 60 phút
             </Link>
-            <a href="#pricing">Xem gói cho đội ngũ</a>
+            <Link to="/sample">Xem khóa học mẫu</Link>
           </div>
           <p className="consent">
             Chỉ xử lý video công khai mà tổ chức có quyền sử dụng. Học liệu AI
@@ -72,6 +72,20 @@ export function LandingPage() {
         <span>Phân quyền theo tổ chức</span>
         <span>Chấm quiz phía server</span>
         <span>Chi phí AI được đo cho từng job</span>
+      </section>
+      <section className="sample-callout">
+        <div>
+          <p className="eyebrow">XEM ĐẦU RA TRƯỚC KHI ĐĂNG KÝ</p>
+          <h2>Một bài học mẫu, không dùng quota và không cần nhập dữ liệu.</h2>
+          <p>
+            Mở thử ghi chú có bằng chứng, flashcard và quiz như người học sẽ
+            thấy. Đây là nội dung minh họa, không phải số liệu hay kết quả của
+            khách hàng.
+          </p>
+        </div>
+        <Link className="button-link" to="/sample">
+          Mở bài học mẫu
+        </Link>
       </section>
       <section id="pricing" className="pricing-section">
         <p className="eyebrow">GIÁ KIỂM CHỨNG CHO VIỆT NAM</p>

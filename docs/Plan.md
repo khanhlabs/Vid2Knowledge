@@ -39,6 +39,9 @@ Chi tiết kiến trúc nằm tại `Technical-Architecture.md`; data model, API
 ### 3.2 Paid pilot sales
 
 - Dùng chính video của prospect tạo demo có watermark; không xây dashboard riêng cho demo.
+- Public sample chỉ là artifact minh họa zero-AI để buyer hiểu workflow trước signup; sample interaction
+  không tính activation. First-touch allowlist được chụp khi tạo organization và báo cáo tới paid/net
+  revenue; quyết định funnel dựa trên conversion thật, không dựa click.
 - Đề xuất pilot 5–15 triệu VNĐ với scope 300–600 phút, một cohort, human QA và outcome report.
 - Proposal ghi success metric, content rights, dữ liệu xử lý, support boundary, thời hạn và điều kiện chuyển recurring plan.
 - Thu tiền/cam kết mua trước khi coi pilot là valid; lời khen, signup và survey intent không thay thế payment evidence.

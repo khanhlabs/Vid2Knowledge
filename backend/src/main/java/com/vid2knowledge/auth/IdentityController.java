@@ -56,7 +56,7 @@ public class IdentityController {
             HttpServletRequest servletRequest
     ) {
         return identities.createOrganization(
-                jwt.getSubject(), email(jwt), displayName(jwt), request.name(), request.slug(),
+                jwt.getSubject(), email(jwt), displayName(jwt), request.name(), request.slug(), request.acquisitionSource(),
                 servletRequest.getAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE).toString()
         );
     }

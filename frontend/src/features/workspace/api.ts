@@ -119,12 +119,7 @@ export interface BillingQuote {
   discountVnd: number
   amountVnd: number
   promotionCode?: string | null
-  attributionChannel?:
-    | 'REFERRAL'
-    | 'PARTNER'
-    | 'SALES'
-    | 'RETENTION'
-    | null
+  attributionChannel?: 'REFERRAL' | 'PARTNER' | 'SALES' | 'RETENTION' | null
 }
 
 export interface Refund {
@@ -466,10 +461,14 @@ export interface WebhookDelivery {
 
 export const workspaceApi = {
   me: () => api<Me>('/api/v1/me'),
-  createOrganization: (name: string, slug: string) =>
+  createOrganization: (
+    name: string,
+    slug: string,
+    acquisitionSource?: 'SAMPLE_COURSE',
+  ) =>
     api<Membership>('/api/v1/organizations', {
       method: 'POST',
-      body: JSON.stringify({ name, slug }),
+      body: JSON.stringify({ name, slug, acquisitionSource }),
     }),
   usage: (organizationId: string) =>
     api<Usage>(`/api/v1/organizations/${organizationId}/billing/usage`),
@@ -859,11 +858,7 @@ export const workspaceApi = {
         body: JSON.stringify({ planId, promotionCode }),
       },
     ),
-  checkout: (
-    organizationId: string,
-    planId: string,
-    promotionCode?: string,
-  ) =>
+  checkout: (organizationId: string, planId: string, promotionCode?: string) =>
     api<{ checkoutUrl: string }>(
       `/api/v1/organizations/${organizationId}/billing/checkout-sessions`,
       {

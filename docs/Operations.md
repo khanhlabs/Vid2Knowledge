@@ -132,6 +132,15 @@ Khi xử lý ticket, support ghi grant ID trong ticket, lấy diagnostics một 
 revoke sớm. Hàng tháng review số grant, access/grant, thời gian sống và ticket thiếu reference; bất thường
 phải được điều tra như privacy incident. Access event và grant giữ theo audit retention đã duyệt.
 
+## Acquisition attribution
+
+Không dùng raw UTM hoặc fingerprint làm nguồn sự thật. Khi tạo organization, backend chỉ chấp nhận
+`DIRECT` hoặc `SAMPLE_COURSE` và ghi first-touch một lần; dữ liệu trước migration mang
+`LEGACY_UNKNOWN`, không được tự gán là direct. Báo cáo internal `/internal/analytics/acquisition` đối
+chiếu từng nguồn tới source/package/learner completion, organization từng trả tiền và net cash sau
+refund. Chỉ tăng đầu tư cho sample khi paid conversion/contribution tốt hơn cohort direct đủ mẫu;
+không tối ưu theo page interaction hoặc signup đơn thuần.
+
 ## Data retention operation
 
 Billing reconciliation gọi cùng transaction boundary của maintenance workflow cho retention cleanup;

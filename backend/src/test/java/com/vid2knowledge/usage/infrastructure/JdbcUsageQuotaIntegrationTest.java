@@ -38,6 +38,7 @@ import com.vid2knowledge.billing.PaymentGateway;
 import com.vid2knowledge.billing.PayOsSignature;
 import com.vid2knowledge.billing.PromotionService;
 import com.vid2knowledge.analytics.ProfitabilityService;
+import com.vid2knowledge.analytics.AcquisitionAnalyticsService;
 import com.vid2knowledge.config.PayOsProperties;
 import com.vid2knowledge.notification.DisabledNotificationQueue;
 import com.vid2knowledge.support.SupportAccessService;
@@ -258,7 +259,7 @@ class JdbcUsageQuotaIntegrationTest {
         ));
         var organization = transactions.execute(status -> identities.createOrganization(
                 "jwt-subject-new", "founder@example.com", "Founder Updated",
-                "Acme Academy", "acme-academy", "correlation-org-1"
+                "Acme Academy", "acme-academy", "SAMPLE_COURSE", "correlation-org-1"
         ));
 
         assertThat(replay.id()).isEqualTo(first.id());
@@ -278,6 +279,18 @@ class JdbcUsageQuotaIntegrationTest {
                 "SELECT allowance FROM entitlements WHERE organization_id = ? AND metric = 'QA_QUERY'",
                 Long.class, organization.id()
         )).isEqualTo(20L);
+        assertThat(jdbc.queryForObject(
+                "SELECT source FROM organization_acquisition_attributions WHERE organization_id = ?",
+                String.class, organization.id()
+        )).isEqualTo("SAMPLE_COURSE");
+        assertThat(new AcquisitionAnalyticsService(jdbc).report())
+                .filteredOn(row -> row.source().equals("SAMPLE_COURSE"))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.organizations()).isEqualTo(1);
+                    assertThat(row.sourceStarted()).isZero();
+                    assertThat(row.paidOrganizations()).isZero();
+                    assertThat(row.netRevenueVnd()).isZero();
+                });
     }
 
     @Test

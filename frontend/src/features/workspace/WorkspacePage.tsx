@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import logo from '../../assets/logo/full_horizontal.png'
 import { ApiError } from '../../shared/api/client'
 import { useAuth } from '../auth/auth-context'
+import { acquisitionSource } from '../auth/acquisition'
 import {
   workspaceApi,
   type AnalysisJob,
@@ -54,6 +55,8 @@ function annualSaving(
 export function WorkspacePage() {
   const auth = useAuth()
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const signupSource = acquisitionSource(`?${searchParams.toString()}`)
   const [renderedAt] = useState(() => Date.now())
   const [organizationId, setOrganizationId] = useState(
     () => localStorage.getItem('v2k.organizationId') ?? '',
@@ -172,9 +175,8 @@ export function WorkspacePage() {
               version: 0,
             }
         : null
-  const setBillingProfileDraft = (
-    profile: Omit<BillingProfile, 'updatedAt'>,
-  ) => setBillingProfileEdit({ organizationId: activeOrganizationId, profile })
+  const setBillingProfileDraft = (profile: Omit<BillingProfile, 'updatedAt'>) =>
+    setBillingProfileEdit({ organizationId: activeOrganizationId, profile })
   const refunds = useQuery({
     queryKey: ['refunds', activeOrganizationId],
     queryFn: () => workspaceApi.refunds(activeOrganizationId),
@@ -217,11 +219,17 @@ export function WorkspacePage() {
       return workspaceApi.createOrganization(
         organizationName,
         `${slug}-${Date.now().toString(36)}`,
+        signupSource ?? undefined,
       )
     },
     onSuccess: async (created) => {
       setOrganizationId(created.id)
       setOrganizationName('')
+      if (signupSource) {
+        const next = new URLSearchParams(searchParams)
+        next.delete('source')
+        setSearchParams(next, { replace: true })
+      }
       await queryClient.invalidateQueries({ queryKey: ['me'] })
     },
   })
@@ -335,7 +343,8 @@ export function WorkspacePage() {
   })
   const saveBillingProfile = useMutation({
     mutationFn: () => {
-      if (!billingProfileDraft) throw new Error('Thông tin xuất hóa đơn chưa sẵn sàng.')
+      if (!billingProfileDraft)
+        throw new Error('Thông tin xuất hóa đơn chưa sẵn sàng.')
       return workspaceApi.updateBillingProfile(activeOrganizationId, {
         buyerType: billingProfileDraft.buyerType,
         legalName: billingProfileDraft.legalName,
@@ -348,10 +357,7 @@ export function WorkspacePage() {
       })
     },
     onSuccess: (saved) => {
-      queryClient.setQueryData(
-        ['billing-profile', activeOrganizationId],
-        saved,
-      )
+      queryClient.setQueryData(['billing-profile', activeOrganizationId], saved)
       setBillingProfileDraft({
         buyerType: saved.buyerType,
         legalName: saved.legalName,
@@ -831,8 +837,7 @@ export function WorkspacePage() {
                           setBillingProfileDraft({
                             ...billingProfileDraft,
                             buyerType: event.target.value as
-                              | 'BUSINESS'
-                              | 'INDIVIDUAL',
+                              'BUSINESS' | 'INDIVIDUAL',
                             taxIdentifier:
                               event.target.value === 'INDIVIDUAL'
                                 ? ''
@@ -982,9 +987,10 @@ export function WorkspacePage() {
               )}
               {appliedPromotion && (
                 <p className="promotion-success" role="status">
-                  Đã áp mã <strong>{appliedPromotion.quote.promotionCode}</strong>
-                  : giảm {money(appliedPromotion.quote.discountVnd)}. Giá thanh
-                  toán được khóa lại ở bước tạo đơn.
+                  Đã áp mã{' '}
+                  <strong>{appliedPromotion.quote.promotionCode}</strong>: giảm{' '}
+                  {money(appliedPromotion.quote.discountVnd)}. Giá thanh toán
+                  được khóa lại ở bước tạo đơn.
                 </p>
               )}
               {plans.data?.map((plan) => {
@@ -1046,7 +1052,7 @@ export function WorkspacePage() {
                             ? 'Cần có thuê bao đang hoạt động trước khi nạp credit'
                             : !billingProfile.data
                               ? 'Hãy lưu thông tin người mua trước khi thanh toán'
-                            : undefined
+                              : undefined
                         }
                         onClick={() => checkout.mutate(plan.id)}
                       >
@@ -1084,51 +1090,51 @@ export function WorkspacePage() {
                   )}
                   <div className="member-list" aria-label="Hóa đơn gần đây">
                     {invoices.data.slice(0, 5).map((invoice) => (
-                    <div key={invoice.id}>
-                      <span>
-                        <strong>{invoice.invoiceNumber}</strong>
-                        <small>
-                          {new Date(invoice.createdAt).toLocaleDateString(
-                            'vi-VN',
-                          )}{' '}
-                          · {invoice.state}
-                        </small>
-                      </span>
-                      <span className="invoice-summary">
-                        <strong>{money(invoice.amountPaidVnd)}</strong>
-                        {invoice.discountVnd > 0 && (
-                          <small className="invoice-discount">
-                            Giảm {money(invoice.discountVnd)}
-                            {invoice.promotionCode
-                              ? ` · ${invoice.promotionCode}`
-                              : ''}
+                      <div key={invoice.id}>
+                        <span>
+                          <strong>{invoice.invoiceNumber}</strong>
+                          <small>
+                            {new Date(invoice.createdAt).toLocaleDateString(
+                              'vi-VN',
+                            )}{' '}
+                            · {invoice.state}
                           </small>
-                        )}
-                        {invoice.buyerLegalName && (
-                          <small className="invoice-buyer">
-                            {invoice.buyerLegalName}
-                            {invoice.buyerTaxIdentifier
-                              ? ` · MST ${invoice.buyerTaxIdentifier}`
-                              : ''}
-                            {invoice.taxDocumentRequested
-                              ? ' · Đã yêu cầu chứng từ thuế'
-                              : ''}
-                          </small>
-                        )}
-                      </span>
-                      {invoice.invoiceType === 'TOP_UP' &&
-                        invoice.state === 'PAID' &&
-                        !refunds.data?.some(
-                          (refund) => refund.invoiceId === invoice.id,
-                        ) && (
-                          <button
-                            className="text-button"
-                            onClick={() => setRefundInvoiceId(invoice.id)}
-                          >
-                            Yêu cầu hoàn tiền
-                          </button>
-                        )}
-                    </div>
+                        </span>
+                        <span className="invoice-summary">
+                          <strong>{money(invoice.amountPaidVnd)}</strong>
+                          {invoice.discountVnd > 0 && (
+                            <small className="invoice-discount">
+                              Giảm {money(invoice.discountVnd)}
+                              {invoice.promotionCode
+                                ? ` · ${invoice.promotionCode}`
+                                : ''}
+                            </small>
+                          )}
+                          {invoice.buyerLegalName && (
+                            <small className="invoice-buyer">
+                              {invoice.buyerLegalName}
+                              {invoice.buyerTaxIdentifier
+                                ? ` · MST ${invoice.buyerTaxIdentifier}`
+                                : ''}
+                              {invoice.taxDocumentRequested
+                                ? ' · Đã yêu cầu chứng từ thuế'
+                                : ''}
+                            </small>
+                          )}
+                        </span>
+                        {invoice.invoiceType === 'TOP_UP' &&
+                          invoice.state === 'PAID' &&
+                          !refunds.data?.some(
+                            (refund) => refund.invoiceId === invoice.id,
+                          ) && (
+                            <button
+                              className="text-button"
+                              onClick={() => setRefundInvoiceId(invoice.id)}
+                            >
+                              Yêu cầu hoàn tiền
+                            </button>
+                          )}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1360,8 +1366,8 @@ export function WorkspacePage() {
                   onChange={(event) => setSupportReason(event.target.value)}
                 />
                 <small id="support-reason-privacy">
-                  Không nhập tên người học, email, nội dung bài học hoặc dữ
-                  liệu cá nhân vào mô tả này. Tối đa 3 quyền được mở cùng lúc.
+                  Không nhập tên người học, email, nội dung bài học hoặc dữ liệu
+                  cá nhân vào mô tả này. Tối đa 3 quyền được mở cùng lúc.
                 </small>
                 <div className="support-grant-fields">
                   <label>

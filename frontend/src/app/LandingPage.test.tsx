@@ -22,5 +22,8 @@ describe('LandingPage', () => {
     expect(
       screen.getByRole('link', { name: 'Bắt đầu trial 60 phút' }),
     ).toHaveAttribute('href', '/login')
+    expect(
+      screen.getByRole('link', { name: 'Xem khóa học mẫu' }),
+    ).toHaveAttribute('href', '/sample')
   })
 })

@@ -59,6 +59,8 @@
   đồng thời, mỗi grant tối đa 24 giờ;
   internal service account phải trình exact grant ID, mỗi access lưu subject hash. Không có support
   impersonation, không trả email learner, content, prompt/output, payment payload hoặc secret.
+- `organization_acquisition_attributions`: immutable first-touch source tại lúc organization được tạo;
+  chỉ nhận allowlist `DIRECT|SAMPLE_COURSE`, không giữ raw UTM, URL, email hoặc client fingerprint.
 - `entitlements`, `usage_reservations`, `usage_ledger`, `cost_ledger`; ledger append-only.
 - `payment_webhook_inbox`, `outbox_events`, `idempotency_records`.
 - `notification_jobs`, `notification_deliveries`, `notification_preferences`,
@@ -251,6 +253,8 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `GET /internal/support/organizations/{organizationId}/diagnostics?grantId=...` dùng cùng OIDC service
   account boundary nhưng còn bắt buộc explicit unexpired owner grant. Response chỉ có org/subscription
   status, aggregate job state 7 ngày, pending billing/dead delivery count và thời điểm payment gần nhất.
+- `GET /internal/analytics/acquisition` trả funnel theo nguồn từ organization → source → package →
+  learner value → paid cùng net cash sau refund. Endpoint dùng internal OIDC và `no-store`.
 
 Retention cleanup xóa idempotency đã hết hạn; redaction raw Gemini output và processed payment
 webhook body/signature; xóa outbox, notification, invitation và metadata source upload terminal theo
@@ -317,6 +321,12 @@ Chỉ Cloud Tasks/Scheduler service account được gọi; kiểm tra OIDC audi
 Event envelope: `eventId`, `eventType`, `eventVersion`, `occurredAt`, `organizationId`, `actorId`, `aggregateType`, `aggregateId`, `correlationId`, `causationId`, `payload`. Consumer phải hỗ trợ duplicate.
 
 ## 8. Product analytics events
+
+Public sample course là static client artifact: không gọi API, không tạo source/package/assignment và
+không phát canonical learning event. Vì vậy lượt thử flashcard/quiz mẫu tuyệt đối không được đưa vào
+activation, retention hay buyer outcome; conversion chỉ được xác nhận khi có organization/usage/payment thật.
+CTA sample chỉ mang token allowlisted `sample-course` qua auth; backend chụp thành `SAMPLE_COURSE` đúng
+một lần khi tạo organization. Dữ liệu lạ bị bỏ ở client và từ chối ở backend.
 
 - `signup_completed`, `organization_created`, `source_submitted`.
 - `analysis_completed|failed`, `package_edited|approved|published`.

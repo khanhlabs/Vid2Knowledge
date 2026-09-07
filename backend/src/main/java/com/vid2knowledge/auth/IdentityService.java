@@ -121,12 +121,30 @@ public class IdentityService {
             String slug,
             String correlationId
     ) {
+        return createOrganization(subject, email, displayName, name, slug, null, correlationId);
+    }
+
+    @Transactional
+    public Membership createOrganization(
+            String subject,
+            String email,
+            String displayName,
+            String name,
+            String slug,
+            String acquisitionSource,
+            String correlationId
+    ) {
         Me me = provision(subject, email, displayName);
         Instant now = clock.instant();
         UUID organizationId = UuidV7Generator.generate();
+        AcquisitionSource source = AcquisitionSource.parse(acquisitionSource);
         jdbc.update(
                 "INSERT INTO organizations(id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
                 organizationId, name.trim(), slug, Timestamp.from(now), Timestamp.from(now)
+        );
+        jdbc.update(
+                "INSERT INTO organization_acquisition_attributions(organization_id, source, attributed_at) VALUES (?, ?, ?)",
+                organizationId, source.name(), Timestamp.from(now)
         );
         jdbc.update(
                 """
@@ -177,9 +195,11 @@ public class IdentityService {
                     id, organization_id, event_type, event_version, aggregate_type,
                     aggregate_id, correlation_id, payload_json, occurred_at, available_at
                 ) VALUES (?, ?, 'OrganizationCreated', 1, 'Organization', ?, ?,
-                          jsonb_build_object('organizationId', CAST(? AS text)), ?, ?)
+                          jsonb_build_object(
+                              'organizationId', CAST(? AS text), 'acquisitionSource', ?
+                          ), ?, ?)
                 """,
-                UuidV7Generator.generate(), organizationId, organizationId, correlationId, organizationId,
+                UuidV7Generator.generate(), organizationId, organizationId, correlationId, organizationId, source.name(),
                 Timestamp.from(now), Timestamp.from(now)
         );
         if (notifications != null && (commercial.trialProcessedVideoSeconds() > 0
@@ -201,5 +221,21 @@ public class IdentityService {
     }
 
     public record Membership(UUID id, String name, String slug, CurrentActor.Role role) {
+    }
+
+    private enum AcquisitionSource {
+        DIRECT,
+        SAMPLE_COURSE;
+
+        private static AcquisitionSource parse(String value) {
+            if (value == null || value.isBlank()) return DIRECT;
+            try {
+                return valueOf(value.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException invalid) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST, "Unsupported acquisition source", invalid
+                );
+            }
+        }
     }
 }

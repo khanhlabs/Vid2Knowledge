@@ -105,7 +105,8 @@ All four belong to the target product. Evidence determines implementation order,
   canonical, dedupe và tự hủy nếu learner đã hoàn thành/opt-out. Marketing mặc định tắt và có consent
   ledger. Referral/partner attribution đã nối vào checkout/invoice. Support diagnostics đã có explicit
   OWNER grant tối đa 24 giờ, read-only aggregate data và immutable access trail; không impersonate.
-  Sample course tiếp tục được triển khai theo cùng funnel.
+  Sample course public chạy hoàn toàn phía client, có watermark/giới hạn rõ, không gọi AI và không ghi
+  dữ liệu canonical nên không làm giả activation/usage; CTA dẫn buyer sang trial bằng nội dung của họ.
 - Markdown portable và Word OpenXML đã có controlled tenant export/audit; Word là Training
   Team/Business differentiator. PDF/controlled sharing chỉ thêm khi pilot chứng minh buyer cần,
   tránh vận hành renderer/storage bất đồng bộ trước khi tạo doanh thu.
