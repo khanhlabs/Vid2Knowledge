@@ -12,6 +12,9 @@ payos_return_url = "https://staging.example.com/app?payment=success"
 payos_cancel_url = "https://staging.example.com/app?payment=cancelled"
 notifications_enabled = false
 integrations_enabled  = false
+object_storage_enabled  = false
+object_storage_endpoint = "https://your-account-id.r2.cloudflarestorage.com"
+object_storage_bucket   = "vid2knowledge-staging-private"
 # Add a distinct 32-byte base64 secret version to v2k-integration-encryption-key before enabling.
 notification_from     = "Vid2Knowledge <hello@example.com>"
 legal_policies = {

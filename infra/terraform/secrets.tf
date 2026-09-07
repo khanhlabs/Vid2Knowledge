@@ -1,5 +1,5 @@
 resource "google_secret_manager_secret" "runtime" {
-  for_each  = toset(values(var.secret_ids))
+  for_each  = toset(values(local.secret_env))
   secret_id = each.value
   labels    = local.labels
   replication {

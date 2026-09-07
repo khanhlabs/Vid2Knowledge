@@ -116,10 +116,17 @@ public class RetentionService {
                 """,
                 Timestamp.from(now.minus(retention.terminalInvitation())), Timestamp.from(now)
         );
+        int sourceUploads = jdbc.update(
+                """
+                DELETE FROM source_uploads
+                WHERE state IN ('REJECTED', 'EXPIRED') AND updated_at < ?
+                """,
+                Timestamp.from(now.minus(retention.terminalSourceUpload()))
+        );
         return new CleanupResult(
                 expiredIdempotency, generationPayloads, webhookPayloads, webhookDeliveries,
                 integrationSecrets, integrationApiKeys, webhookEndpoints,
-                outboxEvents, notifications, invitations
+                outboxEvents, notifications, invitations, sourceUploads
         );
     }
 
@@ -133,6 +140,7 @@ public class RetentionService {
             int deletedDisabledWebhookEndpoints,
             int deletedTerminalOutboxEvents,
             int deletedTerminalNotifications,
-            int deletedTerminalInvitations
+            int deletedTerminalInvitations,
+            int deletedTerminalSourceUploads
     ) { }
 }

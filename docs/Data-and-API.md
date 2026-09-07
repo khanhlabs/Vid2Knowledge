@@ -104,6 +104,13 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 ### Catalog/authoring
 
 - CRUD `/organizations/{orgId}/courses`, modules và lessons.
+- Private source upload (OWNER/ADMIN/INSTRUCTOR; chỉ Training Team/Business đang active):
+  - `POST .../source-uploads` reserve một object 1 KB–500 MB cho `video/mp4|video/webm`, trả
+    presigned PUT 15 phút và exact required headers. Filename không đi vào object key.
+  - Browser PUT thẳng vào private R2; `POST .../source-uploads/{uploadId}/complete` HEAD lại exact
+    byte count/content type và kiểm tra magic bytes trước khi đổi sang `STORAGE_VERIFIED`.
+  - `GET .../source-uploads` tenant-scoped. Completion idempotent; mismatch bị `REJECTED` và xóa object.
+    Tối đa 10 reservation pending/tổ chức để chặn storage abuse.
 - `POST .../sources` validate source và rights attestation.
 - `POST .../analyses` với `Idempotency-Key`; trả `202` + job URI.
 - `GET/POST .../analysis-jobs/{jobId}` cho status/cancel/retry hợp lệ.
@@ -202,7 +209,8 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `POST /internal/tasks/retention/cleanup`.
 
 Retention cleanup xóa idempotency đã hết hạn; redaction raw Gemini output và processed payment
-webhook body/signature; xóa outbox, notification và invitation đã terminal theo configurable window.
+webhook body/signature; xóa outbox, notification, invitation và metadata source upload terminal theo
+configurable window. Object tạm nằm dưới `pending-source-uploads/` và bắt buộc có R2 lifecycle riêng.
 Webhook provider/event key, package canonical, financial/cost ledger, audit và learning evidence không
 bị xóa bởi operational cleanup này. Terminal outbound webhook delivery giữ 30 ngày; API key hết hạn/thu
 hồi, endpoint disabled và secret version cũ giữ 90 ngày nếu không còn delivery tham chiếu. Billing

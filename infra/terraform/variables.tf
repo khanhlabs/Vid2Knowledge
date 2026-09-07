@@ -71,6 +71,25 @@ variable "integrations_enabled" {
   type        = bool
   default     = false
 }
+variable "object_storage_enabled" {
+  description = "Enable direct private-video uploads through a Cloudflare R2 S3-compatible bucket."
+  type        = bool
+  default     = false
+}
+variable "object_storage_endpoint" {
+  description = "Account-specific R2 S3 API endpoint; required and HTTPS when object storage is enabled."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.object_storage_endpoint == "" || can(regex("^https://[^/]+/?$", var.object_storage_endpoint))
+    error_message = "object_storage_endpoint must be an HTTPS origin without a path"
+  }
+}
+variable "object_storage_bucket" {
+  description = "Private R2 bucket name."
+  type        = string
+  default     = ""
+}
 variable "notification_from" {
   description = "Verified Resend sender, for example Vid2Knowledge <hello@example.com>."
   type        = string
@@ -119,6 +138,8 @@ variable "secret_ids" {
     resend_api_key              = string
     notification_encryption_key = string
     integration_encryption_key  = string
+    r2_access_key_id            = string
+    r2_secret_access_key        = string
   })
   default = {
     db_url                      = "v2k-db-url"
@@ -132,5 +153,7 @@ variable "secret_ids" {
     resend_api_key              = "v2k-resend-api-key"
     notification_encryption_key = "v2k-notification-encryption-key"
     integration_encryption_key  = "v2k-integration-encryption-key"
+    r2_access_key_id            = "v2k-r2-access-key-id"
+    r2_secret_access_key        = "v2k-r2-secret-access-key"
   }
 }

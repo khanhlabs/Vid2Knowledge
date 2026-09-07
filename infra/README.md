@@ -13,6 +13,12 @@ The Terraform stack provisions the low-idle-cost GCP half of Vid2Knowledge: two 
 7. Verify the sending domain in Resend, set `notification_from`, then enable `notifications_enabled`. Send an invitation in staging and confirm delivery before enabling it in production. Notification payloads are encrypted at rest and redacted after delivery; keep the encryption key available until every pending job has completed.
 8. Replace every `legal_policies` draft value with the exact counsel-reviewed document version and HTTPS URL. Set `reviewed=true` only after approval; a production Cloud Run revision otherwise fails startup by design. Any policy-content change requires a version bump and user re-consent.
 9. Enable Business integrations in staging first. Create a short-lived scoped key, verify own-tenant success and cross-tenant denial, then create a webhook receiver that verifies timestamp/signature/delivery dedupe. Exercise 204, 429 and permanent 400 responses and confirm retry/dead-letter behavior before enabling production.
+10. For private buyer-owned video, create a private R2 bucket and an S3 API token scoped only to that
+    bucket. Configure bucket CORS for the exact Pages origin, `PUT`, and `Content-Type`; never make the
+    bucket public. Add a lifecycle rule that deletes `pending-source-uploads/` after one day, add both R2
+    credentials as Secret Manager versions, then set the endpoint/bucket and
+    `object_storage_enabled=true`. Verify an abandoned upload is removed and a spoofed MIME upload is
+    rejected in staging before enabling production.
 
 Production deletion protection is on. Secret versions, DNS, Supabase, payOS merchant activation, billing budgets, and GitHub OIDC trust intentionally require account-owner decisions and are not fabricated by this repository.
 

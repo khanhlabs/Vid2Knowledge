@@ -25,11 +25,16 @@ locals {
   integration_secret_env = {
     INTEGRATION_ENCRYPTION_KEY = var.secret_ids.integration_encryption_key
   }
+  object_storage_secret_env = {
+    OBJECT_STORAGE_ACCESS_KEY_ID     = var.secret_ids.r2_access_key_id
+    OBJECT_STORAGE_SECRET_ACCESS_KEY = var.secret_ids.r2_secret_access_key
+  }
   secret_env = merge(
     local.core_secret_env,
     var.payos_enabled ? local.payos_secret_env : {},
     var.notifications_enabled ? local.notification_secret_env : {},
-    var.integrations_enabled ? local.integration_secret_env : {}
+    var.integrations_enabled ? local.integration_secret_env : {},
+    var.object_storage_enabled ? local.object_storage_secret_env : {}
   )
   worker_plain_env = {
     SPRING_PROFILES_ACTIVE             = "prod"
@@ -44,6 +49,9 @@ locals {
     PAYOS_CANCEL_URL                   = var.payos_cancel_url
     NOTIFICATIONS_ENABLED              = tostring(var.notifications_enabled)
     INTEGRATIONS_ENABLED               = tostring(var.integrations_enabled)
+    OBJECT_STORAGE_ENABLED             = tostring(var.object_storage_enabled)
+    OBJECT_STORAGE_ENDPOINT            = var.object_storage_endpoint
+    OBJECT_STORAGE_BUCKET              = var.object_storage_bucket
     NOTIFICATION_FROM                  = var.notification_from
     FRONTEND_BASE_URL                  = var.frontend_origin
     LEGAL_POLICY_SET_VERSION           = var.legal_policies.policy_set_version
@@ -98,6 +106,12 @@ resource "terraform_data" "production_launch_guard" {
     precondition {
       condition     = var.environment != "prod" || length(var.alert_notification_emails) >= 2
       error_message = "Production requires at least two independent alert_notification_emails recipients."
+    }
+    precondition {
+      condition = !var.object_storage_enabled || (
+        var.object_storage_bucket != "" && can(regex("^https://[^/]+/?$", var.object_storage_endpoint))
+      )
+      error_message = "Object storage requires a private bucket and account-specific HTTPS R2 endpoint."
     }
   }
 }

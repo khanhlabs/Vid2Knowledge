@@ -116,12 +116,22 @@ class PrivacyServiceIntegrationTest {
                 userId, Timestamp.from(old.plus(Duration.ofDays(1))), Timestamp.from(old.plusSeconds(1)),
                 Timestamp.from(old)
         );
+        jdbc.update(
+                """
+                INSERT INTO source_uploads(
+                    id, organization_id, object_key, original_filename, declared_content_type,
+                    declared_size_bytes, state, failure_reason, expires_at, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, 'invalid.mp4', 'video/mp4', 1024, 'REJECTED', 'invalid signature', ?, ?, ?, ?)
+                """,
+                UUID.randomUUID(), organizationId, "pending-source-uploads/retention-test",
+                Timestamp.from(old), userId, Timestamp.from(old), Timestamp.from(old)
+        );
         var service = new RetentionService(
                 jdbc,
                 new RetentionProperties(
                         Duration.ofDays(30), Duration.ofDays(90), Duration.ofDays(30),
                         Duration.ofDays(30), Duration.ofDays(90), Duration.ofDays(30),
-                        Duration.ofDays(90)
+                        Duration.ofDays(90), Duration.ofDays(30)
                 ),
                 Clock.fixed(now, java.time.ZoneOffset.UTC)
         );
@@ -132,6 +142,7 @@ class PrivacyServiceIntegrationTest {
         assertThat(result.redactedPaymentWebhookPayloads()).isEqualTo(1);
         assertThat(result.deletedTerminalOutboxEvents()).isEqualTo(1);
         assertThat(result.deletedTerminalInvitations()).isEqualTo(1);
+        assertThat(result.deletedTerminalSourceUploads()).isEqualTo(1);
         assertThat(jdbc.queryForObject(
                 "SELECT signature FROM payment_webhook_inbox WHERE event_key = 'retention-event'", String.class
         )).isEqualTo("REDACTED");

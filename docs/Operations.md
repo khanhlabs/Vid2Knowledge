@@ -13,6 +13,9 @@ Không nhận dữ liệu hoặc tiền thật cho tới khi owner xác nhận b
   `LEGAL_REVIEWED=true`; thay nội dung phải tăng version để buộc re-consent.
 - Có ít nhất hai người/địa chỉ nhận alert vận hành; không để production phụ thuộc duy nhất vào inbox cá nhân của founder.
 - Cả hai notification channel đã xác thực email và alert drill API 5xx/queue backlog có bằng chứng nhận được thông báo.
+- Nếu bật upload riêng tư: R2 bucket private, S3 token chỉ có object read/write/delete trên đúng bucket,
+  CORS chỉ cho frontend origin với `PUT`/`Content-Type`, và lifecycle xóa prefix
+  `pending-source-uploads/` sau 1 ngày đã được kiểm thử.
 
 ## Backup and restore
 
@@ -74,6 +77,8 @@ operator cũng có thể gọi riêng `POST /internal/tasks/retention/cleanup` b
 raw Gemini output 30 ngày, processed payOS payload/signature 90 ngày, terminal outbox/notification 30 ngày
 và invitation terminal/hết hạn 90 ngày. Outbound webhook terminal giữ 30 ngày; integration credential
 terminal/version cũ giữ 90 ngày. Idempotency record bị xóa ngay sau `expires_at`.
+Source upload `REJECTED|EXPIRED` giữ metadata 30 ngày; object tạm không dựa vào database cleanup mà
+dựa vào R2 lifecycle 1 ngày, nên upload bị bỏ dở không tích lũy storage cost.
 
 Cleanup chỉ redaction payload và xóa operational record đã terminal. Nó cố ý giữ webhook provider/event
 key để chống replay, package revision canonical, learning evidence, financial/cost ledger và audit log.

@@ -138,6 +138,14 @@ integrations:
   max-attempts: ${INTEGRATION_MAX_ATTEMPTS:8}
   lease-duration: ${INTEGRATION_LEASE_DURATION:2m}
   request-timeout: ${INTEGRATION_REQUEST_TIMEOUT:10s}
+object-storage:
+  enabled: ${OBJECT_STORAGE_ENABLED:false}
+  endpoint: ${OBJECT_STORAGE_ENDPOINT:https://invalid.r2.cloudflarestorage.com}
+  bucket: ${OBJECT_STORAGE_BUCKET:}
+  access-key-id: ${OBJECT_STORAGE_ACCESS_KEY_ID:}
+  secret-access-key: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:}
+  max-upload-bytes: ${OBJECT_STORAGE_MAX_UPLOAD_BYTES:524288000}
+  presign-duration: ${OBJECT_STORAGE_PRESIGN_DURATION:15m}
 
 rate-limit:
   enabled: ${RATE_LIMIT_ENABLED:true}
@@ -155,3 +163,4 @@ retention:
   terminal-invitation: ${RETENTION_TERMINAL_INVITATION:90d}
   terminal-webhook-delivery: ${RETENTION_TERMINAL_WEBHOOK_DELIVERY:30d}
   terminal-integration-credential: ${RETENTION_TERMINAL_INTEGRATION_CREDENTIAL:90d}
+  terminal-source-upload: ${RETENTION_TERMINAL_SOURCE_UPLOAD:30d}
