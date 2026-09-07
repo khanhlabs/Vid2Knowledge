@@ -30,6 +30,23 @@ public class JdbcNotificationQueue implements NotificationQueue {
     }
 
     @Override
+    public void onboarding(UUID organizationId, UUID userId, String recipientEmail, Instant trialEndsAt) {
+        String recipientKey = recipientKey(recipientEmail);
+        Map<String, Object> payload = Map.of(
+                "userId", userId.toString(), "trialEndsAt", trialEndsAt.toString(),
+                "organizationName", organizationName(organizationId)
+        );
+        enqueueAt(organizationId, "ONBOARDING_WELCOME", "onboarding/welcome/" + organizationId + "/" + recipientKey,
+                recipientEmail, payload, clock.instant());
+        enqueueAt(organizationId, "ACTIVATION_NUDGE", "onboarding/nudge/" + organizationId + "/" + recipientKey,
+                recipientEmail, payload, clock.instant().plus(java.time.Duration.ofDays(2)));
+        Instant conversionAt = trialEndsAt.minus(java.time.Duration.ofDays(3));
+        enqueueAt(organizationId, "TRIAL_EXPIRING", "onboarding/trial-expiring/" + organizationId + "/" + recipientKey,
+                recipientEmail, payload, conversionAt.isAfter(clock.instant())
+                        ? conversionAt : clock.instant().plus(java.time.Duration.ofHours(1)));
+    }
+
+    @Override
     public void invitation(UUID organizationId, UUID invitationId, String recipientEmail,
                            CurrentActor.Role role, String token, Instant expiresAt) {
         enqueue(organizationId, "INVITATION", "invitation/" + invitationId, recipientEmail, Map.of(
@@ -76,6 +93,11 @@ public class JdbcNotificationQueue implements NotificationQueue {
 
     private void enqueue(UUID organizationId, String type, String dedupeKey,
                          String recipient, Map<String, Object> payload) {
+        enqueueAt(organizationId, type, dedupeKey, recipient, payload, clock.instant());
+    }
+
+    private void enqueueAt(UUID organizationId, String type, String dedupeKey,
+                           String recipient, Map<String, Object> payload, Instant availableAt) {
         try {
             UUID id = UuidV7Generator.generate();
             Instant now = clock.instant();
@@ -89,7 +111,7 @@ public class JdbcNotificationQueue implements NotificationQueue {
                     ON CONFLICT (dedupe_key) DO NOTHING
                     """,
                     id, organizationId, type, dedupeKey, recipient, encrypted,
-                    Timestamp.from(now), Timestamp.from(now), Timestamp.from(now)
+                    Timestamp.from(availableAt), Timestamp.from(now), Timestamp.from(now)
             );
         } catch (Exception failure) {
             throw new IllegalStateException("Could not queue notification", failure);

@@ -104,7 +104,7 @@ public class RetentionService {
         int notifications = jdbc.update(
                 """
                 DELETE FROM notification_jobs
-                WHERE state IN ('SENT', 'DEAD') AND updated_at < ?
+                WHERE state IN ('SENT', 'DEAD', 'CANCELLED') AND updated_at < ?
                 """,
                 Timestamp.from(now.minus(retention.terminalNotification()))
         );

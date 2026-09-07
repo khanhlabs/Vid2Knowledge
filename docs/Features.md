@@ -93,8 +93,10 @@ All four belong to the target product. Evidence determines implementation order,
 - Integrations through API/webhooks plus evidence-led LMS/SSO connections for higher-value accounts.
 - In-app onboarding dùng sáu bằng chứng server-side từ source đến learner completion; trial deadline,
   next-best action và annual-saving upgrade surface giúp buyer đi tới giá trị đầu tiên mà không tạo
-  metric ảo từ click phía client. Sample course, lifecycle email, referral/partner attribution và
-  support tooling tiếp tục được triển khai theo cùng funnel.
+  metric ảo từ click phía client. Email vòng đời chào mừng/nhắc activation/sắp hết trial dùng cùng
+  durable queue, tự dừng khi buyer đã đạt mục tiêu hoặc đã trả tiền, và có opt-out hướng dẫn sản phẩm.
+  Marketing mặc định tắt và có consent ledger. Sample course, referral/partner attribution và support
+  tooling tiếp tục được triển khai theo cùng funnel.
 - Markdown portable và Word OpenXML đã có controlled tenant export/audit; Word là Training
   Team/Business differentiator. PDF/controlled sharing chỉ thêm khi pilot chứng minh buyer cần,
   tránh vận hành renderer/storage bất đồng bộ trước khi tạo doanh thu.

@@ -11,6 +11,10 @@ import java.util.UUID;
 @ConditionalOnProperty(prefix = "notifications", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class DisabledNotificationQueue implements NotificationQueue {
     @Override
+    public void onboarding(UUID organizationId, UUID userId, String recipientEmail, Instant trialEndsAt) {
+    }
+
+    @Override
     public void invitation(UUID organizationId, UUID invitationId, String recipientEmail,
                            CurrentActor.Role role, String token, Instant expiresAt) {
     }

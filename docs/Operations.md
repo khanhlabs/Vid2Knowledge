@@ -8,6 +8,9 @@ Không nhận dữ liệu hoặc tiền thật cho tới khi owner xác nhận b
 - GCP budget alert 50/80/100%, Gemini quota và Cloud Run max instance đã đặt; payOS vẫn off cho tới khi signed-webhook/reconciliation smoke test đạt.
 - Cloudflare TLS, WAF/rate limit và Pages security headers đã bật; origin Cloud Run chỉ nhận frontend origin qua CORS.
 - Resend domain xác thực, invitation/receipt/renewal test gửi thành công; encryption key có bản sao trong secret recovery process.
+- Test cả ba email trial (welcome, activation nudge, trial expiry), link quay lại ứng dụng và trang
+  preference. Xác nhận opt-out làm job đến hạn chuyển `CANCELLED`, payload thành `REDACTED` và không tạo
+  request tới Resend; marketing phải giữ mặc định tắt cho account mới.
 - Terms, Privacy, AUP, AI limitation, subprocessor list và complaint/takedown contacts đã được counsel duyệt với đúng pháp nhân vận hành.
 - Các URL `LEGAL_*_URL` trỏ đúng bản HTTPS đã duyệt, version khớp nội dung, và chỉ sau đó mới đặt
   `LEGAL_REVIEWED=true`; thay nội dung phải tăng version để buộc re-consent.
@@ -85,6 +88,13 @@ Cleanup chỉ redaction payload và xóa operational record đã terminal. Nó c
 key để chống replay, package revision canonical, learning evidence, financial/cost ledger và audit log.
 Không giảm retention các record hợp đồng/pháp lý nếu chưa có legal approval và migration riêng. Sau mỗi
 lần đổi biến `RETENTION_*`, chạy staging cleanup trên snapshot và đối soát count trả về trước production.
+
+Lifecycle email không có cron riêng: lúc tạo trial, API ghi ba `notification_jobs` với `available_at`
+khác nhau; notification dispatcher hiện hữu claim chúng. Theo dõi `PENDING/PROCESSING/DEAD/CANCELLED`
+theo loại email. `CANCELLED` do opt-out/chuyển paid/đã activation là kết quả bình thường, không alert;
+chỉ alert tỷ lệ `DEAD` hoặc backlog job đã quá `available_at`. Không gửi bù lifecycle email đã bị cancel.
+`notification_preference_changes` là bằng chứng consent, không nằm trong cleanup notification terminal;
+thời hạn giữ phải theo privacy policy và legal approval của công ty.
 
 ## Release and rollback
 

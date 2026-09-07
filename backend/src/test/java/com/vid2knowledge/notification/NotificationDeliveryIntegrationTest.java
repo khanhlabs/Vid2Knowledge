@@ -1,7 +1,9 @@
 package com.vid2knowledge.notification;
 
 import com.vid2knowledge.auth.CurrentActor;
+import com.vid2knowledge.auth.IdentityService;
 import com.vid2knowledge.common.id.UuidV7Generator;
+import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.config.NotificationProperties;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
@@ -63,6 +65,7 @@ class NotificationDeliveryIntegrationTest {
         );
         cipher = new NotificationCipher(properties);
         queue = new JdbcNotificationQueue(jdbc, cipher, new ObjectMapper());
+        jdbc.update("DELETE FROM notification_jobs");
         organizationId = seedOrganization();
     }
 
@@ -145,6 +148,105 @@ class NotificationDeliveryIntegrationTest {
                 "SELECT dead_lettered_at IS NOT NULL FROM notification_jobs WHERE organization_id = ?",
                 Boolean.class, organizationId
         )).isTrue();
+    }
+
+    @Test
+    void lifecycleMessagesAreScheduledAndCancelledAfterPreferenceOptOut() {
+        UUID userId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        queue.onboarding(
+                organizationId, userId, "owner@example.com", Instant.now().plus(Duration.ofDays(14))
+        );
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM notification_jobs WHERE organization_id = ?",
+                Long.class, organizationId
+        )).isEqualTo(3L);
+        jdbc.update(
+                """
+                INSERT INTO notification_preferences(user_id, product_guidance_enabled)
+                VALUES (?, FALSE)
+                """,
+                userId
+        );
+        jdbc.update(
+                "UPDATE notification_jobs SET available_at = ? WHERE organization_id = ?",
+                Timestamp.from(Instant.now().minusSeconds(1)), organizationId
+        );
+        AtomicInteger sends = new AtomicInteger();
+        var result = dispatcher(email -> {
+            sends.incrementAndGet();
+            return "must-not-send";
+        }).dispatch("worker-opt-out");
+
+        assertThat(result.cancelled()).isEqualTo(3);
+        assertThat(sends).hasValue(0);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM notification_jobs WHERE organization_id = ? AND state = 'CANCELLED'",
+                Long.class, organizationId
+        )).isEqualTo(3L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM notification_jobs WHERE organization_id = ? AND encrypted_payload <> 'REDACTED'",
+                Long.class, organizationId
+        )).isZero();
+    }
+
+    @Test
+    void notificationPreferencesDefaultSafelyAndKeepAnImmutableChangeRecord() {
+        String subject = jdbc.queryForObject(
+                """
+                SELECT u.auth_subject FROM users u JOIN memberships m ON m.user_id = u.id
+                WHERE m.organization_id = ? AND m.role = 'OWNER'
+                """,
+                String.class, organizationId
+        );
+        var preferences = new NotificationPreferenceService(jdbc);
+        assertThat(preferences.get(subject)).isEqualTo(
+                new NotificationPreferenceService.Preferences(true, true, false)
+        );
+        assertThat(preferences.update(
+                subject, new NotificationPreferenceService.Preferences(false, true, false)
+        )).isEqualTo(new NotificationPreferenceService.Preferences(false, true, false));
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM notification_preference_changes c
+                JOIN users u ON u.id = c.user_id WHERE u.auth_subject = ?
+                """,
+                Long.class, subject
+        )).isEqualTo(1L);
+    }
+
+    @Test
+    void creatingATrialOrganizationSchedulesItsLifecycleMessages() {
+        String suffix = UUID.randomUUID().toString();
+        var commercial = new CommercialProperties(
+                3_600, 25, Duration.ofDays(14), Duration.ofDays(7)
+        );
+        var identities = new IdentityService(jdbc, commercial, queue);
+
+        var membership = transactions.execute(status -> identities.createOrganization(
+                "new-owner-" + suffix,
+                "new-owner-" + suffix + "@example.com",
+                "New owner",
+                "Khoa Cong nghe " + suffix,
+                "khoa-cong-nghe-" + suffix,
+                "test-correlation-" + suffix
+        ));
+
+        assertThat(membership).isNotNull();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM notification_jobs WHERE organization_id = ?",
+                Long.class, membership.id()
+        )).isEqualTo(3L);
+        assertThat(jdbc.queryForList(
+                "SELECT notification_type FROM notification_jobs WHERE organization_id = ? ORDER BY notification_type",
+                String.class, membership.id()
+        )).containsExactly("ACTIVATION_NUDGE", "ONBOARDING_WELCOME", "TRIAL_EXPIRING");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM notification_jobs WHERE organization_id = ? AND encrypted_payload LIKE 'v1:%'",
+                Long.class, membership.id()
+        )).isEqualTo(3L);
     }
 
     private NotificationDispatcher dispatcher(NotificationSender sender) {

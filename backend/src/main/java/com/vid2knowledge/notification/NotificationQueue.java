@@ -6,6 +6,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 public interface NotificationQueue {
+    void onboarding(
+            UUID organizationId, UUID userId, String recipientEmail, Instant trialEndsAt
+    );
+
     void invitation(
             UUID organizationId, UUID invitationId, String recipientEmail,
             CurrentActor.Role role, String token, Instant expiresAt

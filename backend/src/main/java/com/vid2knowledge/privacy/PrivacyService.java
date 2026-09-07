@@ -68,6 +68,19 @@ public class PrivacyService {
                         'privacyVersion', l.privacy_version, 'acceptableUseVersion', l.acceptable_use_version,
                         'aiNoticeVersion', l.ai_notice_version, 'acceptedAt', l.accepted_at
                     ) ORDER BY l.accepted_at) FROM legal_acceptances l WHERE l.user_id = ?), '[]'::jsonb),
+                    'notificationPreferences', COALESCE((SELECT jsonb_build_object(
+                        'productGuidanceEnabled', n.product_guidance_enabled,
+                        'assignmentRemindersEnabled', n.assignment_reminders_enabled,
+                        'marketingEnabled', n.marketing_enabled, 'updatedAt', n.updated_at
+                    ) FROM notification_preferences n WHERE n.user_id = ?), jsonb_build_object(
+                        'productGuidanceEnabled', TRUE, 'assignmentRemindersEnabled', TRUE,
+                        'marketingEnabled', FALSE, 'updatedAt', NULL)),
+                    'notificationPreferenceChanges', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                        'productGuidanceEnabled', c.product_guidance_enabled,
+                        'assignmentRemindersEnabled', c.assignment_reminders_enabled,
+                        'marketingEnabled', c.marketing_enabled, 'changedAt', c.changed_at
+                    ) ORDER BY c.changed_at, c.id) FROM notification_preference_changes c
+                      WHERE c.user_id = ?), '[]'::jsonb),
                     'deletionRequests', COALESCE((SELECT jsonb_agg(jsonb_build_object(
                         'id', d.id, 'state', d.state, 'requestedAt', d.requested_at,
                         'scheduledFor', d.scheduled_for, 'cancelledAt', d.cancelled_at,
@@ -75,7 +88,7 @@ public class PrivacyService {
                     ) ORDER BY d.requested_at) FROM privacy_deletion_requests d WHERE d.user_id = ?), '[]'::jsonb)
                 )::text
                 """,
-                String.class, userId, userId, userId, userId, userId, userId, userId, userId
+                String.class, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId
         );
         try {
             return mapper.readTree(json);
@@ -187,8 +200,9 @@ public class PrivacyService {
         jdbc.update(
                 """
                 UPDATE notification_jobs SET recipient_email = 'deleted@redacted.invalid',
-                    encrypted_payload = 'REDACTED', state = CASE WHEN state = 'SENT' THEN state ELSE 'DEAD' END,
-                    dead_lettered_at = CASE WHEN state = 'SENT' THEN dead_lettered_at ELSE ? END,
+                    encrypted_payload = 'REDACTED',
+                    state = CASE WHEN state IN ('SENT', 'CANCELLED') THEN state ELSE 'DEAD' END,
+                    dead_lettered_at = CASE WHEN state IN ('SENT', 'CANCELLED') THEN dead_lettered_at ELSE ? END,
                     lease_owner = NULL, lease_expires_at = NULL,
                     updated_at = ? WHERE lower(recipient_email) = ?
                 """,

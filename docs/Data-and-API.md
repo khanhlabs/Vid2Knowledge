@@ -51,7 +51,10 @@
 - `invoices`, `invoice_lines`, `payments`, `refunds`, `billing_adjustments`.
 - `entitlements`, `usage_reservations`, `usage_ledger`, `cost_ledger`; ledger append-only.
 - `payment_webhook_inbox`, `outbox_events`, `idempotency_records`.
-- `notification_jobs`, `notification_deliveries`, `notification_preferences`.
+- `notification_jobs`, `notification_deliveries`, `notification_preferences`,
+  `notification_preference_changes`. Preference mặc định bật hướng dẫn sản phẩm/nhắc bài tập nhưng tắt
+  marketing; mỗi thay đổi có ledger bất biến để chứng minh consent. Job bị suppression chuyển
+  `CANCELLED`, ghi lý do/thời điểm và redact payload mã hóa.
 - `business_events`, `daily_organization_metrics`, `daily_course_metrics`.
 
 Chi tiết column/constraint của từng bảng phải được ghi trong migration design trước milestone liên quan. Không tạo toàn bộ bảng ở migration đầu tiên.
@@ -96,6 +99,9 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 ### Identity/organization
 
 - `GET /api/v1/me`
+- `GET|PATCH /api/v1/me/notification-preferences`; PATCH yêu cầu gửi đủ ba lựa chọn
+  `productGuidanceEnabled`, `assignmentRemindersEnabled`, `marketingEnabled`, không suy diễn field thiếu
+  thành opt-out/opt-in. Marketing luôn opt-in, độc lập với email giao dịch bắt buộc.
 - `GET/POST /api/v1/organizations`
 - `GET/PATCH /api/v1/organizations/{orgId}`
 - `GET/POST /api/v1/organizations/{orgId}/members`
@@ -229,10 +235,16 @@ bị xóa bởi operational cleanup này. Terminal outbound webhook delivery gi�
 hồi, endpoint disabled và secret version cũ giữ 90 ngày nếu không còn delivery tham chiếu. Billing
 reconciliation gọi cùng cleanup để không thêm Scheduler job.
 
+Organization trial mới tự xếp ba job dedupe: chào mừng ngay, nhắc activation sau 2 ngày và cảnh báo
+hết trial trước 3 ngày. Dispatcher hiện hữu xử lý cả job đến hạn nên không phát sinh Scheduler/service
+mới. Trước lúc gửi, worker kiểm tra lại trạng thái user/member/organization, preference hiện hành,
+learner completion và paid subscription; email không còn phù hợp bị cancel + redact, không gọi provider.
+
 ### Privacy
 
 - `GET /api/v1/privacy/export` trả JSON portable của đúng authenticated subject, với
-  `Cache-Control: no-store`; không cho owner xuất dữ liệu học tập của người khác qua endpoint này.
+  `Cache-Control: no-store`; bao gồm notification preference hiện hành và consent history, không cho
+  owner xuất dữ liệu học tập của người khác qua endpoint này.
 - `POST|DELETE /api/v1/privacy/deletion-request` lên lịch/hủy xóa trong grace period 7 ngày.
   Sole owner phải chuyển ownership trước. Maintenance task pseudonymize identity và membership,
   redact Q&A/email payload, giữ ledger cần cho tài chính dưới pseudonymous UUID và lưu SHA-256

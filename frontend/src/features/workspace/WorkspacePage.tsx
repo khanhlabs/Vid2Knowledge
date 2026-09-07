@@ -4,7 +4,11 @@ import { Link } from 'react-router-dom'
 import logo from '../../assets/logo/full_horizontal.png'
 import { ApiError } from '../../shared/api/client'
 import { useAuth } from '../auth/auth-context'
-import { workspaceApi, type AnalysisJob } from './api'
+import {
+  workspaceApi,
+  type AnalysisJob,
+  type NotificationPreferences,
+} from './api'
 
 function errorMessage(error: unknown) {
   if (error instanceof ApiError) {
@@ -70,6 +74,10 @@ export function WorkspacePage() {
   const deletionRequest = useQuery({
     queryKey: ['privacy-deletion'],
     queryFn: workspaceApi.activeDeletionRequest,
+  })
+  const notificationPreferences = useQuery({
+    queryKey: ['notification-preferences'],
+    queryFn: workspaceApi.notificationPreferences,
   })
 
   const activeOrganizationId =
@@ -314,6 +322,12 @@ export function WorkspacePage() {
     mutationFn: workspaceApi.cancelAccountDeletion,
     onSuccess: async () =>
       queryClient.invalidateQueries({ queryKey: ['privacy-deletion'] }),
+  })
+  const updateNotificationPreferences = useMutation({
+    mutationFn: (preferences: NotificationPreferences) =>
+      workspaceApi.updateNotificationPreferences(preferences),
+    onSuccess: (saved) =>
+      queryClient.setQueryData(['notification-preferences'], saved),
   })
 
   const submitOrganization = (event: FormEvent) => {
@@ -890,6 +904,53 @@ export function WorkspacePage() {
               {(invite.isError || revokeInvitation.isError) && (
                 <p className="form-error">
                   Không thể cập nhật lời mời. Vui lòng thử lại.
+                </p>
+              )}
+            </section>
+          )}
+          {notificationPreferences.data && (
+            <section className="panel notification-preferences-panel">
+              <div>
+                <p className="eyebrow">THÔNG BÁO</p>
+                <h2>Bạn quyết định email nào được gửi</h2>
+                <p>
+                  Email marketing luôn tắt mặc định. Thay đổi được lưu ngay và
+                  có lịch sử consent phía server.
+                </p>
+              </div>
+              <div className="preference-list">
+                {(
+                  [
+                    [
+                      'productGuidanceEnabled',
+                      'Hướng dẫn kích hoạt và thông báo trial',
+                    ],
+                    [
+                      'assignmentRemindersEnabled',
+                      'Nhắc deadline và ôn tập được giao',
+                    ],
+                    ['marketingEnabled', 'Tin sản phẩm và ưu đãi marketing'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key}>
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.data[key]}
+                      disabled={updateNotificationPreferences.isPending}
+                      onChange={(event) =>
+                        updateNotificationPreferences.mutate({
+                          ...notificationPreferences.data,
+                          [key]: event.target.checked,
+                        })
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              {updateNotificationPreferences.isError && (
+                <p className="form-error">
+                  Không thể lưu lựa chọn thông báo. Vui lòng thử lại.
                 </p>
               )}
             </section>

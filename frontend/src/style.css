@@ -981,6 +981,29 @@ button:disabled {
 .member-panel {
   margin-top: 2rem;
 }
+.notification-preferences-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.8fr);
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+.preference-list {
+  display: grid;
+  gap: 0.75rem;
+}
+.preference-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid #d8dbd2;
+  border-radius: 9px;
+}
+.preference-list input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
 .invite-row {
   display: grid;
   grid-template-columns: 1fr 160px auto;
@@ -1420,6 +1443,7 @@ aside span {
   .pricing-grid,
   .metric-grid,
   .workspace-grid,
+  .notification-preferences-panel,
   .lesson-layout,
   .profit-form,
   .cost-form {

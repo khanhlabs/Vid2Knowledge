@@ -61,9 +61,17 @@ public class NotificationDispatcher {
         int sent = 0;
         int retried = 0;
         int dead = 0;
+        int cancelled = 0;
         for (ClaimedNotification job : claimed == null ? List.<ClaimedNotification>of() : claimed) {
             try {
-                OutboundEmail email = render(job);
+                JsonNode payload = payload(job);
+                String cancellationReason = cancellationReason(job, payload);
+                if (cancellationReason != null) {
+                    cancel(job, cancellationReason);
+                    cancelled++;
+                    continue;
+                }
+                OutboundEmail email = render(job, payload);
                 String providerId = sender.send(email);
                 markSent(job, providerId);
                 sent++;
@@ -79,7 +87,7 @@ public class NotificationDispatcher {
                 }
             }
         }
-        return new DispatchResult(claimed == null ? 0 : claimed.size(), sent, retried, dead);
+        return new DispatchResult(claimed == null ? 0 : claimed.size(), sent, retried, dead, cancelled);
     }
 
     private List<ClaimedNotification> claim(String leaseOwner) {
@@ -98,11 +106,12 @@ public class NotificationDispatcher {
                 SET state = 'PROCESSING', attempt_count = attempt_count + 1,
                     lease_owner = ?, lease_expires_at = ?, updated_at = ?
                 FROM candidates c WHERE n.id = c.id
-                RETURNING n.id, n.notification_type, n.recipient_email,
+                RETURNING n.id, n.organization_id, n.notification_type, n.recipient_email,
                           n.encrypted_payload, n.attempt_count
                 """,
                 (result, row) -> new ClaimedNotification(
-                        result.getObject("id", UUID.class), result.getString("notification_type"),
+                        result.getObject("id", UUID.class), result.getObject("organization_id", UUID.class),
+                        result.getString("notification_type"),
                         result.getString("recipient_email"), result.getString("encrypted_payload"),
                         result.getInt("attempt_count"), leaseOwner
                 ),
@@ -111,22 +120,99 @@ public class NotificationDispatcher {
         );
     }
 
-    private OutboundEmail render(ClaimedNotification job) {
+    private JsonNode payload(ClaimedNotification job) {
         try {
-            JsonNode payload = mapper.readTree(cipher.decrypt(job.encryptedPayload(), job.id().toString()));
-            String organization = escaped(payload, "organizationName");
-            return switch (job.type()) {
-                case "INVITATION" -> invitation(job, payload, organization);
-                case "PAYMENT_RECEIPT" -> receipt(job, payload, organization);
-                case "CANCELLATION_SCHEDULED" -> cancellation(job, payload, organization);
-                case "RENEWAL_PAYMENT_REQUIRED" -> renewal(job, payload, organization);
-                default -> throw new NotificationDeliveryException("Unsupported notification type", false, null);
-            };
-        } catch (NotificationDeliveryException failure) {
-            throw failure;
+            return mapper.readTree(cipher.decrypt(job.encryptedPayload(), job.id().toString()));
         } catch (Exception failure) {
             throw new NotificationDeliveryException("Notification payload is invalid", false, failure);
         }
+    }
+
+    private OutboundEmail render(ClaimedNotification job, JsonNode payload) {
+        String organization = escaped(payload, "organizationName");
+        return switch (job.type()) {
+            case "INVITATION" -> invitation(job, payload, organization);
+            case "PAYMENT_RECEIPT" -> receipt(job, payload, organization);
+            case "CANCELLATION_SCHEDULED" -> cancellation(job, payload, organization);
+            case "RENEWAL_PAYMENT_REQUIRED" -> renewal(job, payload, organization);
+            case "ONBOARDING_WELCOME" -> lifecycle(job, organization, "Workspace đã sẵn sàng",
+                    "Bắt đầu bằng một video có quyền sử dụng; checklist trong workspace sẽ dẫn tới outcome đầu tiên.",
+                    "/app");
+            case "ACTIVATION_NUDGE" -> lifecycle(job, organization, "Hoàn thành outcome đầu tiên",
+                    "Tiếp tục checklist từ học liệu, khóa học, cohort đến một học viên hoàn thành.", "/app");
+            case "TRIAL_EXPIRING" -> lifecycle(job, organization, "Trial Vid2Knowledge sắp kết thúc",
+                    "Chọn gói phù hợp để giữ quota, học liệu và luồng đào tạo không bị gián đoạn.", "/app#billing");
+            default -> throw new NotificationDeliveryException("Unsupported notification type", false, null);
+        };
+    }
+
+    private OutboundEmail lifecycle(
+            ClaimedNotification job, String organization, String subject,
+            String message, String relativeLink
+    ) {
+        String link = properties.frontendBaseUrl().resolve(relativeLink).toString();
+        String html = "<h2>" + HtmlUtils.htmlEscape(subject) + "</h2><p>" + organization + ": "
+                + HtmlUtils.htmlEscape(message) + "</p><p><a href=\"" + HtmlUtils.htmlEscape(link)
+                + "\">Mở Vid2Knowledge</a></p><p>Bạn có thể tắt email hướng dẫn trong cài đặt tài khoản.</p>";
+        String text = HtmlUtils.htmlUnescape(organization) + ": " + message + " " + link
+                + " Bạn có thể tắt email hướng dẫn trong cài đặt tài khoản.";
+        return new OutboundEmail(job.recipient(), subject, html, text, job.id().toString());
+    }
+
+    private String cancellationReason(ClaimedNotification job, JsonNode payload) {
+        if (!job.type().startsWith("ONBOARDING_") && !"ACTIVATION_NUDGE".equals(job.type())
+                && !"TRIAL_EXPIRING".equals(job.type())) return null;
+        UUID userId;
+        try {
+            userId = UUID.fromString(payload.path("userId").asText());
+        } catch (RuntimeException failure) {
+            throw new NotificationDeliveryException("Lifecycle user ID is invalid", false, failure);
+        }
+        Boolean eligible = jdbc.queryForObject(
+                """
+                SELECT EXISTS(
+                    SELECT 1 FROM users u JOIN memberships m ON m.user_id = u.id
+                    JOIN organizations o ON o.id = m.organization_id
+                    WHERE u.id = ? AND u.status = 'ACTIVE' AND m.organization_id = ?
+                      AND m.status = 'ACTIVE' AND o.status = 'ACTIVE'
+                      AND COALESCE((SELECT product_guidance_enabled
+                                    FROM notification_preferences WHERE user_id = u.id), TRUE)
+                )
+                """,
+                Boolean.class, userId, job.organizationId()
+        );
+        if (!Boolean.TRUE.equals(eligible)) return "RECIPIENT_OR_PREFERENCE_INELIGIBLE";
+        if ("ACTIVATION_NUDGE".equals(job.type())) {
+            Boolean activated = jdbc.queryForObject(
+                    "SELECT EXISTS(SELECT 1 FROM learner_progress WHERE organization_id = ? AND status = 'COMPLETED')",
+                    Boolean.class, job.organizationId()
+            );
+            if (Boolean.TRUE.equals(activated)) return "ORGANIZATION_ACTIVATED";
+        }
+        if ("TRIAL_EXPIRING".equals(job.type())) {
+            Boolean paid = jdbc.queryForObject(
+                    """
+                    SELECT EXISTS(SELECT 1 FROM subscriptions WHERE organization_id = ?
+                        AND status IN ('ACTIVE', 'PAST_DUE') AND current_period_end > ?)
+                    """,
+                    Boolean.class, job.organizationId(), Timestamp.from(clock.instant())
+            );
+            if (Boolean.TRUE.equals(paid)) return "ORGANIZATION_PAID";
+        }
+        return null;
+    }
+
+    private void cancel(ClaimedNotification job, String reason) {
+        Instant now = clock.instant();
+        int changed = jdbc.update(
+                """
+                UPDATE notification_jobs SET state = 'CANCELLED', cancellation_reason = ?, cancelled_at = ?,
+                    encrypted_payload = 'REDACTED', lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+                WHERE id = ? AND state = 'PROCESSING' AND lease_owner = ?
+                """,
+                reason, Timestamp.from(now), Timestamp.from(now), job.id(), job.leaseOwner()
+        );
+        if (changed != 1) throw new IllegalStateException("Notification lease was lost while cancelling");
     }
 
     private OutboundEmail invitation(ClaimedNotification job, JsonNode payload, String organization) {
@@ -231,10 +317,11 @@ public class NotificationDispatcher {
     }
 
     private record ClaimedNotification(
-            UUID id, String type, String recipient, String encryptedPayload, int attemptCount, String leaseOwner
+            UUID id, UUID organizationId, String type, String recipient,
+            String encryptedPayload, int attemptCount, String leaseOwner
     ) {
     }
 
-    public record DispatchResult(int claimed, int sent, int retried, int deadLettered) {
+    public record DispatchResult(int claimed, int sent, int retried, int deadLettered, int cancelled) {
     }
 }

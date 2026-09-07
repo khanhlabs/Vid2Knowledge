@@ -3,9 +3,10 @@ package com.vid2knowledge.auth;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.common.id.RequestFingerprint;
 import com.vid2knowledge.config.CommercialProperties;
+import com.vid2knowledge.notification.NotificationQueue;
 import com.vid2knowledge.usage.domain.UsageMetric;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -24,16 +25,28 @@ public class IdentityService {
 
     private final JdbcTemplate jdbc;
     private final CommercialProperties commercial;
+    private final NotificationQueue notifications;
     private final Clock clock;
 
-    @Autowired
     public IdentityService(JdbcTemplate jdbc, CommercialProperties commercial) {
-        this(jdbc, commercial, Clock.systemUTC());
+        this(jdbc, commercial, null, Clock.systemUTC());
     }
 
     public IdentityService(JdbcTemplate jdbc, CommercialProperties commercial, Clock clock) {
+        this(jdbc, commercial, null, clock);
+    }
+
+    @Autowired
+    public IdentityService(JdbcTemplate jdbc, CommercialProperties commercial, NotificationQueue notifications) {
+        this(jdbc, commercial, notifications, Clock.systemUTC());
+    }
+
+    private IdentityService(
+            JdbcTemplate jdbc, CommercialProperties commercial, NotificationQueue notifications, Clock clock
+    ) {
         this.jdbc = jdbc;
         this.commercial = commercial;
+        this.notifications = notifications;
         this.clock = clock;
     }
 
@@ -169,6 +182,12 @@ public class IdentityService {
                 UuidV7Generator.generate(), organizationId, organizationId, correlationId, organizationId,
                 Timestamp.from(now), Timestamp.from(now)
         );
+        if (notifications != null && (commercial.trialProcessedVideoSeconds() > 0
+                || commercial.trialQaQueries() > 0)) {
+            notifications.onboarding(
+                    organizationId, me.id(), me.email(), now.plus(commercial.trialDuration())
+            );
+        }
         return new Membership(organizationId, name.trim(), slug, CurrentActor.Role.OWNER);
     }
 

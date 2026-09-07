@@ -109,6 +109,12 @@ export interface DeletionRequest {
   scheduledFor: string
 }
 
+export interface NotificationPreferences {
+  productGuidanceEnabled: boolean
+  assignmentRemindersEnabled: boolean
+  marketingEnabled: boolean
+}
+
 export interface AnalysisJob {
   id: string
   sourceId: string
@@ -763,6 +769,13 @@ export const workspaceApi = {
     downloadApi('/api/v1/privacy/export', 'vid2knowledge-data.json'),
   activeDeletionRequest: () =>
     api<DeletionRequest | null>('/api/v1/privacy/deletion-request'),
+  notificationPreferences: () =>
+    api<NotificationPreferences>('/api/v1/me/notification-preferences'),
+  updateNotificationPreferences: (preferences: NotificationPreferences) =>
+    api<NotificationPreferences>('/api/v1/me/notification-preferences', {
+      method: 'PATCH',
+      body: JSON.stringify(preferences),
+    }),
   requestAccountDeletion: () =>
     api<DeletionRequest>('/api/v1/privacy/deletion-request', {
       method: 'POST',

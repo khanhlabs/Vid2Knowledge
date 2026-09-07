@@ -4,6 +4,7 @@ import com.vid2knowledge.auth.IdentityService;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.config.RetentionProperties;
+import com.vid2knowledge.notification.NotificationPreferenceService;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,12 +68,21 @@ class PrivacyServiceIntegrationTest {
 
     @Test
     void exportContainsOnlyTheAuthenticatedUsersPortableData() {
+        new NotificationPreferenceService(jdbc).update(
+                "privacy-subject-" + userId,
+                new NotificationPreferenceService.Preferences(false, true, false)
+        );
         var exported = privacy.export(userId);
 
         assertThat(exported.path("profile").path("email").asText()).isEqualTo(userId + "@example.com");
         assertThat(exported.path("memberships").size()).isEqualTo(1);
         assertThat(exported.path("memberships").get(0).path("organizationId").asText())
                 .isEqualTo(organizationId.toString());
+        assertThat(exported.path("notificationPreferences").path("productGuidanceEnabled").asBoolean())
+                .isFalse();
+        assertThat(exported.path("notificationPreferences").path("marketingEnabled").asBoolean())
+                .isFalse();
+        assertThat(exported.path("notificationPreferenceChanges").size()).isEqualTo(1);
     }
 
     @Test
@@ -104,6 +114,19 @@ class PrivacyServiceIntegrationTest {
                 ) VALUES (?, ?, 'OldEvent', 1, 'Test', ?, 'retention', '{}'::jsonb, ?, ?)
                 """,
                 UUID.randomUUID(), organizationId, invoice, Timestamp.from(old), Timestamp.from(old)
+        );
+        UUID expiredCancelledNotification = UuidV7Generator.generate();
+        jdbc.update(
+                """
+                INSERT INTO notification_jobs(
+                    id, organization_id, notification_type, dedupe_key, recipient_email,
+                    encrypted_payload, state, available_at, cancellation_reason, cancelled_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, 'ACTIVATION_NUDGE', ?, 'old@example.com', 'REDACTED', 'CANCELLED',
+                    ?, 'USER_OPTED_OUT', ?, ?, ?)
+                """,
+                expiredCancelledNotification, organizationId, "expired-cancelled-" + expiredCancelledNotification,
+                Timestamp.from(old), Timestamp.from(old), Timestamp.from(old), Timestamp.from(old)
         );
         jdbc.update(
                 """
@@ -141,6 +164,7 @@ class PrivacyServiceIntegrationTest {
         assertThat(result.expiredIdempotencyRecords()).isEqualTo(1);
         assertThat(result.redactedPaymentWebhookPayloads()).isEqualTo(1);
         assertThat(result.deletedTerminalOutboxEvents()).isEqualTo(1);
+        assertThat(result.deletedTerminalNotifications()).isEqualTo(1);
         assertThat(result.deletedTerminalInvitations()).isEqualTo(1);
         assertThat(result.deletedTerminalSourceUploads()).isEqualTo(1);
         assertThat(jdbc.queryForObject(
@@ -167,6 +191,17 @@ class PrivacyServiceIntegrationTest {
                 organizationId, userId);
         jdbc.update("INSERT INTO memberships(organization_id, user_id, role) VALUES (?, ?, 'OWNER')",
                 organizationId, replacement);
+        UUID cancelledNotification = UuidV7Generator.generate();
+        jdbc.update(
+                """
+                INSERT INTO notification_jobs(
+                    id, organization_id, notification_type, dedupe_key, recipient_email,
+                    encrypted_payload, state, available_at, cancellation_reason, cancelled_at
+                ) VALUES (?, ?, 'ACTIVATION_NUDGE', ?, ?, 'REDACTED', 'CANCELLED', ?, 'USER_OPTED_OUT', ?)
+                """,
+                cancelledNotification, organizationId, "cancelled-" + cancelledNotification,
+                userId + "@example.com", Timestamp.from(Instant.now()), Timestamp.from(Instant.now())
+        );
 
         var request = privacy.requestDeletion(userId);
         assertThat(privacy.requestDeletion(userId).id()).isEqualTo(request.id());
@@ -183,6 +218,12 @@ class PrivacyServiceIntegrationTest {
                 "SELECT count(*) FROM deleted_identity_blocks WHERE deletion_request_id = ?",
                 Long.class, request.id()
         )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT state FROM notification_jobs WHERE id = ?", String.class, cancelledNotification
+        )).isEqualTo("CANCELLED");
+        assertThat(jdbc.queryForObject(
+                "SELECT recipient_email FROM notification_jobs WHERE id = ?", String.class, cancelledNotification
+        )).isEqualTo("deleted@redacted.invalid");
 
         var identities = new IdentityService(jdbc, new CommercialProperties(
                 0, 0, Duration.ofDays(14), Duration.ofDays(7)
