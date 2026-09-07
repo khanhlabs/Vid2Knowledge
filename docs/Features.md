@@ -95,7 +95,9 @@ All four belong to the target product. Evidence determines implementation order,
   next-best action và annual-saving upgrade surface giúp buyer đi tới giá trị đầu tiên mà không tạo
   metric ảo từ click phía client. Sample course, lifecycle email, referral/partner attribution và
   support tooling tiếp tục được triển khai theo cùng funnel.
-- Markdown/PDF/Word and controlled sharing/export where they improve buyer workflow or close commercial deals.
+- Markdown portable và Word OpenXML đã có controlled tenant export/audit; Word là Training
+  Team/Business differentiator. PDF/controlled sharing chỉ thêm khi pilot chứng minh buyer cần,
+  tránh vận hành renderer/storage bất đồng bộ trước khi tạo doanh thu.
 
 ### Supported-source boundary
 

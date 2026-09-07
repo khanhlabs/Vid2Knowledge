@@ -412,6 +412,32 @@ button:disabled {
   align-items: center;
   gap: 1rem;
 }
+
+.package-export-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid #d8dbd2;
+  border-radius: 10px;
+  background: #f8faf7;
+}
+
+.package-export-actions > div {
+  flex: 1;
+}
+
+.package-export-actions strong,
+.package-export-actions span {
+  display: block;
+}
+
+.package-export-actions span {
+  margin-top: 0.2rem;
+  color: #687169;
+  font-size: 0.85rem;
+}
 .hero-actions {
   margin: 2rem 0 1rem;
 }
@@ -1421,11 +1447,13 @@ aside span {
     width: auto;
   }
   .review-actions,
+  .package-export-actions,
   .hero-actions {
     align-items: stretch;
     flex-direction: column;
   }
-  .review-actions button {
+  .review-actions button,
+  .package-export-actions button {
     width: 100%;
   }
   .assignment-list > article {

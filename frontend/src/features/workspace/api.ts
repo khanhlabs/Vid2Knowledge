@@ -544,6 +544,15 @@ export const workspaceApi = {
     api<LearningPackage>(
       `/api/v1/organizations/${organizationId}/packages/${packageId}`,
     ),
+  exportPackage: (
+    organizationId: string,
+    packageId: string,
+    format: 'markdown' | 'word',
+  ) =>
+    downloadApi(
+      `/api/v1/organizations/${organizationId}/packages/${packageId}/exports/${format}`,
+      format === 'word' ? 'hoc-lieu.docx' : 'hoc-lieu.md',
+    ),
   savePackageDraft: (
     organizationId: string,
     packageId: string,

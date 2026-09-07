@@ -185,7 +185,10 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `POST .../analytics/profitability/costs` ghi khoản trực tiếp ngoại lệ có audit trail;
   không dùng để ghi lại chi phí support/infra đã nằm trong phân bổ tháng.
 - `GET .../analytics/costs` với filter có limit.
-- `POST .../exports`, `GET .../exports/{id}` trả presigned URL khi ready.
+- `GET .../packages/{packageId}/exports/markdown|word` xuất exact current revision cho staff cùng
+  tenant, kèm đáp án và timestamp evidence; response luôn `private, no-store` và ghi audit.
+  Markdown là portable baseline. Word là `.docx` OpenXML và yêu cầu Training Team/Business còn
+  hiệu lực; kiểm tra entitlement ở server, client không thể tự mở paywall.
 - Business integration management (OWNER/ADMIN, JWT):
   - `GET|POST .../integrations/api-keys`, `DELETE .../integrations/api-keys/{keyId}`.
     Token `v2k_live_*` chỉ trả một lần, server chỉ lưu SHA-256; scope allowlist hiện tại là

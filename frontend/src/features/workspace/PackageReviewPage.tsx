@@ -114,6 +114,10 @@ export function PackageReviewPage() {
   const knowledgeIndex = useMutation({
     mutationFn: () => workspaceApi.indexKnowledge(organizationId, packageId),
   })
+  const exportPackage = useMutation({
+    mutationFn: (format: 'markdown' | 'word') =>
+      workspaceApi.exportPackage(organizationId, packageId, format),
+  })
   if (!organizationId)
     return (
       <div className="screen-message">
@@ -240,6 +244,40 @@ export function PackageReviewPage() {
             </button>
           )}
         </div>
+        <div className="package-export-actions">
+          <div>
+            <strong>Mang học liệu vào quy trình của đội ngũ</strong>
+            <span>
+              Xuất đúng revision đang lưu, gồm đáp án và dẫn chứng timestamp.
+            </span>
+          </div>
+          <button
+            className="text-button"
+            disabled={hasUnsavedChanges || exportPackage.isPending}
+            onClick={() => exportPackage.mutate('markdown')}
+          >
+            Tải Markdown
+          </button>
+          <button
+            disabled={hasUnsavedChanges || exportPackage.isPending}
+            onClick={() => exportPackage.mutate('word')}
+          >
+            Tải Word · Team
+          </button>
+        </div>
+        {exportPackage.isError && (
+          <p className="form-error">
+            {exportPackage.error instanceof ApiError &&
+            exportPackage.error.status === 402 ? (
+              <>
+                Xuất Word dành cho Training Team/Business.{' '}
+                <Link to="/app#billing">Xem gói phù hợp →</Link>
+              </>
+            ) : (
+              'Không thể tạo file xuất. Vui lòng thử lại.'
+            )}
+          </p>
+        )}
         {hasUnsavedChanges && (
           <p className="draft-notice">
             Lưu revision trước khi chuyển trạng thái kiểm duyệt.
