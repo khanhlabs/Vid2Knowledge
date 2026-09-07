@@ -22,3 +22,5 @@ infra/terraform/*.tfvars
 # Local runtime data
 *.log
 logs/
+benchmark/private/
+benchmark/results/

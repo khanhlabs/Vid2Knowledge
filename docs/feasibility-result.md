@@ -34,6 +34,12 @@ Any serious hallucination, wrong correct answer, or fabricated source timestamp 
 
 Store video URLs and any sensitive notes in a controlled benchmark dataset if this repository should not expose them. Use a stable run ID here.
 
+The executable protocol lives in `benchmark/README.md`. It reuses the production Gemini adapter,
+prompt factory and validation codec; records every retry/failure in an append-only JSONL journal; and
+writes a configuration/dataset-hash manifest plus a safe human-review CSV. A partial smoke run is always
+marked and cannot pass this gate. Provider-console billing must be reconciled because failed calls may
+have billable usage that no response reports.
+
 ## Aggregates to publish for every configuration
 
 - Accepted-job and valid-package rate, including failures.

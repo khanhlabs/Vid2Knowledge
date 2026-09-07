@@ -1,0 +1,27 @@
+{
+  "datasetVersion": "replace-with-controlled-dataset-version",
+  "runs": [
+    {
+      "caseId": "vi-lecture-001",
+      "runId": "vi-lecture-001",
+      "youtubeUrl": "https://www.youtube.com/watch?v=replace_me1",
+      "durationSeconds": 600,
+      "rightsBasis": "Replace with an internal permission record reference; do not commit private evidence",
+      "language": "vi",
+      "format": "lecture",
+      "characteristics": "Clear single-speaker audio, face camera plus slides",
+      "transcriptAvailable": true
+    },
+    {
+      "caseId": "en-screen-001",
+      "runId": "en-screen-001",
+      "youtubeUrl": "https://www.youtube.com/watch?v=replace_me2",
+      "durationSeconds": 900,
+      "rightsBasis": "Replace with an internal permission record reference; do not commit private evidence",
+      "language": "en",
+      "format": "screen-demo",
+      "characteristics": "Screen recording, technical vocabulary, moderate background noise",
+      "transcriptAvailable": false
+    }
+  ]
+}
