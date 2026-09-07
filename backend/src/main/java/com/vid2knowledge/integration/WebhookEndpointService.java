@@ -26,7 +26,8 @@ public class WebhookEndpointService {
     public static final Set<String> ALLOWED_EVENTS = Set.of(
             "AnalysisCompleted", "AnalysisFailed", "PackagePublished", "AssignmentPublished",
             "AssessmentSubmitted", "DelayedRecallCompleted", "QualityIssueReported",
-            "InvitationAccepted", "PaymentReceived", "SubscriptionCancellationScheduled"
+            "InvitationAccepted", "PaymentReceived", "SubscriptionCancellationScheduled",
+            "SubscriptionPlanChangeScheduled", "SubscriptionPlanChangeCancelled"
     );
     private static final SecureRandom RANDOM = new SecureRandom();
 

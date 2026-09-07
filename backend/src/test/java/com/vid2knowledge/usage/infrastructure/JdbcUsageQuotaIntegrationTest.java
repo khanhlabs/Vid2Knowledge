@@ -1334,6 +1334,84 @@ class JdbcUsageQuotaIntegrationTest {
     }
 
     @Test
+    void planChangeWaitsUntilRenewalAndNeverChargesAFullSecondPlanEarly() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        AtomicInteger links = new AtomicInteger();
+        PaymentGateway gateway = (orderCode, amount, description) -> {
+            String id = "change-link-" + links.incrementAndGet();
+            return new PaymentGateway.CheckoutLink(id, URI.create("https://pay.payos.vn/web/" + id));
+        };
+        var billing = billing(gateway);
+        UUID creatorPlan = UUID.fromString("00000000-0000-7000-8000-000000000101");
+        UUID teamPlan = UUID.fromString("00000000-0000-7000-8000-000000000201");
+        var initial = billing.checkout(owner, creatorPlan, "change-base");
+        pay(billing, initial, "change-link-1", "change-base-reference");
+        UUID subscriptionId = billing.subscription(organizationId).orElseThrow().id();
+
+        assertThatThrownBy(() -> billing.checkout(owner, teamPlan, null, "unsafe-early-charge"))
+                .hasMessageContaining("end-of-period plan change");
+        var scheduled = billing.schedulePlanChange(
+                owner, subscriptionId, teamPlan, "change-scheduled-correlation"
+        );
+        assertThat(scheduled.nextPlanCode()).isEqualTo("TRAINING_TEAM_MONTHLY");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM billing_orders WHERE organization_id = ?", Long.class, organizationId
+        )).isEqualTo(1L);
+
+        var cancelled = billing.cancelPlanChange(owner, subscriptionId, "change-cancelled-correlation");
+        assertThat(cancelled.nextPlanCode()).isNull();
+        billing.schedulePlanChange(owner, subscriptionId, teamPlan, "change-rescheduled-correlation");
+        Instant nearExpiry = Instant.now().plus(Duration.ofDays(2));
+        jdbc.update(
+                "UPDATE subscriptions SET current_period_end = ? WHERE id = ?",
+                Timestamp.from(nearExpiry), subscriptionId
+        );
+
+        assertThat(billing.reconcilePendingPayments().renewalsPrepared()).isEqualTo(1);
+        UUID renewalOrderId = jdbc.queryForObject(
+                "SELECT billing_order_id FROM renewal_attempts WHERE subscription_id = ?",
+                UUID.class, subscriptionId
+        );
+        assertThat(jdbc.queryForObject(
+                "SELECT plan_id FROM billing_orders WHERE id = ?", UUID.class, renewalOrderId
+        )).isEqualTo(teamPlan);
+        Long renewalOrderCode = jdbc.queryForObject(
+                "SELECT order_code FROM billing_orders WHERE id = ?", Long.class, renewalOrderId
+        );
+        pay(billing, new BillingService.Checkout(
+                renewalOrderId, renewalOrderCode, 2_490_000,
+                "https://pay.payos.vn/web/change-link-2", Instant.now().plus(Duration.ofMinutes(30))
+        ), "change-link-2", "change-renewal-reference");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT cancel_at_period_end FROM subscriptions WHERE id = ?", Boolean.class, subscriptionId
+        )).isTrue();
+        var paidChange = billing.subscription(organizationId).orElseThrow();
+        assertThat(paidChange.nextPlanCode()).isEqualTo("TRAINING_TEAM_MONTHLY");
+        assertThat(paidChange.nextPlanPaid()).isTrue();
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM subscriptions
+                WHERE organization_id = ? AND plan_id = ? AND status = 'SCHEDULED'
+                """,
+                Long.class, organizationId, teamPlan
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT count(*) FROM outbox_events
+                WHERE aggregate_id = ? AND event_type IN (
+                    'SubscriptionPlanChangeScheduled', 'SubscriptionPlanChangeCancelled'
+                )
+                """,
+                Long.class, subscriptionId
+        )).isEqualTo(3L);
+    }
+
+    @Test
     void paidTopUpExtendsCurrentEntitlementsWithoutCreatingAnotherSubscription() {
         UUID ownerId = jdbc.queryForObject(
                 "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",

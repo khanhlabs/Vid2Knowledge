@@ -266,6 +266,9 @@ Chi tiết kiến trúc nằm tại `Technical-Architecture.md`; data model, API
 - Plan/price immutable sau khi active; đổi giá tạo version mới.
 - Entitlement có effective window; usage reservation/commit/release atomic.
 - Billing period theo timezone contract nhưng lưu UTC; invoice number/order code không tái sử dụng.
+- Đổi plan self-serve có hiệu lực cuối kỳ: lưu `next_plan_id`, cho hủy trước khi renewal bắt đầu, tạo
+  payment link trong cửa sổ 7 ngày và chỉ tạo entitlement kỳ mới sau webhook. Không dùng proration
+  tức thời ở giai đoạn solo-operation; nhu cầu tăng capacity ngay dùng top-up có ledger/refund rõ ràng.
 - Reconciliation job so sánh pending payment với payOS và cảnh báo mismatch.
 
 ### 10.3 Packaging

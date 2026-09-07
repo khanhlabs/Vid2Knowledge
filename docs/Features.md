@@ -93,9 +93,10 @@ All four belong to the target product. Evidence determines implementation order,
   dunning, cancellation, refund, entitlement, and revenue analytics. Promotion đã có server-side quote,
   immutable price snapshot, capacity reservation, one-redemption-per-organization, channel-specific
   margin ceiling và attributed revenue/discount reporting. Tax-ready buyer profile đã có version/audit,
-  immutable invoice snapshot và safe CSV handoff cho kế toán. Đây vẫn là chứng từ nội bộ, không tự nhận là
-  hóa đơn điện tử hợp pháp; proration và kết nối nhà cung cấp hóa đơn điện tử còn là phần việc trước
-  production commercial.
+  immutable invoice snapshot và safe CSV handoff cho kế toán. Đổi gói self-serve được hẹn cuối kỳ,
+  renewal link chỉ tạo trước 7 ngày và top-up xử lý nhu cầu quota tức thời; không thu trọn gói mới sớm
+  hoặc tạo proration khó đối soát. Đây vẫn là chứng từ nội bộ, không tự nhận là hóa đơn điện tử hợp pháp;
+  kết nối nhà cung cấp hóa đơn điện tử còn là phần việc trước production commercial.
 - Integrations through API/webhooks plus evidence-led LMS/SSO connections for higher-value accounts.
 - In-app onboarding dùng sáu bằng chứng server-side từ source đến learner completion; trial deadline,
   next-best action và annual-saving upgrade surface giúp buyer đi tới giá trị đầu tiên mà không tạo

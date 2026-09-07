@@ -15,6 +15,8 @@ const WEBHOOK_EVENTS = [
   'InvitationAccepted',
   'PaymentReceived',
   'SubscriptionCancellationScheduled',
+  'SubscriptionPlanChangeScheduled',
+  'SubscriptionPlanChangeCancelled',
 ]
 
 function errorMessage(error: unknown) {

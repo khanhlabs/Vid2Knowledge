@@ -10,6 +10,7 @@ import jakarta.validation.constraints.Size;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -165,6 +166,39 @@ public class BillingController {
         );
     }
 
+    @PostMapping("/organizations/{organizationId}/billing/subscriptions/{subscriptionId}/plan-change")
+    public BillingService.SubscriptionView schedulePlanChange(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID subscriptionId,
+            @Valid @RequestBody PlanChangeRequest change,
+            Authentication authentication,
+            HttpServletRequest request
+    ) {
+        CurrentActor actor = access.require(
+                organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN
+        );
+        return billing.schedulePlanChange(
+                actor, subscriptionId, change.targetPlanId(),
+                request.getAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE).toString()
+        );
+    }
+
+    @DeleteMapping("/organizations/{organizationId}/billing/subscriptions/{subscriptionId}/plan-change")
+    public BillingService.SubscriptionView cancelPlanChange(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID subscriptionId,
+            Authentication authentication,
+            HttpServletRequest request
+    ) {
+        CurrentActor actor = access.require(
+                organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN
+        );
+        return billing.cancelPlanChange(
+                actor, subscriptionId,
+                request.getAttribute(CorrelationIdFilter.REQUEST_ATTRIBUTE).toString()
+        );
+    }
+
     @PostMapping("/webhooks/payos")
     public void payOsWebhook(@RequestBody JsonNode envelope) {
         billing.processWebhook(envelope);
@@ -178,6 +212,8 @@ public class BillingController {
             @NotNull @Size(min = 10, max = 1000) String reason
     ) {
     }
+
+    public record PlanChangeRequest(@NotNull UUID targetPlanId) { }
 
     private static String csv(String value) {
         String safe = value == null ? "" : value;

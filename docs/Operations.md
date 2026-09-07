@@ -102,6 +102,12 @@ Production luôn bật `billing.require-profile-before-checkout=true`; frontend 
 đến khi profile đã được lưu. Renewal nội bộ vẫn chạy cho subscription cũ để tránh vô tình cắt doanh thu,
 nhưng operator phải backfill profile cho mọi account đang hoạt động trước launch.
 
+Đổi gói không tạo charge ngay. Buyer có thể thay/hủy lựa chọn đến trước lúc renewal checkout được tạo;
+sau đó API trả `409` để operator không vô tình tạo hai order. Trong cửa sổ 7 ngày, reconciliation tạo
+order theo plan kế tiếp; webhook đã xác thực mới tạo subscription `SCHEDULED` và đánh dấu gói cũ kết
+thúc cuối kỳ. Khi buyer cần thêm capacity ngay, bán top-up thay vì sửa entitlement hoặc tính proration
+thủ công. Không xóa renewal/order đã phát sinh bằng SQL; xử lý qua trạng thái thanh toán/refund có audit.
+
 `V2K-*` là internal payment record, không phải hóa đơn điện tử hợp pháp. `taxDocumentRequested=true` chỉ
 ghi nhận nhu cầu của buyer để kế toán xử lý; không được đổi wording thành “đã phát hành”. Trước khi nhận
 tiền production, chọn nhà cung cấp hóa đơn điện tử, cấu hình seller identity/tax rate/signature, map

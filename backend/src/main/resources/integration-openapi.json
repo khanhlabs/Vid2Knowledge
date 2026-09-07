@@ -119,7 +119,7 @@
         "required": ["id", "type", "version", "occurredAt", "organizationId", "data"],
         "properties": {
           "id": { "type": "string", "format": "uuid" },
-          "type": { "type": "string", "enum": ["AnalysisCompleted", "AnalysisFailed", "PackagePublished", "AssignmentPublished", "AssessmentSubmitted", "DelayedRecallCompleted", "QualityIssueReported", "InvitationAccepted", "PaymentReceived", "SubscriptionCancellationScheduled"] },
+          "type": { "type": "string", "enum": ["AnalysisCompleted", "AnalysisFailed", "PackagePublished", "AssignmentPublished", "AssessmentSubmitted", "DelayedRecallCompleted", "QualityIssueReported", "InvitationAccepted", "PaymentReceived", "SubscriptionCancellationScheduled", "SubscriptionPlanChangeScheduled", "SubscriptionPlanChangeCancelled"] },
           "version": { "type": "integer", "minimum": 1 }, "occurredAt": { "type": "string", "format": "date-time" },
           "organizationId": { "type": "string", "format": "uuid" }, "data": { "type": "object", "additionalProperties": true }
         }

@@ -381,6 +381,25 @@ export function WorkspacePage() {
         queryKey: ['subscription', activeOrganizationId],
       }),
   })
+  const schedulePlanChange = useMutation({
+    mutationFn: (targetPlanId: string) =>
+      workspaceApi.schedulePlanChange(
+        activeOrganizationId,
+        subscription.data!.id,
+        targetPlanId,
+      ),
+    onSuccess: (updated) =>
+      queryClient.setQueryData(['subscription', activeOrganizationId], updated),
+  })
+  const cancelPlanChange = useMutation({
+    mutationFn: () =>
+      workspaceApi.cancelPlanChange(
+        activeOrganizationId,
+        subscription.data!.id,
+      ),
+    onSuccess: (updated) =>
+      queryClient.setQueryData(['subscription', activeOrganizationId], updated),
+  })
   const requestRefund = useMutation({
     mutationFn: () =>
       workspaceApi.requestRefund(
@@ -780,12 +799,24 @@ export function WorkspacePage() {
                       {new Date(subscription.data.periodEnd).toLocaleDateString(
                         'vi-VN',
                       )}
-                      {subscription.data.cancelAtPeriodEnd
-                        ? ' · sẽ dừng cuối kỳ'
-                        : ''}
+                      {subscription.data.nextPlanName
+                        ? ` · ${subscription.data.nextPlanPaid ? 'đã thanh toán, ' : ''}sẽ chuyển sang ${subscription.data.nextPlanName} cuối kỳ`
+                        : subscription.data.cancelAtPeriodEnd
+                          ? ' · sẽ dừng cuối kỳ'
+                          : ''}
                     </span>
                   </div>
-                  {!subscription.data.cancelAtPeriodEnd && (
+                  {subscription.data.nextPlanName &&
+                  !subscription.data.nextPlanPaid ? (
+                    <button
+                      className="text-button"
+                      disabled={cancelPlanChange.isPending}
+                      onClick={() => cancelPlanChange.mutate()}
+                    >
+                      Giữ gói hiện tại
+                    </button>
+                  ) : !subscription.data.nextPlanName &&
+                    !subscription.data.cancelAtPeriodEnd ? (
                     <button
                       className="text-button"
                       disabled={cancelSubscription.isPending}
@@ -795,7 +826,7 @@ export function WorkspacePage() {
                     >
                       Dừng cuối kỳ
                     </button>
-                  )}
+                  ) : null}
                 </article>
               )}
               {billingProfileDraft && (
@@ -1044,21 +1075,35 @@ export function WorkspacePage() {
                         className="small-button"
                         disabled={
                           checkout.isPending ||
-                          !billingProfile.data ||
+                          schedulePlanChange.isPending ||
+                          (!subscription.data && !billingProfile.data) ||
                           (plan.productType === 'TOP_UP' && !subscription.data)
                         }
                         title={
                           plan.productType === 'TOP_UP' && !subscription.data
                             ? 'Cần có thuê bao đang hoạt động trước khi nạp credit'
-                            : !billingProfile.data
+                            : !subscription.data && !billingProfile.data
                               ? 'Hãy lưu thông tin người mua trước khi thanh toán'
                               : undefined
                         }
-                        onClick={() => checkout.mutate(plan.id)}
+                        onClick={() => {
+                          if (
+                            subscription.data &&
+                            plan.productType === 'SUBSCRIPTION' &&
+                            plan.code !== subscription.data.planCode
+                          ) {
+                            schedulePlanChange.mutate(plan.id)
+                          } else {
+                            checkout.mutate(plan.id)
+                          }
+                        }}
                       >
                         {plan.productType === 'TOP_UP'
                           ? 'Nạp credit'
-                          : 'Chọn gói'}
+                          : subscription.data &&
+                              plan.code !== subscription.data.planCode
+                            ? 'Đổi cuối kỳ'
+                            : 'Chọn gói'}
                       </button>
                     </div>
                   </article>
@@ -1067,9 +1112,20 @@ export function WorkspacePage() {
               {checkout.isError && (
                 <p className="form-error">{errorMessage(checkout.error)}</p>
               )}
+              {schedulePlanChange.isError && (
+                <p className="form-error">
+                  {errorMessage(schedulePlanChange.error)}
+                </p>
+              )}
+              {cancelPlanChange.isError && (
+                <p className="form-error">
+                  {errorMessage(cancelPlanChange.error)}
+                </p>
+              )}
               <p className="fine-print">
                 Thanh toán qua PayOS. Quyền lợi chỉ được cấp sau khi webhook đã
-                được xác thực.
+                được xác thực. Đổi gói có hiệu lực ở kỳ kế tiếp và chỉ tạo yêu
+                cầu thanh toán trong 7 ngày trước ngày gia hạn.
               </p>
               {invoices.data && invoices.data.length > 0 && (
                 <div>

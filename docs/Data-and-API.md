@@ -186,6 +186,10 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `POST .../subscriptions/{id}/cancel` dừng cuối kỳ. Reconciliation task tạo duy nhất một
   renewal invoice/payment link trước 7 ngày; subscription quá hạn đi qua grace period
   `PAST_DUE` 7 ngày trước khi `EXPIRED`.
+- `POST|DELETE .../subscriptions/{id}/plan-change` đặt hoặc hủy đổi gói cuối kỳ trước khi renewal
+  được tạo. API không thu tiền lúc đặt; reconciliation dùng `next_plan_id`, tạo order đúng giá immutable
+  của gói kế tiếp và sau webhook mới tạo subscription `SCHEDULED`. Checkout trực tiếp sang gói khác
+  khi đang có thuê bao bị từ chối để không thu nguyên giá nhiều tháng trước ngày hưởng quyền lợi.
 - `POST .../refunds` chỉ nhận yêu cầu hoàn toàn bộ top-up còn đủ credit. Vì payOS không có
   refund API, internal task chỉ xác nhận sau khi operator đã hoàn tiền qua ngân hàng và nhập
   provider reference; lúc đó invoice/payment/order và credit được thu hồi trong một transaction.

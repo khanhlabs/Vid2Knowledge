@@ -76,6 +76,9 @@ export interface Subscription {
   periodStart: string
   periodEnd: string
   cancelAtPeriodEnd: boolean
+  nextPlanCode?: string | null
+  nextPlanName?: string | null
+  nextPlanPaid: boolean
 }
 
 export interface Invoice {
@@ -514,6 +517,20 @@ export const workspaceApi = {
     api<void>(
       `/api/v1/organizations/${organizationId}/billing/subscriptions/${subscriptionId}/cancel`,
       { method: 'POST' },
+    ),
+  schedulePlanChange: (
+    organizationId: string,
+    subscriptionId: string,
+    targetPlanId: string,
+  ) =>
+    api<Subscription>(
+      `/api/v1/organizations/${organizationId}/billing/subscriptions/${subscriptionId}/plan-change`,
+      { method: 'POST', body: JSON.stringify({ targetPlanId }) },
+    ),
+  cancelPlanChange: (organizationId: string, subscriptionId: string) =>
+    api<Subscription>(
+      `/api/v1/organizations/${organizationId}/billing/subscriptions/${subscriptionId}/plan-change`,
+      { method: 'DELETE' },
     ),
   registerSource: (organizationId: string, youtubeUrl: string) =>
     api<{ id: string; title: string; durationSeconds: number }>(

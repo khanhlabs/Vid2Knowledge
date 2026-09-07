@@ -139,15 +139,29 @@ public class BillingService {
         return jdbc.query(
                 """
                 SELECT s.id, p.code, p.name, s.status, s.current_period_start,
-                       s.current_period_end, s.cancel_at_period_end
+                       s.current_period_end, s.cancel_at_period_end,
+                       COALESCE(sp.code, np.code) AS next_plan_code,
+                       COALESCE(sp.name, np.name) AS next_plan_name,
+                       sp.id IS NOT NULL AS next_plan_paid
                 FROM subscriptions s JOIN pricing_plans p ON p.id = s.plan_id
+                LEFT JOIN pricing_plans np ON np.id = s.next_plan_id
+                LEFT JOIN LATERAL (
+                    SELECT scheduled.id, scheduled_plan.code, scheduled_plan.name
+                    FROM subscriptions scheduled
+                    JOIN pricing_plans scheduled_plan ON scheduled_plan.id = scheduled.plan_id
+                    WHERE scheduled.organization_id = s.organization_id
+                      AND scheduled.status = 'SCHEDULED'
+                    ORDER BY scheduled.current_period_start, scheduled.id LIMIT 1
+                ) sp ON TRUE
                 WHERE s.organization_id = ? AND s.status IN ('ACTIVE','PAST_DUE')
                 ORDER BY s.current_period_start DESC LIMIT 1
                 """,
                 (result, row) -> new SubscriptionView(
                         result.getObject("id", UUID.class), result.getString("code"), result.getString("name"),
                         result.getString("status"), result.getTimestamp("current_period_start").toInstant(),
-                        result.getTimestamp("current_period_end").toInstant(), result.getBoolean("cancel_at_period_end")
+                        result.getTimestamp("current_period_end").toInstant(), result.getBoolean("cancel_at_period_end"),
+                        result.getString("next_plan_code"), result.getString("next_plan_name"),
+                        result.getBoolean("next_plan_paid")
                 ),
                 organizationId
         ).stream().findFirst();
@@ -207,7 +221,9 @@ public class BillingService {
         }
         int updated = jdbc.update(
                 """
-                UPDATE subscriptions SET cancel_at_period_end = TRUE, cancelled_at = ?, updated_at = ?
+                UPDATE subscriptions SET cancel_at_period_end = TRUE, cancelled_at = ?,
+                    next_plan_id = NULL, plan_change_scheduled_at = NULL,
+                    plan_change_scheduled_by = NULL, updated_at = ?
                 WHERE id = ? AND organization_id = ? AND status = 'ACTIVE'
                 """,
                 Timestamp.from(now), Timestamp.from(now), subscriptionId, actor.organizationId()
@@ -238,6 +254,134 @@ public class BillingService {
                 Timestamp.from(now), Timestamp.from(now)
         );
         notifications.cancellationScheduled(actor.organizationId(), subscriptionId, periodEnds.getFirst());
+    }
+
+    public SubscriptionView schedulePlanChange(
+            CurrentActor actor, UUID subscriptionId, UUID targetPlanId, String correlationId
+    ) {
+        transactions.executeWithoutResult(status -> {
+            Instant now = clock.instant();
+            List<PlanChangeSource> sources = jdbc.query(
+                    """
+                    SELECT s.plan_id, s.current_period_end
+                    FROM subscriptions s
+                    WHERE s.id = ? AND s.organization_id = ? AND s.status = 'ACTIVE'
+                    FOR UPDATE
+                    """,
+                    (result, row) -> new PlanChangeSource(
+                            result.getObject("plan_id", UUID.class),
+                            result.getTimestamp("current_period_end").toInstant()
+                    ), subscriptionId, actor.organizationId()
+            );
+            if (sources.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Active subscription not found");
+            }
+            PlanChangeSource source = sources.getFirst();
+            if (source.planId().equals(targetPlanId)) {
+                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Target plan is already active");
+            }
+            Plan target = plans().stream()
+                    .filter(candidate -> candidate.id().equals(targetPlanId)
+                            && "SUBSCRIPTION".equals(candidate.productType()))
+                    .findFirst()
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Subscription plan not found"));
+            ensureRenewalNotStarted(subscriptionId, source.periodEnd());
+            jdbc.update(
+                    """
+                    UPDATE subscriptions SET next_plan_id = ?, plan_change_scheduled_at = ?,
+                        plan_change_scheduled_by = ?, cancel_at_period_end = FALSE,
+                        cancelled_at = NULL, updated_at = ? WHERE id = ?
+                    """,
+                    target.id(), Timestamp.from(now), actor.userId(), Timestamp.from(now), subscriptionId
+            );
+            appendPlanChangeAuditAndEvent(
+                    actor, subscriptionId, source.planId(), target.id(), source.periodEnd(), correlationId, now,
+                    "SUBSCRIPTION_PLAN_CHANGE_SCHEDULED", "SubscriptionPlanChangeScheduled"
+            );
+        });
+        return subscription(actor.organizationId()).orElseThrow();
+    }
+
+    public SubscriptionView cancelPlanChange(
+            CurrentActor actor, UUID subscriptionId, String correlationId
+    ) {
+        transactions.executeWithoutResult(status -> {
+            Instant now = clock.instant();
+            List<PlanChangeCancellation> changes = jdbc.query(
+                    """
+                    SELECT plan_id, next_plan_id, current_period_end FROM subscriptions
+                    WHERE id = ? AND organization_id = ? AND status = 'ACTIVE' AND next_plan_id IS NOT NULL
+                    FOR UPDATE
+                    """,
+                    (result, row) -> new PlanChangeCancellation(
+                            result.getObject("plan_id", UUID.class), result.getObject("next_plan_id", UUID.class),
+                            result.getTimestamp("current_period_end").toInstant()
+                    ), subscriptionId, actor.organizationId()
+            );
+            if (changes.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Scheduled plan change not found");
+            }
+            PlanChangeCancellation change = changes.getFirst();
+            ensureRenewalNotStarted(subscriptionId, change.periodEnd());
+            jdbc.update(
+                    """
+                    UPDATE subscriptions SET next_plan_id = NULL, plan_change_scheduled_at = NULL,
+                        plan_change_scheduled_by = NULL, updated_at = ? WHERE id = ?
+                    """,
+                    Timestamp.from(now), subscriptionId
+            );
+            appendPlanChangeAuditAndEvent(
+                    actor, subscriptionId, change.nextPlanId(), change.planId(), change.periodEnd(), correlationId, now,
+                    "SUBSCRIPTION_PLAN_CHANGE_CANCELLED", "SubscriptionPlanChangeCancelled"
+            );
+        });
+        return subscription(actor.organizationId()).orElseThrow();
+    }
+
+    private void ensureRenewalNotStarted(UUID subscriptionId, Instant periodEnd) {
+        Long renewal = jdbc.queryForObject(
+                """
+                SELECT count(*) FROM renewal_attempts
+                WHERE subscription_id = ? AND period_end = ?
+                """,
+                Long.class, subscriptionId, Timestamp.from(periodEnd)
+        );
+        if (renewal != null && renewal > 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "A renewal checkout already exists for this period"
+            );
+        }
+    }
+
+    private void appendPlanChangeAuditAndEvent(
+            CurrentActor actor, UUID subscriptionId, UUID fromPlanId, UUID toPlanId,
+            Instant effectiveAt, String correlationId, Instant now, String action, String eventType
+    ) {
+        jdbc.update(
+                """
+                INSERT INTO audit_logs(
+                    id, organization_id, actor_user_id, action, resource_type,
+                    resource_id, correlation_id, created_at
+                ) VALUES (?, ?, ?, ?, 'Subscription', ?, ?, ?)
+                """,
+                UuidV7Generator.generate(), actor.organizationId(), actor.userId(), action,
+                subscriptionId, correlationId, Timestamp.from(now)
+        );
+        jdbc.update(
+                """
+                INSERT INTO outbox_events(
+                    id, organization_id, event_type, event_version, aggregate_type,
+                    aggregate_id, correlation_id, payload_json, occurred_at, available_at
+                ) VALUES (?, ?, ?, 1, 'Subscription', ?, ?,
+                          jsonb_build_object('subscriptionId', CAST(? AS text),
+                                             'fromPlanId', CAST(? AS text),
+                                             'toPlanId', CAST(? AS text),
+                                             'effectiveAt', CAST(? AS text)), ?, ?)
+                """,
+                UuidV7Generator.generate(), actor.organizationId(), eventType, subscriptionId, correlationId,
+                subscriptionId, fromPlanId, toPlanId, effectiveAt.toString(),
+                Timestamp.from(now), Timestamp.from(now)
+        );
     }
 
     public Checkout checkout(CurrentActor actor, UUID planId, String idempotencyKey) {
@@ -312,6 +456,13 @@ public class BillingService {
             throw new ResponseStatusException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "Top-up requires a subscription active beyond the checkout window"
+            );
+        }
+        if (customerInitiated && "SUBSCRIPTION".equals(plan.productType())
+                && hasDifferentCurrentSubscription(actor.organizationId(), plan.id())) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Use the end-of-period plan change action for an active subscription"
             );
         }
         String normalizedPromotion = promotionCode == null || promotionCode.isBlank()
@@ -515,6 +666,17 @@ public class BillingService {
                   AND current_period_end > ?
                 """,
                 Long.class, organizationId, Timestamp.from(clock.instant().plus(payOs.checkoutTtl()))
+        );
+        return count != null && count > 0;
+    }
+
+    private boolean hasDifferentCurrentSubscription(UUID organizationId, UUID planId) {
+        Long count = jdbc.queryForObject(
+                """
+                SELECT count(*) FROM subscriptions
+                WHERE organization_id = ? AND status IN ('ACTIVE', 'PAST_DUE') AND plan_id <> ?
+                """,
+                Long.class, organizationId, planId
         );
         return count != null && count > 0;
     }
@@ -851,6 +1013,16 @@ public class BillingService {
             );
             return new SubscriptionPeriod(current.id(), start, end);
         }
+        if (current != null && !current.periodEnd().isBefore(now)) {
+            jdbc.update(
+                    """
+                    UPDATE subscriptions SET cancel_at_period_end = TRUE, cancelled_at = ?,
+                        next_plan_id = NULL, plan_change_scheduled_at = NULL,
+                        plan_change_scheduled_by = NULL, updated_at = ? WHERE id = ?
+                    """,
+                    Timestamp.from(now), Timestamp.from(now), current.id()
+            );
+        }
         String status = start.isAfter(now) ? "SCHEDULED" : "ACTIVE";
         UUID subscriptionId = UuidV7Generator.generate();
         jdbc.update(
@@ -987,7 +1159,8 @@ public class BillingService {
         Instant now = clock.instant();
         List<RenewalCandidate> candidates = jdbc.query(
                 """
-                SELECT s.id, s.organization_id, s.plan_id, s.current_period_end, m.user_id
+                SELECT s.id, s.organization_id, COALESCE(s.next_plan_id, s.plan_id) AS renewal_plan_id,
+                       s.current_period_end, m.user_id
                 FROM subscriptions s
                 JOIN LATERAL (
                     SELECT user_id FROM memberships
@@ -1004,7 +1177,7 @@ public class BillingService {
                 """,
                 (result, row) -> new RenewalCandidate(
                         result.getObject("id", UUID.class), result.getObject("organization_id", UUID.class),
-                        result.getObject("plan_id", UUID.class), result.getObject("user_id", UUID.class),
+                        result.getObject("renewal_plan_id", UUID.class), result.getObject("user_id", UUID.class),
                         result.getTimestamp("current_period_end").toInstant()
                 ), Timestamp.from(now), Timestamp.from(now.plus(Duration.ofDays(7)))
         );
@@ -1410,7 +1583,8 @@ public class BillingService {
 
     public record SubscriptionView(
             UUID id, String planCode, String planName, String status,
-            Instant periodStart, Instant periodEnd, boolean cancelAtPeriodEnd
+            Instant periodStart, Instant periodEnd, boolean cancelAtPeriodEnd,
+            String nextPlanCode, String nextPlanName, boolean nextPlanPaid
     ) {
     }
 
@@ -1481,6 +1655,10 @@ public class BillingService {
 
     private record SubscriptionCandidate(UUID id, UUID planId, String status, Instant periodEnd) {
     }
+
+    private record PlanChangeSource(UUID planId, Instant periodEnd) { }
+
+    private record PlanChangeCancellation(UUID planId, UUID nextPlanId, Instant periodEnd) { }
 
     private record SubscriptionPeriod(UUID subscriptionId, Instant periodStart, Instant periodEnd) {
     }
