@@ -36,16 +36,23 @@ public class CloudTasksEventPublisher implements EventPublisher {
     @Override
     public void publish(OutboxEvent event) {
         webhooks.ifAvailable(fanout -> fanout.fanout(event));
-        if (!"AnalysisRequested".equals(event.eventType())) {
+        String route = switch (event.eventType()) {
+            case "AnalysisRequested" -> "/internal/tasks/analysis/" + event.aggregateId();
+            case "SourceUploadIngestionRequested" -> "/internal/tasks/source-uploads/" + event.aggregateId();
+            default -> null;
+        };
+        if (route == null) {
             return;
         }
         String parent = "projects/" + properties.project()
                 + "/locations/" + properties.location()
                 + "/queues/" + properties.analysisQueue();
-        String target = properties.workerBaseUrl().resolve("/internal/tasks/analysis/" + event.aggregateId()).toString();
+        String target = properties.workerBaseUrl().resolve(route).toString();
+        String taskPrefix = "AnalysisRequested".equals(event.eventType()) ? "analysis-" : "source-ingestion-";
         Map<String, Object> request = Map.of(
                 "task", Map.of(
-                        "name", parent + "/tasks/analysis-" + event.id(),
+                        "name", parent + "/tasks/" + taskPrefix + event.id(),
+                        "dispatchDeadline", "1800s",
                         "httpRequest", Map.of(
                                 "httpMethod", "POST",
                                 "url", target,

@@ -1,6 +1,7 @@
 package com.vid2knowledge.analysis.application;
 
 import com.vid2knowledge.analysis.domain.LearningPackage;
+import com.vid2knowledge.analysis.domain.AnalysisSource;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import org.springframework.stereotype.Component;
@@ -13,7 +14,7 @@ import java.util.List;
 @Component
 public class LearningPackageCodec {
 
-    public static final String SCHEMA_VERSION = "learning-package-v2";
+    public static final String SCHEMA_VERSION = "learning-package-v3";
 
     private final ObjectMapper objectMapper;
     private final Validator validator;
@@ -24,12 +25,20 @@ public class LearningPackageCodec {
     }
 
     public LearningPackage parseAndValidate(String rawOutput, String canonicalSourceUri) {
-        return parseAndValidate(rawOutput, canonicalSourceUri, Long.MAX_VALUE);
+        return parseAndValidate(rawOutput, AnalysisSource.youtube(canonicalSourceUri), Long.MAX_VALUE);
     }
 
     public LearningPackage parseAndValidate(
             String rawOutput,
             String canonicalSourceUri,
+            long sourceDurationSeconds
+    ) {
+        return parseAndValidate(rawOutput, AnalysisSource.youtube(canonicalSourceUri), sourceDurationSeconds);
+    }
+
+    public LearningPackage parseAndValidate(
+            String rawOutput,
+            AnalysisSource source,
             long sourceDurationSeconds
     ) {
         LearningPackage parsed;
@@ -39,12 +48,15 @@ public class LearningPackageCodec {
             throw new InvalidLearningPackageException("AI returned malformed LearningPackage JSON", exception);
         }
 
-        String videoId = new YoutubeUrlParser().parse(canonicalSourceUri).videoId();
+        String videoId = source.type() == AnalysisSource.Type.YOUTUBE
+                ? new YoutubeUrlParser().parse(source.canonicalUri()).videoId() : null;
         parsed = new LearningPackage(
                 SCHEMA_VERSION,
                 new LearningPackage.Video(
-                        canonicalSourceUri,
+                        source.type() == AnalysisSource.Type.YOUTUBE ? source.canonicalUri() : null,
                         videoId,
+                        source.type().name(),
+                        source.type() == AnalysisSource.Type.YOUTUBE ? videoId : source.id().toString(),
                         parsed.video().title(),
                         parsed.video().language()
                 ),

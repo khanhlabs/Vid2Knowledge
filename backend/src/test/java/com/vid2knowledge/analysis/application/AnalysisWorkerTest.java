@@ -50,8 +50,8 @@ class AnalysisWorkerTest {
                 eq(item), eq("worker-1"),
                 org.mockito.ArgumentMatchers.argThat(cost ->
                         cost.actualCostMicrousd() == 188 && cost.shadowCostMicrousd() == 375),
-                org.mockito.ArgumentMatchers.contains(item.sourceUri()),
-                eq("learning-package-v2"), eq("learning-package-v2"), eq(NOW)
+                org.mockito.ArgumentMatchers.contains(item.source().canonicalUri()),
+                eq("learning-package-v3"), eq("learning-package-v3"), eq(NOW)
         );
         verify(completion, never()).fail(any(), any(), any(), any(), any(),
                 org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(), any());
@@ -71,7 +71,7 @@ class AnalysisWorkerTest {
 
         verify(completion).fail(
                 eq(item), eq("worker-1"), any(), eq("INVALID_AI_OUTPUT"), any(), eq(true),
-                eq(NOW), eq("learning-package-v2"), eq("learning-package-v2"), eq(NOW)
+                eq(NOW), eq("learning-package-v3"), eq("learning-package-v3"), eq(NOW)
         );
     }
 
@@ -91,8 +91,8 @@ class AnalysisWorkerTest {
 
         verify(completion).fail(
                 eq(item), eq("worker-1"), eq(null), eq("PROVIDER_ERROR"), eq("temporary outage"),
-                eq(false), eq(NOW.plusSeconds(60)), eq("learning-package-v2"),
-                eq("learning-package-v2"), eq(NOW)
+                eq(false), eq(NOW.plusSeconds(60)), eq("learning-package-v3"),
+                eq("learning-package-v3"), eq(NOW)
         );
     }
 
@@ -113,7 +113,7 @@ class AnalysisWorkerTest {
         verify(completion).fail(
                 eq(item), eq("worker-1"), eq(null), eq("PROVIDER_ERROR"),
                 eq("Gemini request failed with HTTP 400"), eq(true), eq(NOW),
-                eq("learning-package-v2"), eq("learning-package-v2"), eq(NOW)
+                eq("learning-package-v3"), eq("learning-package-v3"), eq(NOW)
         );
     }
 
@@ -142,7 +142,9 @@ class AnalysisWorkerTest {
                 AnalysisJob.State.PROCESSING, "fingerprint", "key", "GOOGLE_GEMINI",
                 "gemini-3.7-flash", attempt, NOW
         );
-        return new AnalysisWorkItem(job, "https://www.youtube.com/watch?v=abcdefghijk", "{}", "corr", 300);
+        return new AnalysisWorkItem(job,
+                com.vid2knowledge.analysis.domain.AnalysisSource.youtube(
+                        "https://www.youtube.com/watch?v=abcdefghijk"), "{}", "corr", 300);
     }
 
     private static AiGenerationResult generation(String output) {

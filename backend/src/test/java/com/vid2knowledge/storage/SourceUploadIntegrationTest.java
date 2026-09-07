@@ -3,6 +3,7 @@ package com.vid2knowledge.storage;
 import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.config.ObjectStorageProperties;
+import com.vid2knowledge.analysis.infrastructure.GeminiFileClient;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.net.URI;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
@@ -26,6 +29,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @Testcontainers
 class SourceUploadIntegrationTest {
@@ -61,7 +68,7 @@ class SourceUploadIntegrationTest {
         storage = new FakeStorage();
         var properties = new ObjectStorageProperties(
                 true, URI.create("https://account.r2.cloudflarestorage.com"), "private",
-                "access", "secret", 500_000_000, Duration.ofMinutes(15)
+                "access", "secret", 500_000_000, 14_400, Duration.ofMinutes(15)
         );
         service = new SourceUploadService(
                 jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource)), storage,
@@ -108,6 +115,69 @@ class SourceUploadIntegrationTest {
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("402");
         assertThatThrownBy(() -> service.reserve(owner, "file.exe", "application/octet-stream", 2_048, "corr-type"))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.reserve(owner, "training\r\n.mp4", "video/mp4", 2_048, "corr-control"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Filename is invalid");
+    }
+
+    @Test
+    void ingestsVerifiedUploadIntoDurableTenantSourceWithRights() {
+        var reservation = service.reserve(owner, "company-training.mp4", "video/mp4", 12_345, "corr-reserve");
+        storage.object = new ObjectStorage.StoredObject(12_345, "video/mp4", "etag");
+        storage.prefix = new byte[]{0, 0, 0, 24, 'f', 't', 'y', 'p'};
+        service.complete(owner, reservation.id(), "corr-complete");
+
+        var requested = service.requestIngestion(
+                owner, reservation.id(),
+                com.vid2knowledge.analysis.application.RegisterYoutubeSourceService.RightsBasis.OWNER,
+                true, "vi", "corr-ingest"
+        );
+        assertThat(requested.state()).isEqualTo("PROCESSING");
+
+        GeminiFileClient files = mock(GeminiFileClient.class);
+        when(files.uploadAndAwait(storage.key, "company-training.mp4", "video/mp4", 12_345))
+                .thenReturn(new GeminiFileClient.UploadedFile("files/private-1", "gemini://private-1", "video/mp4", 601));
+        var worker = new SourceIngestionWorker(
+                jdbc, new TransactionTemplate(new DataSourceTransactionManager(
+                new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+        )), storage, files, new ObjectStorageProperties(
+                true, URI.create("https://account.r2.cloudflarestorage.com"), "private",
+                "access", "secret", 500_000_000, 14_400, Duration.ofMinutes(15)
+        ), Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(worker.process(reservation.id(), "worker-1"))
+                .isEqualTo(SourceIngestionWorker.WorkResult.COMPLETED);
+        var ready = service.list(owner.organizationId()).getFirst();
+        assertThat(ready.state()).isEqualTo("READY");
+        assertThat(ready.sourceId()).isNotNull();
+        assertThat(storage.copiedSource).isEqualTo(storage.key);
+        assertThat(storage.copiedDestination)
+                .isEqualTo("organizations/" + owner.organizationId() + "/sources/" + ready.sourceId() + ".mp4");
+        assertThat(jdbc.queryForObject(
+                "SELECT duration_seconds FROM sources WHERE id = ? AND organization_id = ?",
+                Long.class, ready.sourceId(), owner.organizationId()
+        )).isEqualTo(601L);
+        assertThat(jdbc.queryForObject(
+                "SELECT basis FROM rights_attestations WHERE source_id = ?", String.class, ready.sourceId()
+        )).isEqualTo("OWNER");
+        var playback = new PrivateSourcePlaybackService(jdbc, storage, new ObjectStorageProperties(
+                true, URI.create("https://account.r2.cloudflarestorage.com"), "private",
+                "access", "secret", 500_000_000, 14_400, Duration.ofMinutes(15)
+        )).create(owner, ready.sourceId());
+        assertThat(playback.url().getHost()).isEqualTo("download.example.com");
+
+        CurrentActor unrelatedLearner = seedOrganization("unrelated-learner");
+        unrelatedLearner = new CurrentActor(
+                unrelatedLearner.userId(), unrelatedLearner.organizationId(), CurrentActor.Role.LEARNER
+        );
+        CurrentActor finalUnrelatedLearner = unrelatedLearner;
+        assertThatThrownBy(() -> new PrivateSourcePlaybackService(jdbc, storage,
+                new ObjectStorageProperties(
+                        true, URI.create("https://account.r2.cloudflarestorage.com"), "private",
+                        "access", "secret", 500_000_000, 14_400, Duration.ofMinutes(15)
+                )).create(finalUnrelatedLearner, ready.sourceId()))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("404");
+        verify(files, never()).deleteQuietly("files/private-1");
     }
 
     private CurrentActor seedPaidTeam() {
@@ -156,6 +226,8 @@ class SourceUploadIntegrationTest {
         private String deletedKey;
         private StoredObject object;
         private byte[] prefix;
+        private String copiedSource;
+        private String copiedDestination;
 
         @Override
         public URI presignPut(String objectKey, String contentType, long contentLength, Duration duration) {
@@ -173,6 +245,22 @@ class SourceUploadIntegrationTest {
         public byte[] readPrefix(String objectKey, int length) {
             assertThat(objectKey).isEqualTo(key);
             return prefix;
+        }
+
+        @Override
+        public InputStream open(String objectKey) {
+            return new ByteArrayInputStream(prefix == null ? new byte[0] : prefix);
+        }
+
+        @Override
+        public void copy(String sourceObjectKey, String destinationObjectKey) {
+            copiedSource = sourceObjectKey;
+            copiedDestination = destinationObjectKey;
+        }
+
+        @Override
+        public URI presignGet(String objectKey, Duration duration) {
+            return URI.create("https://download.example.com/presigned");
         }
 
         @Override

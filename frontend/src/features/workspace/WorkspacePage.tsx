@@ -10,6 +10,7 @@ function errorMessage(error: unknown) {
   if (error instanceof ApiError) {
     return `${error.message}${error.correlationId ? ` · Mã hỗ trợ ${error.correlationId}` : ''}`
   }
+  if (error instanceof Error) return error.message
   return 'Đã có lỗi không mong muốn. Vui lòng thử lại.'
 }
 
@@ -29,6 +30,10 @@ export function WorkspacePage() {
   )
   const [organizationName, setOrganizationName] = useState('')
   const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [sourceMode, setSourceMode] = useState<'YOUTUBE' | 'UPLOAD'>('YOUTUBE')
+  const [sourceFile, setSourceFile] = useState<File | null>(null)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadStage, setUploadStage] = useState('')
   const [templateId, setTemplateId] = useState('')
   const [job, setJob] = useState<AnalysisJob | null>(null)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -147,6 +152,68 @@ export function WorkspacePage() {
       })
     },
   })
+  const analyzeUpload = useMutation({
+    mutationFn: async () => {
+      if (!sourceFile) throw new Error('Hãy chọn một file MP4 hoặc WebM.')
+      if (!/\.(mp4|webm)$/i.test(sourceFile.name)) {
+        throw new Error('Hiện chỉ hỗ trợ file MP4 hoặc WebM.')
+      }
+      if (sourceFile.size < 1_024 || sourceFile.size > 524_288_000) {
+        throw new Error('File phải từ 1 KB đến 500 MiB.')
+      }
+      setUploadStage('Đang cấp vùng tải lên riêng tư…')
+      const reservation = await workspaceApi.reserveSourceUpload(
+        activeOrganizationId,
+        sourceFile,
+      )
+      setUploadStage('Đang tải trực tiếp lên kho riêng tư…')
+      await workspaceApi.putSourceUpload(
+        reservation,
+        sourceFile,
+        setUploadProgress,
+      )
+      setUploadStage('Đang xác minh loại và kích thước file…')
+      await workspaceApi.completeSourceUpload(
+        activeOrganizationId,
+        reservation.id,
+      )
+      setUploadStage('Đang đọc metadata video…')
+      await workspaceApi.ingestSourceUpload(
+        activeOrganizationId,
+        reservation.id,
+      )
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2_500))
+        const upload = (
+          await workspaceApi.sourceUploads(activeOrganizationId)
+        ).find((item) => item.id === reservation.id)
+        if (!upload) throw new Error('Không còn tìm thấy phiên upload.')
+        if (upload.state === 'REJECTED' || upload.state === 'EXPIRED') {
+          throw new Error(
+            `Video không được tiếp nhận: ${upload.failureReason ?? upload.state}`,
+          )
+        }
+        if (upload.state === 'READY' && upload.sourceId) {
+          setUploadStage('Đang giữ quota và tạo bản nháp…')
+          return workspaceApi.createAnalysis(
+            activeOrganizationId,
+            upload.sourceId,
+            templateId || undefined,
+          )
+        }
+      }
+      throw new Error('Xử lý video quá thời gian chờ. Bạn có thể thử lại sau.')
+    },
+    onSuccess: (created) => {
+      setJob(created)
+      setSourceFile(null)
+      setUploadProgress(0)
+      setUploadStage('')
+      void queryClient.invalidateQueries({
+        queryKey: ['usage', activeOrganizationId],
+      })
+    },
+  })
   const checkout = useMutation({
     mutationFn: (planId: string) =>
       workspaceApi.checkout(activeOrganizationId, planId),
@@ -216,7 +283,8 @@ export function WorkspacePage() {
   }
   const submitAnalysis = (event: FormEvent) => {
     event.preventDefault()
-    analyze.mutate()
+    if (sourceMode === 'UPLOAD') analyzeUpload.mutate()
+    else analyze.mutate()
   }
 
   if (me.isPending)
@@ -351,19 +419,62 @@ export function WorkspacePage() {
               <p className="eyebrow">TẠO HỌC LIỆU</p>
               <h2>Phân tích video có quyền sử dụng</h2>
               <p>
-                Dán video YouTube công khai của tổ chức. Thời lượng được kiểm
-                tra phía server trước khi giữ quota.
+                Dùng video YouTube công khai hoặc upload video riêng mà tổ chức
+                có quyền sử dụng. Thời lượng luôn được kiểm tra phía server
+                trước khi giữ quota.
               </p>
               <form onSubmit={submitAnalysis}>
-                <label htmlFor="workspace-youtube-url">URL YouTube</label>
-                <input
-                  id="workspace-youtube-url"
-                  type="url"
-                  value={youtubeUrl}
-                  onChange={(event) => setYoutubeUrl(event.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=…"
-                  required
-                />
+                <label htmlFor="workspace-source-mode">Loại nguồn</label>
+                <select
+                  id="workspace-source-mode"
+                  value={sourceMode}
+                  onChange={(event) =>
+                    setSourceMode(event.target.value as 'YOUTUBE' | 'UPLOAD')
+                  }
+                >
+                  <option value="YOUTUBE">YouTube công khai</option>
+                  <option value="UPLOAD">Video riêng của tổ chức</option>
+                </select>
+                {sourceMode === 'YOUTUBE' ? (
+                  <>
+                    <label htmlFor="workspace-youtube-url">URL YouTube</label>
+                    <input
+                      id="workspace-youtube-url"
+                      type="url"
+                      value={youtubeUrl}
+                      onChange={(event) => setYoutubeUrl(event.target.value)}
+                      placeholder="https://www.youtube.com/watch?v=…"
+                      required
+                    />
+                  </>
+                ) : (
+                  <>
+                    <label htmlFor="workspace-source-file">
+                      File MP4 hoặc WebM
+                    </label>
+                    <input
+                      id="workspace-source-file"
+                      type="file"
+                      accept="video/mp4,video/webm,.mp4,.webm"
+                      onChange={(event) =>
+                        setSourceFile(event.target.files?.[0] ?? null)
+                      }
+                      required
+                    />
+                    <p className="fine-print">
+                      Tối đa 500 MiB và 4 giờ. Upload riêng tư chỉ có trong gói
+                      Training Team hoặc Business.
+                    </p>
+                    {uploadStage && (
+                      <div className="job-status processing" role="status">
+                        <strong>{uploadStage}</strong>
+                        {uploadProgress > 0 && (
+                          <span>{uploadProgress}% đã tải</span>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
                 <label htmlFor="workspace-template">Template đầu ra</label>
                 <select
                   id="workspace-template"
@@ -383,14 +494,16 @@ export function WorkspacePage() {
                   <input type="checkbox" required /> Tôi xác nhận tổ chức có
                   quyền dùng video này để tạo học liệu.
                 </label>
-                <button disabled={analyze.isPending}>
-                  {analyze.isPending
+                <button disabled={analyze.isPending || analyzeUpload.isPending}>
+                  {analyze.isPending || analyzeUpload.isPending
                     ? 'Đang kiểm tra nguồn…'
                     : 'Tạo bản nháp có kiểm duyệt'}
                 </button>
               </form>
-              {analyze.isError && (
-                <p className="form-error">{errorMessage(analyze.error)}</p>
+              {(analyze.isError || analyzeUpload.isError) && (
+                <p className="form-error">
+                  {errorMessage(analyze.error ?? analyzeUpload.error)}
+                </p>
               )}
               {currentJob && (
                 <div className={`job-status ${currentJob.state.toLowerCase()}`}>

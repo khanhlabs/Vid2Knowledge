@@ -17,7 +17,12 @@ export interface QuizQuestion {
 export interface Assignment extends AssignmentSummary {
   packageRevisionId: string
   content: {
-    video?: { title?: string; youtubeUrl?: string }
+    video?: {
+      title?: string
+      youtubeUrl?: string | null
+      sourceType?: 'YOUTUBE' | 'UPLOAD'
+      sourceId?: string
+    }
     summary?: {
       overview?: string
       sections?: Array<{ title: string; content: string[] }>
@@ -186,7 +191,18 @@ export interface GroundedAnswer {
   createdAt: string
 }
 
+export interface PlaybackUrl {
+  sourceId: string
+  contentType: string
+  url: string
+  expiresAt: string
+}
+
 export const learnerApi = {
+  playback: (organizationId: string, sourceId: string) =>
+    api<PlaybackUrl>(
+      `/api/v1/organizations/${organizationId}/sources/${sourceId}/playback`,
+    ),
   assignments: (organizationId: string) =>
     api<AssignmentSummary[]>(
       `/api/v1/organizations/${organizationId}/learner/assignments`,

@@ -65,6 +65,22 @@ export function LearnerPage() {
     queryFn: () => learnerApi.assessmentOverview(organizationId, lesson!.id),
     enabled: Boolean(organizationId && lesson?.id),
   })
+  const playback = useQuery({
+    queryKey: [
+      'private-source-playback',
+      organizationId,
+      lesson?.content.video?.sourceId,
+    ],
+    queryFn: () =>
+      learnerApi.playback(organizationId, lesson!.content.video!.sourceId!),
+    enabled: Boolean(
+      organizationId &&
+      lesson?.content.video?.sourceType === 'UPLOAD' &&
+      lesson.content.video.sourceId,
+    ),
+    staleTime: 10 * 60 * 1000,
+    refetchInterval: 10 * 60 * 1000,
+  })
   const start = useMutation({
     mutationFn: (id: string) => learnerApi.start(organizationId, id),
     onSuccess: (item) => {
@@ -227,6 +243,26 @@ export function LearnerPage() {
                 Mở video nguồn ↗
               </a>
             )}
+            {lesson.content.video?.sourceType === 'UPLOAD' && playback.data && (
+              <video
+                controls
+                preload="metadata"
+                src={playback.data.url}
+                className="private-source-player"
+              >
+                Trình duyệt của bạn không hỗ trợ phát video HTML5.
+              </video>
+            )}
+            {lesson.content.video?.sourceType === 'UPLOAD' &&
+              playback.isPending && (
+                <p role="status">Đang cấp quyền xem video riêng tư…</p>
+              )}
+            {lesson.content.video?.sourceType === 'UPLOAD' &&
+              playback.isError && (
+                <p className="form-error">
+                  Không thể cấp quyền xem video nguồn.
+                </p>
+              )}
             <p className="lesson-overview">
               {lesson.content.summary?.overview}
             </p>
@@ -258,7 +294,9 @@ export function LearnerPage() {
                       href={
                         lesson.content.video?.youtubeUrl
                           ? `${lesson.content.video.youtubeUrl}&t=${citation.timestampSeconds}s`
-                          : undefined
+                          : playback.data?.url
+                            ? `${playback.data.url}#t=${citation.timestampSeconds}`
+                            : undefined
                       }
                       target="_blank"
                       rel="noreferrer"

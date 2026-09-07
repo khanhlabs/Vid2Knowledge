@@ -1,6 +1,6 @@
 # Vid2Knowledge
 
-Vid2Knowledge is a web application that turns supported public YouTube videos into evidence-linked active-learning materials. A user submits a YouTube URL, and the backend uses Gemini to generate structured notes, key takeaways, flashcards, and quizzes.
+Vid2Knowledge turns supported public YouTube videos and authorised buyer-owned private videos into evidence-linked active-learning materials. The backend uses Gemini to generate structured notes, key takeaways, flashcards, and quizzes while enforcing tenant rights, quota, and cost controls.
 
 The repository contains an actively implemented B2B2C MVP with tenant isolation, authoring and learning workflows, billing, privacy controls, buyer-outcome analytics, and account-level profitability controls. Public production launch remains gated by real paid-pilot evidence, the Gemini benchmark, legal review, and configured cloud/provider credentials.
 
@@ -24,6 +24,7 @@ The repository contains an actively implemented B2B2C MVP with tenant isolation,
 This list is updated as the product evolves.
 
 - YouTube URL submission and validation
+- Direct private MP4/WebM upload, rights attestation, and assignment-scoped playback
 - AI-powered video analysis with Gemini
 - Structured learning summaries
 - Key takeaways

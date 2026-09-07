@@ -114,8 +114,10 @@ export interface SourceReference {
 export interface LearningPackageContent {
   schemaVersion: string
   video: {
-    youtubeUrl: string
-    videoId: string
+    youtubeUrl?: string | null
+    videoId?: string | null
+    sourceType: 'YOUTUBE' | 'UPLOAD'
+    sourceId: string
     title: string
     language: string
   }
@@ -147,6 +149,35 @@ export interface LearningPackageContent {
     explanation: string
     source: SourceReference
   }>
+}
+
+export interface SourceUpload {
+  id: string
+  filename: string
+  contentType: string
+  sizeBytes: number
+  state:
+    | 'REQUESTED'
+    | 'STORAGE_VERIFIED'
+    | 'PROCESSING'
+    | 'READY'
+    | 'REJECTED'
+    | 'EXPIRED'
+  failureReason?: string
+  expiresAt: string
+  verifiedAt?: string
+  createdAt: string
+  sourceId?: string
+}
+
+export interface SourceUploadReservation {
+  id: string
+  filename: string
+  contentType: string
+  sizeBytes: number
+  uploadUrl: string
+  requiredHeaders: Record<string, string>
+  expiresAt: string
 }
 
 export interface Member {
@@ -397,6 +428,68 @@ export const workspaceApi = {
           termsAccepted: true,
         }),
       },
+    ),
+  reserveSourceUpload: (organizationId: string, file: File) =>
+    api<SourceUploadReservation>(
+      `/api/v1/organizations/${organizationId}/source-uploads`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          filename: file.name,
+          contentType:
+            file.type ||
+            (file.name.toLowerCase().endsWith('.webm')
+              ? 'video/webm'
+              : 'video/mp4'),
+          sizeBytes: file.size,
+        }),
+      },
+    ),
+  putSourceUpload: (
+    reservation: SourceUploadReservation,
+    file: File,
+    onProgress: (percent: number) => void,
+  ) =>
+    new Promise<void>((resolve, reject) => {
+      const request = new XMLHttpRequest()
+      request.open('PUT', reservation.uploadUrl)
+      Object.entries(reservation.requiredHeaders).forEach(([name, value]) =>
+        request.setRequestHeader(name, value),
+      )
+      request.upload.onprogress = (event) => {
+        if (event.lengthComputable)
+          onProgress(Math.round((event.loaded / event.total) * 100))
+      }
+      request.onload = () => {
+        if (request.status >= 200 && request.status < 300) resolve()
+        else
+          reject(
+            new Error(`Object storage từ chối upload (${request.status}).`),
+          )
+      }
+      request.onerror = () => reject(new Error('Mất kết nối khi upload video.'))
+      request.send(file)
+    }),
+  completeSourceUpload: (organizationId: string, uploadId: string) =>
+    api<SourceUpload>(
+      `/api/v1/organizations/${organizationId}/source-uploads/${uploadId}/complete`,
+      { method: 'POST' },
+    ),
+  ingestSourceUpload: (organizationId: string, uploadId: string) =>
+    api<SourceUpload>(
+      `/api/v1/organizations/${organizationId}/source-uploads/${uploadId}/ingest`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          rightsBasis: 'OWNER',
+          termsAccepted: true,
+          languageHint: 'vi',
+        }),
+      },
+    ),
+  sourceUploads: (organizationId: string) =>
+    api<SourceUpload[]>(
+      `/api/v1/organizations/${organizationId}/source-uploads`,
     ),
   createAnalysis: (
     organizationId: string,

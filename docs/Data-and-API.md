@@ -23,6 +23,8 @@
 
 - `courses`, `course_modules`, `lessons`; có position và publication state.
 - `sources(id, organization_id, type, canonical_uri, external_id, content_hash, rights_attestation_id, metadata_json)`.
+- `source_uploads` giữ reservation, declared metadata, processing lease/attempt, rights basis và resulting
+  `source_id`; object key bền vững chỉ nằm trong server-side source metadata.
 - `rights_attestations(id, organization_id, source_id, attested_by, basis, terms_version, attested_at)`.
 - `analysis_jobs(id, organization_id, source_id, profile_id, state, attempt, idempotency_key, provider_config_id, reserved_usage_id, error_code, version, timestamps...)`.
 - `generation_runs(id, job_id, provider, model, prompt_version, schema_version, request_fingerprint, usage_json, actual_cost, shadow_cost, latency_ms, output_json, created_at)`; immutable.
@@ -105,12 +107,17 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 
 - CRUD `/organizations/{orgId}/courses`, modules và lessons.
 - Private source upload (OWNER/ADMIN/INSTRUCTOR; chỉ Training Team/Business đang active):
-  - `POST .../source-uploads` reserve một object 1 KB–500 MB cho `video/mp4|video/webm`, trả
+  - `POST .../source-uploads` reserve một object 1 KB–500 MiB cho `video/mp4|video/webm`, trả
     presigned PUT 15 phút và exact required headers. Filename không đi vào object key.
   - Browser PUT thẳng vào private R2; `POST .../source-uploads/{uploadId}/complete` HEAD lại exact
     byte count/content type và kiểm tra magic bytes trước khi đổi sang `STORAGE_VERIFIED`.
   - `GET .../source-uploads` tenant-scoped. Completion idempotent; mismatch bị `REJECTED` và xóa object.
     Tối đa 10 reservation pending/tổ chức để chặn storage abuse.
+  - `POST .../source-uploads/{uploadId}/ingest` chốt rights basis/language và queue ingestion. Worker stream
+    R2 → Gemini Files API, lấy duration provider-verified, copy-then-commit sang durable tenant key và trả
+    `sourceId` khi `READY`. File Gemini được reuse cho analysis kế tiếp rồi xóa; nếu hết TTL thì upload lại.
+- `GET .../sources/{sourceId}/playback` trả presigned GET 15 phút. Staff cùng tenant được xem; LEARNER chỉ
+  được ký URL khi có assignment published, available và trỏ tới đúng source.
 - `POST .../sources` validate source và rights attestation.
 - `POST .../analyses` với `Idempotency-Key`; trả `202` + job URI.
 - `GET/POST .../analysis-jobs/{jobId}` cho status/cancel/retry hợp lệ.

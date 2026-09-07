@@ -20,11 +20,16 @@ public record LearningPackage(
 ) {
 
     public record Video(
-            @NotBlank String youtubeUrl,
+            String youtubeUrl,
             @Pattern(regexp = "^[A-Za-z0-9_-]{11}$") String videoId,
+            @NotBlank @Pattern(regexp = "^(YOUTUBE|UPLOAD)$") String sourceType,
+            @NotBlank @Size(max = 80) String sourceId,
             @NotBlank @Size(max = 300) String title,
             @NotBlank @Size(max = 16) String language
     ) {
+        public Video(String youtubeUrl, String videoId, String title, String language) {
+            this(youtubeUrl, videoId, "YOUTUBE", videoId, title, language);
+        }
     }
 
     public record SourceReference(

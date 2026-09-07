@@ -5,6 +5,8 @@ import com.vid2knowledge.analysis.application.port.AiGenerationResult;
 import com.vid2knowledge.analysis.application.port.KnowledgeAiProvider;
 import com.vid2knowledge.config.GeminiProperties;
 import com.vid2knowledge.analysis.application.AiProviderException;
+import com.vid2knowledge.analysis.domain.AnalysisSource;
+import org.springframework.beans.factory.ObjectProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -23,11 +25,14 @@ public class GeminiInteractionClient implements VideoAnalysisProvider, Knowledge
     private final RestClient restClient;
     private final GeminiProperties properties;
     private final AiProviderCircuitBreaker circuitBreaker;
+    private final ObjectProvider<GeminiFileClient> fileClients;
     private static final Logger log = LoggerFactory.getLogger(GeminiInteractionClient.class);
 
-    public GeminiInteractionClient(GeminiProperties properties, AiProviderCircuitBreaker circuitBreaker){
+    public GeminiInteractionClient(GeminiProperties properties, AiProviderCircuitBreaker circuitBreaker,
+                                   ObjectProvider<GeminiFileClient> fileClients){
         this.properties = properties;
         this.circuitBreaker = circuitBreaker;
+        this.fileClients = fileClients;
 
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.timeout());
@@ -99,12 +104,31 @@ public class GeminiInteractionClient implements VideoAnalysisProvider, Knowledge
     @Override
     public AiGenerationResult generateLearningPackage(
             String prompt,
-            String canonicalYoutubeUrl
+            AnalysisSource source
     ) {
-        return generateText(List.of(
-                Map.of("type", "video", "uri", canonicalYoutubeUrl),
-                Map.of("type", "text", "text", prompt)
-        ));
+        if (source.type() == AnalysisSource.Type.YOUTUBE) {
+            return generateText(List.of(
+                    Map.of("type", "video", "uri", source.canonicalUri()),
+                    Map.of("type", "text", "text", prompt)
+            ));
+        }
+        GeminiFileClient files = fileClients.getIfAvailable();
+        if (files == null || source.objectKey() == null || source.contentType() == null
+                || source.contentLength() <= 0) {
+            throw new AiProviderException("Private source processing is not configured", false);
+        }
+        GeminiFileClient.UploadedFile uploaded = files.findActive(source.providerFileName(), source.contentType())
+                .orElseGet(() -> files.uploadAndAwait(
+                        source.objectKey(), "source-" + source.id(), source.contentType(), source.contentLength()
+                ));
+        try {
+            return generateText(List.of(
+                    Map.of("type", "video", "uri", uploaded.uri(), "mime_type", uploaded.contentType()),
+                    Map.of("type", "text", "text", prompt)
+            ));
+        } finally {
+            files.deleteQuietly(uploaded.name());
+        }
     }
 
     private AiGenerationResult generateText(List<Map<String, String>> input) {

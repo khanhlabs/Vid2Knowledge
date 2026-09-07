@@ -5,6 +5,7 @@ import com.vid2knowledge.analysis.application.AnalysisLeaseLostException;
 import com.vid2knowledge.analysis.application.port.AnalysisJobStore;
 import com.vid2knowledge.analysis.domain.AnalysisJob;
 import com.vid2knowledge.analysis.domain.AnalysisWorkItem;
+import com.vid2knowledge.analysis.domain.AnalysisSource;
 import com.vid2knowledge.analysis.domain.GenerationAccounting;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -164,7 +165,11 @@ public class JdbcAnalysisJobStore implements AnalysisJobStore {
                   )
                 SELECT c.id, c.organization_id, c.source_id, c.usage_reservation_id, c.state,
                        c.request_fingerprint, c.idempotency_key, c.provider, c.model, c.attempt,
-                       c.queued_at, c.output_profile_json::text, s.canonical_uri,
+                       c.queued_at, c.output_profile_json::text, s.canonical_uri, s.type AS source_type,
+                       s.metadata_json->>'objectKey' AS object_key,
+                       s.metadata_json->>'contentType' AS content_type,
+                       COALESCE((s.metadata_json->>'sizeBytes')::bigint, 0) AS content_length,
+                       s.metadata_json->>'geminiFileName' AS provider_file_name,
                        e.correlation_id, r.reserved_units
                 FROM claimed c
                 JOIN sources s ON s.id = c.source_id AND s.organization_id = c.organization_id
@@ -402,7 +407,13 @@ public class JdbcAnalysisJobStore implements AnalysisJobStore {
     private static AnalysisWorkItem mapWorkItem(ResultSet result, int rowNumber) throws SQLException {
         return new AnalysisWorkItem(
                 mapJob(result, rowNumber),
-                result.getString("canonical_uri"),
+                new AnalysisSource(
+                        result.getObject("source_id", UUID.class),
+                        AnalysisSource.Type.valueOf(result.getString("source_type")),
+                        result.getString("canonical_uri"), result.getString("object_key"),
+                        result.getString("content_type"), result.getLong("content_length"),
+                        result.getString("provider_file_name")
+                ),
                 result.getString("output_profile_json"),
                 result.getString("correlation_id"),
                 result.getLong("reserved_units")

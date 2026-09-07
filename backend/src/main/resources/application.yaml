@@ -71,6 +71,7 @@ gemini:
   embedding-model: ${GEMINI_EMBEDDING_MODEL:gemini-embedding-001}
   base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}
   timeout: ${GEMINI_TIMEOUT:180s}
+  file-ready-timeout: ${GEMINI_FILE_READY_TIMEOUT:10m}
 
 youtube:
   api-key: ${YOUTUBE_API_KEY:}
@@ -90,7 +91,7 @@ ai-cost:
     output-microusd-per-million-tokens: ${AI_SHADOW_OUTPUT_MICROUSD:7500000}
     thought-microusd-per-million-tokens: ${AI_SHADOW_THOUGHT_MICROUSD:7500000}
   max-attempts: ${AI_MAX_ATTEMPTS:3}
-  lease-duration: ${AI_JOB_LEASE_DURATION:5m}
+  lease-duration: ${AI_JOB_LEASE_DURATION:20m}
 
 task-queue:
   mode: ${TASK_QUEUE_MODE:INLINE}
@@ -145,6 +146,7 @@ object-storage:
   access-key-id: ${OBJECT_STORAGE_ACCESS_KEY_ID:}
   secret-access-key: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:}
   max-upload-bytes: ${OBJECT_STORAGE_MAX_UPLOAD_BYTES:524288000}
+  max-video-duration-seconds: ${OBJECT_STORAGE_MAX_VIDEO_DURATION_SECONDS:14400}
   presign-duration: ${OBJECT_STORAGE_PRESIGN_DURATION:15m}
 
 rate-limit:

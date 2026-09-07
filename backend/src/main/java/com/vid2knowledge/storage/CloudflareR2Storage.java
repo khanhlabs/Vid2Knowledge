@@ -11,12 +11,15 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
+import java.io.InputStream;
 import java.net.URI;
 import java.time.Duration;
 
@@ -71,6 +74,25 @@ public class CloudflareR2Storage implements ObjectStorage, AutoCloseable {
         if (length <= 0 || length > 4_096) throw new IllegalArgumentException("Invalid prefix length");
         return client.getObject(GetObjectRequest.builder().bucket(properties.bucket()).key(objectKey)
                 .range("bytes=0-" + (length - 1)).build(), ResponseTransformer.toBytes()).asByteArray();
+    }
+
+    @Override
+    public InputStream open(String objectKey) {
+        return client.getObject(GetObjectRequest.builder().bucket(properties.bucket()).key(objectKey).build());
+    }
+
+    @Override
+    public void copy(String sourceObjectKey, String destinationObjectKey) {
+        client.copyObject(CopyObjectRequest.builder()
+                .copySource(properties.bucket() + "/" + sourceObjectKey)
+                .destinationBucket(properties.bucket()).destinationKey(destinationObjectKey).build());
+    }
+
+    @Override
+    public URI presignGet(String objectKey, Duration duration) {
+        var request = GetObjectRequest.builder().bucket(properties.bucket()).key(objectKey).build();
+        return URI.create(presigner.presignGetObject(GetObjectPresignRequest.builder()
+                .signatureDuration(duration).getObjectRequest(request).build()).url().toString());
     }
 
     @Override

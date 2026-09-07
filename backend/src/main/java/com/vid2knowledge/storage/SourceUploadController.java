@@ -1,6 +1,7 @@
 package com.vid2knowledge.storage;
 
 import com.vid2knowledge.auth.CurrentActor;
+import com.vid2knowledge.analysis.application.RegisterYoutubeSourceService.RightsBasis;
 import com.vid2knowledge.auth.TenantAccessService;
 import com.vid2knowledge.common.api.CorrelationIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -64,6 +65,18 @@ public class SourceUploadController {
         return uploads.complete(requireAuthor(organizationId, authentication), uploadId, correlation(servletRequest));
     }
 
+    @PostMapping("/{uploadId}/ingest")
+    public SourceUploadService.UploadView ingest(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID uploadId,
+            Authentication authentication,
+            @Valid @RequestBody IngestRequest request,
+            HttpServletRequest servletRequest
+    ) {
+        return uploads.requestIngestion(requireAuthor(organizationId, authentication), uploadId,
+                request.rightsBasis(), request.termsAccepted(), request.languageHint(), correlation(servletRequest));
+    }
+
     private CurrentActor requireAuthor(UUID organizationId, Authentication authentication) {
         return access.require(organizationId, authentication, CurrentActor.Role.OWNER,
                 CurrentActor.Role.ADMIN, CurrentActor.Role.INSTRUCTOR);
@@ -77,5 +90,13 @@ public class SourceUploadController {
             @NotBlank @Size(max = 255) String filename,
             @NotBlank @Size(max = 80) String contentType,
             @Positive long sizeBytes
+    ) {}
+
+    public record IngestRequest(
+            @jakarta.validation.constraints.NotNull RightsBasis rightsBasis,
+            boolean termsAccepted,
+            @NotBlank @jakarta.validation.constraints.Pattern(
+                    regexp = "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$"
+            ) String languageHint
     ) {}
 }

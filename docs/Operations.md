@@ -14,7 +14,8 @@ Không nhận dữ liệu hoặc tiền thật cho tới khi owner xác nhận b
 - Có ít nhất hai người/địa chỉ nhận alert vận hành; không để production phụ thuộc duy nhất vào inbox cá nhân của founder.
 - Cả hai notification channel đã xác thực email và alert drill API 5xx/queue backlog có bằng chứng nhận được thông báo.
 - Nếu bật upload riêng tư: R2 bucket private, S3 token chỉ có object read/write/delete trên đúng bucket,
-  CORS chỉ cho frontend origin với `PUT`/`Content-Type`, và lifecycle xóa prefix
+  CORS chỉ cho frontend origin với `PUT`, `GET`, `HEAD`, header `Content-Type`/`Range`, expose
+  `Accept-Ranges`/`Content-Range`, và lifecycle xóa prefix
   `pending-source-uploads/` sau 1 ngày đã được kiểm thử.
 
 ## Backup and restore

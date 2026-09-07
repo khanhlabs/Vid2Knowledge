@@ -1,6 +1,7 @@
 package com.vid2knowledge.delivery;
 
 import com.vid2knowledge.analysis.application.LearningPackageCodec;
+import com.vid2knowledge.analysis.domain.AnalysisSource;
 import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -83,20 +84,31 @@ public class PackageWorkflowService {
     ) {
         List<PackageSource> sources = jdbc.query(
                 """
-                SELECT s.canonical_uri, s.duration_seconds FROM learning_packages p
+                SELECT s.id, s.type, s.canonical_uri, s.duration_seconds,
+                       s.metadata_json->>'objectKey' AS object_key,
+                       s.metadata_json->>'contentType' AS content_type,
+                       COALESCE((s.metadata_json->>'sizeBytes')::bigint, 0) AS content_length,
+                       s.metadata_json->>'geminiFileName' AS provider_file_name
+                FROM learning_packages p
                 JOIN sources s ON s.id = p.source_id AND s.organization_id = p.organization_id
                 WHERE p.id = ? AND p.organization_id = ? AND p.publication_state <> 'ARCHIVED'
                 FOR UPDATE OF p
                 """,
                 (result, row) -> new PackageSource(
-                        result.getString("canonical_uri"), result.getLong("duration_seconds")
+                        new AnalysisSource(
+                                result.getObject("id", UUID.class),
+                                AnalysisSource.Type.valueOf(result.getString("type")),
+                                result.getString("canonical_uri"), result.getString("object_key"),
+                                result.getString("content_type"), result.getLong("content_length"),
+                                result.getString("provider_file_name")
+                        ), result.getLong("duration_seconds")
                 ), packageId, actor.organizationId()
         );
         PackageSource source = sources.stream().findFirst().orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Package not found")
         );
         String validated = codec.write(codec.parseAndValidate(
-                content.toString(), source.uri(), source.durationSeconds()
+                content.toString(), source.source(), source.durationSeconds()
         ));
         Integer nextRevision = jdbc.queryForObject(
                 "SELECT COALESCE(MAX(revision_no), 0) + 1 FROM package_revisions WHERE package_id = ?",
@@ -307,6 +319,6 @@ public class PackageWorkflowService {
             int revisionNo, String verificationState
     ) {}
 
-    private record PackageSource(String uri, long durationSeconds) {
+    private record PackageSource(AnalysisSource source, long durationSeconds) {
     }
 }

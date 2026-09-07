@@ -2,7 +2,7 @@
 
 ## 1. Product thesis
 
-Vid2Knowledge helps a learner turn a long educational YouTube video into a verifiable study loop: understand the material, practise it, identify weak areas, and return to review it. It is not positioned as a generic AI video summarizer.
+Vid2Knowledge helps a learner turn a long authorised educational video into a verifiable study loop: understand the material, practise it, identify weak areas, and return to review it. It is not positioned as a generic AI video summarizer.
 
 ### Initial buyer, user, and job to be done
 
@@ -47,8 +47,8 @@ The package must include source-verification metadata and schema versioning:
 
 ```json
 {
-  "schemaVersion": "1.0",
-  "video": { "youtubeUrl": "https://www.youtube.com/watch?v=...", "videoId": "...", "title": "...", "language": "vi" },
+  "schemaVersion": "learning-package-v3",
+  "video": { "sourceType": "YOUTUBE", "sourceId": "...", "youtubeUrl": "https://www.youtube.com/watch?v=...", "videoId": "...", "title": "...", "language": "vi" },
   "summary": { "overview": "...", "sections": [{ "id": "section-one", "title": "...", "content": ["..."], "source": { "timestampSeconds": 0, "evidence": "..." } }] },
   "keyTakeaways": [{ "id": "takeaway-one", "text": "...", "source": { "timestampSeconds": 0, "evidence": "..." } }],
   "flashcards": [{ "id": "card-one", "question": "...", "answer": "...", "source": { "timestampSeconds": 0, "evidence": "..." } }],
@@ -96,7 +96,10 @@ All four belong to the target product. Evidence determines implementation order,
 
 ### Supported-source boundary
 
-Private and unlisted YouTube videos remain unsupported while the provider does not support them. The full product adds compliant buyer-provided transcripts, documents, audio, or video through supported input paths, subject to rights attestation, storage policy, and processing cost. It never circumvents YouTube access controls.
+Private and unlisted YouTube URLs remain unsupported; the product never circumvents YouTube access controls.
+Training Team và Business buyers can instead upload their own MP4/WebM through a private, rights-attested
+path. Objects are verified before ingestion, moved to a durable tenant key, and exposed to assigned learners
+only through short-lived playback URLs. Documents/audio remain later supported-source extensions.
 
 Native mobile remains evidence-led because it adds a separate distribution and maintenance surface; responsive/PWA learner use is required first.
 

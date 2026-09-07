@@ -14,6 +14,7 @@ public record ObjectStorageProperties(
         String accessKeyId,
         String secretAccessKey,
         long maxUploadBytes,
+        long maxVideoDurationSeconds,
         Duration presignDuration
 ) {
     @PostConstruct
@@ -26,6 +27,7 @@ public record ObjectStorageProperties(
             throw new IllegalStateException("R2 bucket and credentials are required when storage is enabled");
         }
         if (maxUploadBytes < 1_024 || maxUploadBytes > 2_000_000_000L
+                || maxVideoDurationSeconds < 60 || maxVideoDurationSeconds > 86_400
                 || presignDuration == null || presignDuration.isNegative() || presignDuration.isZero()
                 || presignDuration.compareTo(Duration.ofHours(1)) > 0) {
             throw new IllegalStateException("Object storage size/expiry limits are invalid");

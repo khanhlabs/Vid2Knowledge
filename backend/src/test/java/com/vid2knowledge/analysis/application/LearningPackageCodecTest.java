@@ -1,11 +1,13 @@
 package com.vid2knowledge.analysis.application;
 
 import com.vid2knowledge.analysis.domain.LearningPackage;
+import com.vid2knowledge.analysis.domain.AnalysisSource;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,10 +27,27 @@ class LearningPackageCodecTest {
                 600
         );
 
-        assertThat(parsed.schemaVersion()).isEqualTo("learning-package-v2");
+        assertThat(parsed.schemaVersion()).isEqualTo("learning-package-v3");
+        assertThat(parsed.video().sourceType()).isEqualTo("YOUTUBE");
         assertThat(parsed.video().videoId()).isEqualTo("abcdefghijk");
         assertThat(parsed.video().youtubeUrl())
                 .isEqualTo("https://www.youtube.com/watch?v=abcdefghijk");
+    }
+
+    @Test
+    void replacesModelIdentityWithStablePrivateSourceIdentity() {
+        UUID sourceId = UUID.randomUUID();
+        LearningPackage parsed = codec.parseAndValidate(
+                codec.write(validPackage()),
+                new AnalysisSource(sourceId, AnalysisSource.Type.UPLOAD, "v2k-upload:test",
+                        "organizations/test/source.mp4", "video/mp4", 2048, null),
+                600
+        );
+
+        assertThat(parsed.video().youtubeUrl()).isNull();
+        assertThat(parsed.video().videoId()).isNull();
+        assertThat(parsed.video().sourceType()).isEqualTo("UPLOAD");
+        assertThat(parsed.video().sourceId()).isEqualTo(sourceId.toString());
     }
 
     @Test

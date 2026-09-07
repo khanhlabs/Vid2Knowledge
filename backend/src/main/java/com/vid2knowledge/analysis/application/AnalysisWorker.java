@@ -19,7 +19,7 @@ import java.util.UUID;
 @ConditionalOnProperty(prefix = "features", name = "persistence-enabled", havingValue = "true", matchIfMissing = true)
 public class AnalysisWorker {
 
-    static final String PROMPT_VERSION = "learning-package-v2";
+    static final String PROMPT_VERSION = "learning-package-v3";
     static final String SCHEMA_VERSION = LearningPackageCodec.SCHEMA_VERSION;
 
     private final AnalysisJobStore jobs;
@@ -72,7 +72,7 @@ public class AnalysisWorker {
         AiGenerationResult generation;
         try {
             generation = provider.generateLearningPackage(
-                    promptFactory.create(item.outputProfileJson()), item.sourceUri()
+                    promptFactory.create(item.outputProfileJson()), item.source()
             );
         } catch (RuntimeException exception) {
             boolean retryable = !(exception instanceof AiProviderException providerError)
@@ -93,7 +93,7 @@ public class AnalysisWorker {
         );
         try {
             var learningPackage = codec.parseAndValidate(
-                    generation.output(), item.sourceUri(), item.billedUnits()
+                    generation.output(), item.source(), item.billedUnits()
             );
             completion.complete(
                     item, workerId, accounting, codec.write(learningPackage),

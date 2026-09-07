@@ -19,7 +19,7 @@ public class LearningPackagePromptFactory {
     public String create(String outputProfileJson) {
         AnalysisOutputProfile profile = AnalysisOutputProfile.parse(outputProfileJson, mapper);
         return """
-                Analyze the provided public YouTube video and create a learning package.
+                Analyze the provided video and create a learning package.
 
                 Return ONLY one valid JSON object.
                 Do not use Markdown.
@@ -28,10 +28,12 @@ public class LearningPackagePromptFactory {
 
                 The JSON must use exactly this structure:
                 {
-                  "schemaVersion": "learning-package-v2",
+                    "schemaVersion": "learning-package-v3",
                   "video": {
-                    "youtubeUrl": "string",
-                    "videoId": "11-character YouTube ID",
+                    "youtubeUrl": "string or null",
+                    "videoId": "11-character YouTube ID or null",
+                    "sourceType": "YOUTUBE or UPLOAD",
+                    "sourceId": "stable source identifier",
                     "title": "string",
                     "language": "string"
                   },
@@ -84,8 +86,7 @@ public class LearningPackagePromptFactory {
                 - IDs must be unique lowercase slugs and stable within this output.
                 - Questions and the four options within a question must not be duplicates.
                 - Do not invent facts, timestamps, or details that are not supported by the video.
-                - video.youtubeUrl must be the exact canonical YouTube URL provided in the video input.
-                - Never use placeholders such as VIDEO_ID.
+                - Do not guess source identifiers or URLs; the server assigns all video source identity fields.
 
                 """ + profile.promptInstructions();
     }

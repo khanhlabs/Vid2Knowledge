@@ -3,6 +3,7 @@ package com.vid2knowledge.storage;
 import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.config.ObjectStorageProperties;
+import com.vid2knowledge.analysis.application.RegisterYoutubeSourceService.RightsBasis;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -148,12 +149,59 @@ public class SourceUploadService {
         return updated == null ? view(record(actor.organizationId(), uploadId)) : updated;
     }
 
+    public UploadView requestIngestion(
+            CurrentActor actor, UUID uploadId, RightsBasis rightsBasis, boolean termsAccepted,
+            String languageHint, String correlationId
+    ) {
+        requirePaidPrivateSources(actor.organizationId());
+        if (!termsAccepted) throw new IllegalArgumentException("Source rights terms must be accepted");
+        if (rightsBasis == null) throw new IllegalArgumentException("Source rights basis is required");
+        String language = languageHint == null ? "" : languageHint.trim().toLowerCase(Locale.ROOT);
+        if (!language.matches("^[a-z]{2,3}(-[a-z0-9]{2,8})?$") || language.length() > 16) {
+            throw new IllegalArgumentException("Language hint is invalid");
+        }
+        UploadRecord record = record(actor.organizationId(), uploadId);
+        if ("READY".equals(record.state()) || "PROCESSING".equals(record.state())) return view(record);
+        if (!"STORAGE_VERIFIED".equals(record.state())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Upload is not ready for ingestion");
+        }
+        Instant now = clock.instant();
+        UUID targetSourceId = UuidV7Generator.generate();
+        UploadView updated = transactions.execute(status -> {
+            int changed = jdbc.update(
+                    """
+                    UPDATE source_uploads
+                    SET state = 'PROCESSING', rights_basis = ?, terms_version = 'source-rights-v1',
+                        language_hint = ?, target_source_id = ?, failure_reason = NULL, updated_at = ?
+                    WHERE id = ? AND organization_id = ? AND state = 'STORAGE_VERIFIED'
+                    """,
+                    rightsBasis.name(), language, targetSourceId, Timestamp.from(now), uploadId, actor.organizationId()
+            );
+            if (changed == 1) {
+                audit(actor, "SOURCE_UPLOAD_INGESTION_REQUESTED", uploadId, correlationId, now);
+                jdbc.update(
+                        """
+                        INSERT INTO outbox_events(
+                            id, organization_id, event_type, event_version, aggregate_type,
+                            aggregate_id, correlation_id, payload_json, occurred_at, available_at
+                        ) VALUES (?, ?, 'SourceUploadIngestionRequested', 1, 'SourceUpload', ?, ?,
+                                  jsonb_build_object('uploadId', CAST(? AS text)), ?, ?)
+                        """,
+                        UuidV7Generator.generate(), actor.organizationId(), uploadId, correlationId, uploadId,
+                        Timestamp.from(now), Timestamp.from(now)
+                );
+            }
+            return view(record(actor.organizationId(), uploadId));
+        });
+        return updated == null ? view(record(actor.organizationId(), uploadId)) : updated;
+    }
+
     public List<UploadView> list(UUID organizationId) {
         expireDatabaseReservations(organizationId);
         return jdbc.query(
                 """
                 SELECT id, original_filename, declared_content_type, declared_size_bytes, state,
-                       failure_reason, expires_at, verified_at, created_at
+                       failure_reason, expires_at, verified_at, created_at, source_id
                 FROM source_uploads WHERE organization_id = ? ORDER BY created_at DESC, id DESC LIMIT 100
                 """,
                 (result, row) -> new UploadView(
@@ -162,7 +210,7 @@ public class SourceUploadService {
                         result.getString("state"), result.getString("failure_reason"),
                         result.getTimestamp("expires_at").toInstant(),
                         result.getTimestamp("verified_at") == null ? null : result.getTimestamp("verified_at").toInstant(),
-                        result.getTimestamp("created_at").toInstant()
+                        result.getTimestamp("created_at").toInstant(), result.getObject("source_id", UUID.class)
                 ), organizationId
         );
     }
@@ -188,7 +236,7 @@ public class SourceUploadService {
         return jdbc.query(
                 """
                 SELECT id, object_key, original_filename, declared_content_type, declared_size_bytes,
-                       state, failure_reason, expires_at, object_etag, verified_at, created_at
+                       state, failure_reason, expires_at, object_etag, verified_at, created_at, source_id
                 FROM source_uploads WHERE organization_id = ? AND id = ?
                 """,
                 (result, row) -> new UploadRecord(
@@ -198,7 +246,7 @@ public class SourceUploadService {
                         result.getString("failure_reason"), result.getTimestamp("expires_at").toInstant(),
                         result.getString("object_etag"),
                         result.getTimestamp("verified_at") == null ? null : result.getTimestamp("verified_at").toInstant(),
-                        result.getTimestamp("created_at").toInstant()
+                        result.getTimestamp("created_at").toInstant(), result.getObject("source_id", UUID.class)
                 ), organizationId, id
         ).stream().findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Upload not found"));
     }
@@ -232,7 +280,8 @@ public class SourceUploadService {
     private static String filename(String filename, String extension) {
         String value = filename == null ? "" : filename.trim();
         if (value.isEmpty() || value.length() > 255 || value.contains("/") || value.contains("\\")
-                || value.indexOf('\0') >= 0 || !value.toLowerCase(Locale.ROOT).endsWith(extension)) {
+                || value.codePoints().anyMatch(Character::isISOControl)
+                || !value.toLowerCase(Locale.ROOT).endsWith(extension)) {
             throw new IllegalArgumentException("Filename is invalid or does not match the content type");
         }
         return value;
@@ -260,12 +309,14 @@ public class SourceUploadService {
 
     private static UploadView view(UploadRecord record) {
         return new UploadView(record.id(), record.filename(), record.contentType(), record.sizeBytes(),
-                record.state(), record.failureReason(), record.expiresAt(), record.verifiedAt(), record.createdAt());
+                record.state(), record.failureReason(), record.expiresAt(), record.verifiedAt(), record.createdAt(),
+                record.sourceId());
     }
 
     private record UploadRecord(
             UUID id, String objectKey, String filename, String contentType, long sizeBytes,
-            String state, String failureReason, Instant expiresAt, String eTag, Instant verifiedAt, Instant createdAt
+            String state, String failureReason, Instant expiresAt, String eTag, Instant verifiedAt, Instant createdAt,
+            UUID sourceId
     ) {}
 
     public record UploadReservation(
@@ -275,6 +326,6 @@ public class SourceUploadService {
 
     public record UploadView(
             UUID id, String filename, String contentType, long sizeBytes, String state,
-            String failureReason, Instant expiresAt, Instant verifiedAt, Instant createdAt
+            String failureReason, Instant expiresAt, Instant verifiedAt, Instant createdAt, UUID sourceId
     ) {}
 }
