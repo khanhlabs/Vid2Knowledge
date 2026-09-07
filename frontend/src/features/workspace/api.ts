@@ -84,11 +84,27 @@ export interface Invoice {
   state: 'OPEN' | 'PAID' | 'VOID' | 'REFUNDED'
   currency: 'VND'
   invoiceType: 'SUBSCRIPTION' | 'TOP_UP'
+  listPriceVnd: number
+  discountVnd: number
   amountDueVnd: number
   amountPaidVnd: number
+  promotionCode?: string | null
   dueAt: string
   paidAt?: string
   createdAt: string
+}
+
+export interface BillingQuote {
+  listPriceVnd: number
+  discountVnd: number
+  amountVnd: number
+  promotionCode?: string | null
+  attributionChannel?:
+    | 'REFERRAL'
+    | 'PARTNER'
+    | 'SALES'
+    | 'RETENTION'
+    | null
 }
 
 export interface Refund {
@@ -756,13 +772,29 @@ export const workspaceApi = {
         body: JSON.stringify(input),
       },
     ),
-  checkout: (organizationId: string, planId: string) =>
+  billingQuote: (
+    organizationId: string,
+    planId: string,
+    promotionCode: string,
+  ) =>
+    api<BillingQuote>(
+      `/api/v1/organizations/${organizationId}/billing/quotes`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ planId, promotionCode }),
+      },
+    ),
+  checkout: (
+    organizationId: string,
+    planId: string,
+    promotionCode?: string,
+  ) =>
     api<{ checkoutUrl: string }>(
       `/api/v1/organizations/${organizationId}/billing/checkout-sessions`,
       {
         method: 'POST',
         headers: { 'Idempotency-Key': idempotencyKey('checkout') },
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({ planId, promotionCode }),
       },
     ),
   exportPersonalData: () =>

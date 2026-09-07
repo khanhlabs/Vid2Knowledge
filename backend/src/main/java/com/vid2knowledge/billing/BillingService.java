@@ -152,16 +152,20 @@ public class BillingService {
     public List<InvoiceView> invoices(UUID organizationId) {
         return jdbc.query(
                 """
-                SELECT id, invoice_number, state, currency, invoice_type, amount_due_vnd,
-                       amount_paid_vnd, due_at, paid_at, created_at
-                FROM invoices
-                WHERE organization_id = ?
-                ORDER BY created_at DESC, id DESC LIMIT 100
+                SELECT i.id, i.invoice_number, i.state, i.currency, i.invoice_type, i.amount_due_vnd,
+                       i.amount_paid_vnd, COALESCE(i.list_price_vnd, i.amount_due_vnd) AS list_price_vnd,
+                       i.discount_vnd, c.code AS promotion_code,
+                       i.due_at, i.paid_at, i.created_at
+                FROM invoices i LEFT JOIN promotion_campaigns c ON c.id = i.promotion_campaign_id
+                WHERE i.organization_id = ?
+                ORDER BY i.created_at DESC, i.id DESC LIMIT 100
                 """,
                 (result, row) -> new InvoiceView(
                         result.getObject("id", UUID.class), result.getString("invoice_number"),
                         result.getString("state"), result.getString("currency"), result.getString("invoice_type"),
+                        result.getLong("list_price_vnd"), result.getLong("discount_vnd"),
                         result.getLong("amount_due_vnd"), result.getLong("amount_paid_vnd"),
+                        result.getString("promotion_code"),
                         result.getTimestamp("due_at").toInstant(),
                         result.getTimestamp("paid_at") == null ? null : result.getTimestamp("paid_at").toInstant(),
                         result.getTimestamp("created_at").toInstant()
@@ -224,7 +228,13 @@ public class BillingService {
     }
 
     public Checkout checkout(CurrentActor actor, UUID planId, String idempotencyKey) {
-        PendingOrder pending = transactions.execute(status -> createOrLoadPending(actor, planId, idempotencyKey));
+        return checkout(actor, planId, null, idempotencyKey);
+    }
+
+    public Checkout checkout(CurrentActor actor, UUID planId, String promotionCode, String idempotencyKey) {
+        PendingOrder pending = transactions.execute(status ->
+                createOrLoadPending(actor, planId, promotionCode, idempotencyKey)
+        );
         if (pending == null) {
             throw new IllegalStateException("Could not create billing order");
         }
@@ -270,7 +280,9 @@ public class BillingService {
         );
     }
 
-    private PendingOrder createOrLoadPending(CurrentActor actor, UUID planId, String idempotencyKey) {
+    private PendingOrder createOrLoadPending(
+            CurrentActor actor, UUID planId, String promotionCode, String idempotencyKey
+    ) {
         jdbc.queryForObject(
                 "SELECT CAST(pg_advisory_xact_lock(hashtextextended(?, 0)) AS text)",
                 String.class, actor.organizationId() + "|checkout|" + idempotencyKey
@@ -283,7 +295,14 @@ public class BillingService {
                     "Top-up requires a subscription active beyond the checkout window"
             );
         }
-        String fingerprint = RequestFingerprint.sha256(actor.organizationId() + "|" + plan.id());
+        String normalizedPromotion = promotionCode == null || promotionCode.isBlank()
+                ? null : normalizePromotionCode(promotionCode);
+        if (normalizedPromotion != null && "TOP_UP".equals(plan.productType())) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Promotions do not apply to top-ups");
+        }
+        String fingerprintSource = actor.organizationId() + "|" + plan.id()
+                + (normalizedPromotion == null ? "" : "|promotion:" + normalizedPromotion);
+        String fingerprint = RequestFingerprint.sha256(fingerprintSource);
         List<PendingOrder> existing = jdbc.query(
                 """
                 SELECT id, order_code, amount_vnd, checkout_url, expires_at, request_fingerprint,
@@ -313,6 +332,15 @@ public class BillingService {
             );
             return claimed == 1 ? found.withClaim(claimToken) : found;
         }
+        Promotion promotion = normalizedPromotion == null ? null : lockPromotion(
+                actor.organizationId(), plan, normalizedPromotion
+        );
+        long listPrice = plan.amountVnd();
+        long discount = promotion == null ? 0 : Math.multiplyExact(listPrice, promotion.discountBps()) / 10_000;
+        if (promotion != null && discount < 1) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Promotion discount is too small");
+        }
+        long amount = listPrice - discount;
         Long orderCode = jdbc.queryForObject("SELECT nextval('billing_order_code_seq')", Long.class);
         UUID orderId = UuidV7Generator.generate();
         Instant now = clock.instant();
@@ -322,14 +350,136 @@ public class BillingService {
                 INSERT INTO billing_orders(
                     id, organization_id, plan_id, order_code, amount_vnd, idempotency_key,
                     request_fingerprint, expires_at, created_by, checkout_claim_token,
-                    checkout_claim_expires_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    checkout_claim_expires_at, created_at, updated_at, list_price_vnd,
+                    discount_vnd, promotion_campaign_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                orderId, actor.organizationId(), plan.id(), orderCode, plan.amountVnd(), idempotencyKey,
+                orderId, actor.organizationId(), plan.id(), orderCode, amount, idempotencyKey,
                 fingerprint, Timestamp.from(expiresAt), actor.userId(), orderId,
-                Timestamp.from(now.plus(Duration.ofMinutes(2))), Timestamp.from(now), Timestamp.from(now)
+                Timestamp.from(now.plus(Duration.ofMinutes(2))), Timestamp.from(now), Timestamp.from(now),
+                listPrice, discount, promotion == null ? null : promotion.id()
         );
-        return new PendingOrder(orderId, orderCode, plan.amountVnd(), null, expiresAt, fingerprint, orderId);
+        if (promotion != null) {
+            reservePromotion(promotion, actor.organizationId(), orderId, listPrice, discount, amount, now, expiresAt);
+        }
+        return new PendingOrder(orderId, orderCode, amount, null, expiresAt, fingerprint, orderId);
+    }
+
+    public Quote quote(UUID organizationId, UUID planId, String promotionCode) {
+        Plan plan = plans().stream().filter(candidate -> candidate.id().equals(planId)).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Plan not found"));
+        if (promotionCode == null || promotionCode.isBlank()) {
+            return new Quote(plan.amountVnd(), 0, plan.amountVnd(), null, null);
+        }
+        if ("TOP_UP".equals(plan.productType())) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Promotions do not apply to top-ups");
+        }
+        Promotion promotion = findPromotion(normalizePromotionCode(promotionCode), plan, false);
+        ensurePromotionAvailable(organizationId, promotion, clock.instant(), false);
+        long discount = Math.multiplyExact(plan.amountVnd(), promotion.discountBps()) / 10_000;
+        return new Quote(plan.amountVnd(), discount, plan.amountVnd() - discount,
+                promotion.code(), promotion.attributionChannel());
+    }
+
+    private Promotion lockPromotion(UUID organizationId, Plan plan, String code) {
+        Promotion promotion = findPromotion(code, plan, true);
+        ensurePromotionAvailable(organizationId, promotion, clock.instant(), true);
+        return promotion;
+    }
+
+    private String normalizePromotionCode(String promotionCode) {
+        try {
+            return PromotionService.normalizeCode(promotionCode);
+        } catch (IllegalArgumentException invalidCode) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY, "Promotion is invalid or unavailable", invalidCode
+            );
+        }
+    }
+
+    private Promotion findPromotion(String code, Plan plan, boolean lock) {
+        List<Promotion> matches = jdbc.query(
+                """
+                SELECT id, code, discount_bps, attribution_channel, max_redemptions
+                FROM promotion_campaigns
+                WHERE code = ? AND active = TRUE AND starts_at <= ? AND ends_at > ?
+                  AND (plan_code_prefix IS NULL OR left(?, length(plan_code_prefix)) = plan_code_prefix)
+                """ + (lock ? " FOR UPDATE" : ""),
+                (result, row) -> new Promotion(
+                        result.getObject("id", UUID.class), result.getString("code"),
+                        result.getInt("discount_bps"), result.getString("attribution_channel"),
+                        result.getInt("max_redemptions")
+                ),
+                code, Timestamp.from(clock.instant()), Timestamp.from(clock.instant()), plan.code()
+        );
+        return matches.stream().findFirst().orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Promotion is invalid or unavailable")
+        );
+    }
+
+    private void ensurePromotionAvailable(
+            UUID organizationId, Promotion promotion, Instant now, boolean releaseExpired
+    ) {
+        if (releaseExpired) {
+            jdbc.update(
+                    """
+                    UPDATE promotion_redemptions SET state = 'RELEASED', released_at = ?
+                    WHERE promotion_campaign_id = ? AND state = 'RESERVED' AND expires_at <= ?
+                    """,
+                    Timestamp.from(now), promotion.id(), Timestamp.from(now)
+            );
+        }
+        List<String> organizationStates = jdbc.queryForList(
+                """
+                SELECT state FROM promotion_redemptions
+                WHERE promotion_campaign_id = ? AND organization_id = ?
+                  AND (state = 'REDEEMED' OR (state = 'RESERVED' AND expires_at > ?))
+                """,
+                String.class, promotion.id(), organizationId, Timestamp.from(now)
+        );
+        if (!organizationStates.isEmpty() && !"RELEASED".equals(organizationStates.getFirst())) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY, "Promotion can only be redeemed once per organization"
+            );
+        }
+        Long occupied = jdbc.queryForObject(
+                """
+                SELECT count(*) FROM promotion_redemptions
+                WHERE promotion_campaign_id = ?
+                  AND (state = 'REDEEMED' OR (state = 'RESERVED' AND expires_at > ?))
+                """,
+                Long.class, promotion.id(), Timestamp.from(now)
+        );
+        if (occupied != null && occupied >= promotion.maxRedemptions()) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Promotion capacity is exhausted");
+        }
+    }
+
+    private void reservePromotion(
+            Promotion promotion, UUID organizationId, UUID orderId,
+            long listPrice, long discount, long amount, Instant now, Instant expiresAt
+    ) {
+        int reused = jdbc.update(
+                """
+                UPDATE promotion_redemptions SET billing_order_id = ?, list_price_vnd = ?, discount_vnd = ?,
+                    amount_vnd = ?, state = 'RESERVED', reserved_at = ?, expires_at = ?, released_at = NULL
+                WHERE promotion_campaign_id = ? AND organization_id = ? AND state = 'RELEASED'
+                """,
+                orderId, listPrice, discount, amount, Timestamp.from(now), Timestamp.from(expiresAt),
+                promotion.id(), organizationId
+        );
+        if (reused == 0) {
+            jdbc.update(
+                    """
+                    INSERT INTO promotion_redemptions(
+                        id, promotion_campaign_id, organization_id, billing_order_id,
+                        list_price_vnd, discount_vnd, amount_vnd, reserved_at, expires_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    UuidV7Generator.generate(), promotion.id(), organizationId, orderId,
+                    listPrice, discount, amount, Timestamp.from(now), Timestamp.from(expiresAt)
+            );
+        }
     }
 
     private boolean hasTopUpEligibleSubscription(UUID organizationId) {
@@ -442,7 +592,9 @@ public class BillingService {
     private OrderForPayment lockOrder(long orderCode) {
         return jdbc.query(
                 """
-                SELECT o.id, o.organization_id, o.plan_id, o.amount_vnd, o.state,
+                SELECT o.id, o.organization_id, o.plan_id,
+                       COALESCE(o.list_price_vnd, o.amount_vnd) AS list_price_vnd, o.discount_vnd,
+                       o.amount_vnd, o.promotion_campaign_id, o.state,
                        o.provider_payment_link_id, p.billing_interval, p.product_type,
                        p.processed_video_seconds, p.qa_queries
                 FROM billing_orders o JOIN pricing_plans p ON p.id = o.plan_id
@@ -450,7 +602,9 @@ public class BillingService {
                 """,
                 (result, row) -> new OrderForPayment(
                         result.getObject("id", UUID.class), result.getObject("organization_id", UUID.class),
-                        result.getObject("plan_id", UUID.class), result.getLong("amount_vnd"),
+                        result.getObject("plan_id", UUID.class), result.getLong("list_price_vnd"),
+                        result.getLong("discount_vnd"), result.getLong("amount_vnd"),
+                        result.getObject("promotion_campaign_id", UUID.class),
                         result.getString("state"), result.getString("provider_payment_link_id"),
                         result.getString("billing_interval"), result.getString("product_type"),
                         result.getLong("processed_video_seconds"),
@@ -466,6 +620,13 @@ public class BillingService {
         jdbc.update(
                 "UPDATE billing_orders SET state = 'PAID', paid_at = ?, updated_at = ? WHERE id = ?",
                 Timestamp.from(now), Timestamp.from(now), order.id()
+        );
+        jdbc.update(
+                """
+                UPDATE promotion_redemptions SET state = 'REDEEMED', redeemed_at = ?
+                WHERE billing_order_id = ? AND state = 'RESERVED'
+                """,
+                Timestamp.from(now), order.id()
         );
         expireElapsedSubscriptions(now);
         if ("TOP_UP".equals(order.productType())) {
@@ -587,12 +748,13 @@ public class BillingService {
                     INSERT INTO invoices(
                         id, organization_id, subscription_id, billing_order_id, invoice_number,
                         state, amount_due_vnd, amount_paid_vnd, due_at, paid_at, created_at, updated_at,
-                        invoice_type
-                    ) VALUES (?, ?, ?, ?, ?, 'PAID', ?, ?, ?, ?, ?, ?, ?)
+                        invoice_type, list_price_vnd, discount_vnd, promotion_campaign_id
+                    ) VALUES (?, ?, ?, ?, ?, 'PAID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     invoiceId, order.organizationId(), subscriptionId, order.id(),
                     invoiceNumber, order.amountVnd(), order.amountVnd(), Timestamp.from(now),
-                    Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), invoiceType
+                    Timestamp.from(now), Timestamp.from(now), Timestamp.from(now), invoiceType,
+                    order.listPriceVnd(), order.discountVnd(), order.promotionCampaignId()
             );
         } else {
             invoiceId = existing.getFirst().id();
@@ -765,6 +927,14 @@ public class BillingService {
                             "UPDATE billing_orders SET state = ?, updated_at = ? WHERE order_code = ? AND state = 'PENDING'",
                             payment.status(), Timestamp.from(clock.instant()), candidate.orderCode()
                     );
+                    jdbc.update(
+                            """
+                            UPDATE promotion_redemptions SET state = 'RELEASED', released_at = ?
+                            WHERE billing_order_id = (SELECT id FROM billing_orders WHERE order_code = ?)
+                              AND state = 'RESERVED'
+                            """,
+                            Timestamp.from(clock.instant()), candidate.orderCode()
+                    );
                     terminal++;
                 } else {
                     pending++;
@@ -842,12 +1012,13 @@ public class BillingService {
                 """
                 INSERT INTO invoices(
                     id, organization_id, subscription_id, billing_order_id, invoice_number,
-                    state, amount_due_vnd, amount_paid_vnd, due_at, created_at, updated_at, invoice_type
-                ) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, 0, ?, ?, ?, 'SUBSCRIPTION')
+                    state, amount_due_vnd, amount_paid_vnd, due_at, created_at, updated_at,
+                    invoice_type, list_price_vnd, discount_vnd
+                ) VALUES (?, ?, ?, ?, ?, 'OPEN', ?, 0, ?, ?, ?, 'SUBSCRIPTION', ?, 0)
                 """,
                 invoiceId, candidate.organizationId(), candidate.subscriptionId(), checkout.orderId(),
                 invoiceNumber, checkout.amountVnd(), Timestamp.from(candidate.periodEnd()),
-                Timestamp.from(now), Timestamp.from(now)
+                Timestamp.from(now), Timestamp.from(now), checkout.amountVnd()
         );
         jdbc.update(
                 """
@@ -1203,7 +1374,8 @@ public class BillingService {
 
     public record InvoiceView(
             UUID id, String invoiceNumber, String state, String currency, String invoiceType,
-            long amountDueVnd, long amountPaidVnd, Instant dueAt, Instant paidAt, Instant createdAt
+            long listPriceVnd, long discountVnd, long amountDueVnd, long amountPaidVnd,
+            String promotionCode, Instant dueAt, Instant paidAt, Instant createdAt
     ) {
     }
 
@@ -1227,10 +1399,20 @@ public class BillingService {
     }
 
     private record OrderForPayment(
-            UUID id, UUID organizationId, UUID planId, long amountVnd, String state,
+            UUID id, UUID organizationId, UUID planId, long listPriceVnd, long discountVnd,
+            long amountVnd, UUID promotionCampaignId, String state,
             String paymentLinkId, String interval, String productType, long processedSeconds, long qaQueries
     ) {
     }
+
+    public record Quote(
+            long listPriceVnd, long discountVnd, long amountVnd,
+            String promotionCode, String attributionChannel
+    ) { }
+
+    private record Promotion(
+            UUID id, String code, int discountBps, String attributionChannel, int maxRedemptions
+    ) { }
 
     private record SubscriptionCandidate(UUID id, UUID planId, String status, Instant periodEnd) {
     }

@@ -89,7 +89,11 @@ All four belong to the target product. Evidence determines implementation order,
 - Outcome dashboards for activation, completion, attempts, topic mastery, delayed recall, cohort comparison, and exportable reports.
 - Buyer ROI dùng dữ liệu assessment/progress phía server làm nguồn sự thật, công bố rõ
   denominator và timezone; CSV export có phân quyền và không thể kích hoạt công thức bảng tính.
-- Self-serve trial, subscription billing, invoicing, credits/overages, coupons, proration, tax-ready records, dunning, cancellation, refund, entitlement, and revenue analytics.
+- Self-serve trial, subscription billing, invoicing, credits/overages, promotion/referral attribution,
+  dunning, cancellation, refund, entitlement, and revenue analytics. Promotion đã có server-side quote,
+  immutable price snapshot, capacity reservation, one-redemption-per-organization, channel-specific
+  margin ceiling và attributed revenue/discount reporting. Proration và tax-ready invoice profile vẫn là
+  phần việc trước production commercial, không được mô tả như đã hoàn tất.
 - Integrations through API/webhooks plus evidence-led LMS/SSO connections for higher-value accounts.
 - In-app onboarding dùng sáu bằng chứng server-side từ source đến learner completion; trial deadline,
   next-best action và annual-saving upgrade surface giúp buyer đi tới giá trị đầu tiên mà không tạo
@@ -97,8 +101,8 @@ All four belong to the target product. Evidence determines implementation order,
   durable queue, tự dừng khi buyer đã đạt mục tiêu hoặc đã trả tiền, và có opt-out hướng dẫn sản phẩm.
   Nhắc assignment mới, deadline trước 24 giờ và digest thẻ đến hạn lúc 08:00 dùng dữ liệu học tập
   canonical, dedupe và tự hủy nếu learner đã hoàn thành/opt-out. Marketing mặc định tắt và có consent
-  ledger. Sample course, referral/partner attribution và support tooling tiếp tục được triển khai theo
-  cùng funnel.
+  ledger. Referral/partner attribution đã nối vào checkout/invoice; sample course và support tooling
+  tiếp tục được triển khai theo cùng funnel.
 - Markdown portable và Word OpenXML đã có controlled tenant export/audit; Word là Training
   Team/Business differentiator. PDF/controlled sharing chỉ thêm khi pilot chứng minh buyer cần,
   tránh vận hành renderer/storage bất đồng bộ trước khi tạo doanh thu.

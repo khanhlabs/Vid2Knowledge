@@ -872,6 +872,50 @@ button:disabled {
   border-top: 1px solid #dde0d8;
 }
 
+.promotion-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #cfd8cf;
+  border-radius: 0.75rem;
+  background: #f7f8f4;
+}
+
+.promotion-form label,
+.promotion-form input,
+.promotion-form select {
+  display: block;
+  width: 100%;
+}
+
+.promotion-form label {
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.promotion-form .small-button {
+  margin: 0;
+}
+
+.promotion-success {
+  padding: 0.75rem 1rem;
+  border-radius: 0.65rem;
+  color: #18543a;
+  background: #e5f3eb;
+}
+
+.original-price {
+  text-decoration: line-through;
+}
+
+.invoice-discount {
+  color: #1f6a49;
+}
+
 .activation-panel {
   margin-bottom: 1.5rem;
 }
@@ -952,6 +996,10 @@ button:disabled {
   }
 
   .activation-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .promotion-form {
     grid-template-columns: 1fr;
   }
 }

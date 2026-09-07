@@ -7,6 +7,7 @@ import { useAuth } from '../auth/auth-context'
 import {
   workspaceApi,
   type AnalysisJob,
+  type BillingQuote,
   type NotificationPreferences,
 } from './api'
 
@@ -69,6 +70,12 @@ export function WorkspacePage() {
   const [inviteLink, setInviteLink] = useState('')
   const [refundInvoiceId, setRefundInvoiceId] = useState('')
   const [refundReason, setRefundReason] = useState('')
+  const [promotionCode, setPromotionCode] = useState('')
+  const [promotionPlanId, setPromotionPlanId] = useState('')
+  const [appliedPromotion, setAppliedPromotion] = useState<{
+    planId: string
+    quote: BillingQuote
+  } | null>(null)
   const me = useQuery({ queryKey: ['me'], queryFn: workspaceApi.me })
   const plans = useQuery({ queryKey: ['plans'], queryFn: workspaceApi.plans })
   const deletionRequest = useQuery({
@@ -260,8 +267,24 @@ export function WorkspacePage() {
   })
   const checkout = useMutation({
     mutationFn: (planId: string) =>
-      workspaceApi.checkout(activeOrganizationId, planId),
+      workspaceApi.checkout(
+        activeOrganizationId,
+        planId,
+        appliedPromotion?.planId === planId
+          ? (appliedPromotion.quote.promotionCode ?? undefined)
+          : undefined,
+      ),
     onSuccess: ({ checkoutUrl }) => window.location.assign(checkoutUrl),
+  })
+  const validatePromotion = useMutation({
+    mutationFn: () =>
+      workspaceApi.billingQuote(
+        activeOrganizationId,
+        promotionPlanId,
+        promotionCode,
+      ),
+    onSuccess: (quote) =>
+      setAppliedPromotion({ planId: promotionPlanId, quote }),
   })
   const cancelSubscription = useMutation({
     mutationFn: (subscriptionId: string) =>
@@ -664,12 +687,77 @@ export function WorkspacePage() {
                   )}
                 </article>
               )}
+              <form
+                className="promotion-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  validatePromotion.mutate()
+                }}
+              >
+                <div>
+                  <label htmlFor="promotion-code">Mã giới thiệu / ưu đãi</label>
+                  <input
+                    id="promotion-code"
+                    maxLength={40}
+                    placeholder="Ví dụ: STUDENT_REF_10"
+                    required
+                    value={promotionCode}
+                    onChange={(event) => {
+                      setPromotionCode(event.target.value.toUpperCase())
+                      setAppliedPromotion(null)
+                    }}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="promotion-plan">Áp dụng cho gói</label>
+                  <select
+                    id="promotion-plan"
+                    required
+                    value={promotionPlanId}
+                    onChange={(event) => {
+                      setPromotionPlanId(event.target.value)
+                      setAppliedPromotion(null)
+                    }}
+                  >
+                    <option value="">Chọn gói thuê bao</option>
+                    {plans.data
+                      ?.filter((plan) => plan.productType === 'SUBSCRIPTION')
+                      .map((plan) => (
+                        <option key={plan.id} value={plan.id}>
+                          {plan.name} · {money(plan.amountVnd)}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <button
+                  className="small-button"
+                  disabled={validatePromotion.isPending}
+                >
+                  {validatePromotion.isPending ? 'Đang kiểm tra…' : 'Áp dụng'}
+                </button>
+              </form>
+              {validatePromotion.isError && (
+                <p className="form-error">
+                  {errorMessage(validatePromotion.error)}
+                </p>
+              )}
+              {appliedPromotion && (
+                <p className="promotion-success" role="status">
+                  Đã áp mã <strong>{appliedPromotion.quote.promotionCode}</strong>
+                  : giảm {money(appliedPromotion.quote.discountVnd)}. Giá thanh
+                  toán được khóa lại ở bước tạo đơn.
+                </p>
+              )}
               {plans.data?.map((plan) => {
                 const saving = annualSaving(
                   plan.code,
                   plan.amountVnd,
                   plans.data,
                 )
+                const promotionQuote =
+                  appliedPromotion?.planId === plan.id
+                    ? appliedPromotion.quote
+                    : null
                 return (
                   <article
                     className={`plan-row ${saving ? 'annual-plan' : ''}`}
@@ -697,7 +785,16 @@ export function WorkspacePage() {
                       </span>
                     </div>
                     <div>
-                      <b>{money(plan.amountVnd)}</b>
+                      {promotionQuote ? (
+                        <>
+                          <span className="original-price">
+                            {money(promotionQuote.listPriceVnd)}
+                          </span>
+                          <b>{money(promotionQuote.amountVnd)}</b>
+                        </>
+                      ) : (
+                        <b>{money(plan.amountVnd)}</b>
+                      )}
                       <button
                         className="small-button"
                         disabled={
@@ -740,6 +837,14 @@ export function WorkspacePage() {
                         </small>
                       </span>
                       <span>{money(invoice.amountPaidVnd)}</span>
+                      {invoice.discountVnd > 0 && (
+                        <small className="invoice-discount">
+                          Giảm {money(invoice.discountVnd)}
+                          {invoice.promotionCode
+                            ? ` · ${invoice.promotionCode}`
+                            : ''}
+                        </small>
+                      )}
                       {invoice.invoiceType === 'TOP_UP' &&
                         invoice.state === 'PAID' &&
                         !refunds.data?.some(

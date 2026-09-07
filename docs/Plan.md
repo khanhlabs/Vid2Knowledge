@@ -343,6 +343,10 @@ Chi tiết kiến trúc nằm tại `Technical-Architecture.md`; data model, API
   dashboard được phép báo healthy; theo dõi gross/contribution margin, AI/revenue, payback và LTV/CAC.
 - Direct-cost ledger chỉ nhận chi phí ngoại lệ ngoài monthly allocation, có tenant scope và audit log.
 - Pricing review hàng quý: allowance, overage, annual discount, service cost và provider price.
+- Promotion/referral attribution dùng immutable campaign và price snapshot, transactional capacity,
+  one-redemption-per-organization và channel ceiling 15/20/25/30%. Chỉ scale campaign khi attributed
+  revenue trừ discount, CAC và support vẫn đạt contribution-margin/payback gate; không dùng redemption
+  count làm proxy cho lợi nhuận.
 - Tự động onboarding/support; knowledge base và in-app diagnostics giảm ticket.
 - Scale từng acquisition channel khi contribution LTV/CAC ≥ 3 và CAC payback ≤ 12 tháng.
 - Theo dõi revenue concentration; không để một account tạo phần lớn doanh thu mà không có contract/SLA tương ứng.

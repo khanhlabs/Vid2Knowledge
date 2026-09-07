@@ -35,6 +35,7 @@ import jakarta.validation.Validation;
 import com.vid2knowledge.billing.BillingService;
 import com.vid2knowledge.billing.PaymentGateway;
 import com.vid2knowledge.billing.PayOsSignature;
+import com.vid2knowledge.billing.PromotionService;
 import com.vid2knowledge.analytics.ProfitabilityService;
 import com.vid2knowledge.config.PayOsProperties;
 import com.vid2knowledge.notification.DisabledNotificationQueue;
@@ -952,6 +953,74 @@ class JdbcUsageQuotaIntegrationTest {
                 "SELECT allowance FROM entitlements WHERE organization_id = ? ORDER BY period_start DESC LIMIT 1",
                 Long.class, organizationId
         )).isEqualTo(18_000L);
+    }
+
+    @Test
+    void promotionIsMarginGuardedAttributedAndRedeemableOnlyOnce() {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        Instant now = Instant.now();
+        var promotionService = new PromotionService(jdbc);
+        var campaign = promotionService.create(new PromotionService.CreateCampaign(
+                "student_ref_10", "Student referral acquisition", 1_000, "CREATOR_MONTHLY",
+                PromotionService.Channel.REFERRAL, "campus-ambassador-opaque-01",
+                now.minus(Duration.ofMinutes(1)), now.plus(Duration.ofDays(30)), 1
+        ), "operator-subject");
+        UUID planId = UUID.fromString("00000000-0000-7000-8000-000000000101");
+        AtomicInteger gatewayCalls = new AtomicInteger();
+        BillingService billing = billing((orderCode, amount, description) -> {
+            gatewayCalls.incrementAndGet();
+            assertThat(amount).isEqualTo(711_000);
+            return new PaymentGateway.CheckoutLink(
+                    "promotion-link", URI.create("https://pay.payos.vn/web/promotion-link")
+            );
+        });
+
+        var quote = billing.quote(organizationId, planId, " student_ref_10 ");
+        assertThat(quote.listPriceVnd()).isEqualTo(790_000);
+        assertThat(quote.discountVnd()).isEqualTo(79_000);
+        assertThat(quote.amountVnd()).isEqualTo(711_000);
+        assertThat(quote.promotionCode()).isEqualTo("STUDENT_REF_10");
+        assertThat(quote.attributionChannel()).isEqualTo("REFERRAL");
+
+        var checkout = billing.checkout(owner, planId, "student_ref_10", "promotion-checkout");
+        var replay = billing.checkout(owner, planId, "student_ref_10", "promotion-checkout");
+        assertThat(replay.orderId()).isEqualTo(checkout.orderId());
+        assertThat(gatewayCalls).hasValue(1);
+        pay(billing, checkout, "promotion-link", "promotion-payment-reference");
+
+        assertThat(jdbc.queryForMap(
+                "SELECT list_price_vnd, discount_vnd, amount_due_vnd FROM invoices WHERE billing_order_id = ?",
+                checkout.orderId()
+        )).containsEntry("list_price_vnd", 790_000L)
+                .containsEntry("discount_vnd", 79_000L)
+                .containsEntry("amount_due_vnd", 711_000L);
+        assertThat(jdbc.queryForObject(
+                "SELECT state FROM promotion_redemptions WHERE billing_order_id = ?",
+                String.class, checkout.orderId()
+        )).isEqualTo("REDEEMED");
+
+        var economics = promotionService.campaigns().stream()
+                .filter(value -> value.id().equals(campaign.id())).findFirst().orElseThrow();
+        assertThat(economics.reserved()).isZero();
+        assertThat(economics.redeemed()).isEqualTo(1);
+        assertThat(economics.attributedRevenueVnd()).isEqualTo(711_000);
+        assertThat(economics.discountGrantedVnd()).isEqualTo(79_000);
+
+        UUID otherOrganizationId = seedEntitlement(1_000);
+        assertThatThrownBy(() -> billing.quote(otherOrganizationId, planId, "STUDENT_REF_10"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("capacity");
+        assertThatThrownBy(() -> promotionService.create(new PromotionService.CreateCampaign(
+                "too_deep", "Unsafe referral", 1_501, null,
+                PromotionService.Channel.REFERRAL, null,
+                now, now.plus(Duration.ofDays(1)), 10
+        ), "operator-subject"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("margin guardrail");
     }
 
     @Test

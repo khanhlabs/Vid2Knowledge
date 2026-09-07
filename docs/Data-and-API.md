@@ -49,6 +49,9 @@
 
 - `products`, `plan_versions`, `prices`, `subscriptions`, `subscription_items`.
 - `invoices`, `invoice_lines`, `payments`, `refunds`, `billing_adjustments`.
+- `promotion_campaigns`, `promotion_campaign_events`, `promotion_redemptions`; campaign code và
+  discount bất biến sau khi tạo, deactivate có audit event, redemption giữ snapshot giá niêm yết,
+  tiền giảm và giá thực thu. Unique `(campaign, organization)` chặn lạm dụng nhiều lần.
 - `entitlements`, `usage_reservations`, `usage_ledger`, `cost_ledger`; ledger append-only.
 - `payment_webhook_inbox`, `outbox_events`, `idempotency_records`.
 - `notification_jobs`, `notification_deliveries`, `notification_preferences`,
@@ -159,6 +162,10 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 ### Billing
 
 - `GET /api/v1/billing/plans`, `GET .../usage`, `GET .../invoices`, `GET .../refunds`.
+- `POST .../billing/quotes` kiểm tra promotion mà không giữ chỗ; trả list price, discount và net price.
+  `POST .../checkout-sessions` nhận `promotionCode` tùy chọn, khóa campaign/capacity trong transaction,
+  giữ redemption đến khi order hết hạn và luôn gửi net price do server tính sang payOS. Idempotency
+  fingerprint bao gồm code để không thể đổi ưu đãi dưới cùng một key.
 - `POST .../checkout-sessions` tạo payOS link từ server-side price; catalog phân biệt
   `SUBSCRIPTION` và prepaid `TOP_UP`. Top-up chỉ mở khi thuê bao còn hiệu lực quá TTL
   checkout, cộng atomically vào entitlement hiện tại và có `credit_grants` để đối soát.
@@ -226,6 +233,9 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `POST /internal/tasks/billing/reconcile`.
 - `POST /internal/tasks/reviews/schedule`.
 - `POST /internal/tasks/retention/cleanup`.
+- `GET|POST /internal/promotions`, `DELETE /internal/promotions/{campaignId}` chỉ dành cho service
+  account nội bộ. List trả cả reserved, redeemed, attributed revenue và discount granted để đánh giá
+  economics theo channel; `partnerReference` chỉ được dùng opaque ID, không lưu email/số điện thoại.
 
 Retention cleanup xóa idempotency đã hết hạn; redaction raw Gemini output và processed payment
 webhook body/signature; xóa outbox, notification, invitation và metadata source upload terminal theo

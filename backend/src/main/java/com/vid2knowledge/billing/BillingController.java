@@ -51,7 +51,17 @@ public class BillingController {
         CurrentActor actor = access.require(
                 organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN
         );
-        return billing.checkout(actor, request.planId(), idempotencyKey);
+        return billing.checkout(actor, request.planId(), request.promotionCode(), idempotencyKey);
+    }
+
+    @PostMapping("/organizations/{organizationId}/billing/quotes")
+    public BillingService.Quote quote(
+            @PathVariable UUID organizationId,
+            @Valid @RequestBody CheckoutRequest request,
+            Authentication authentication
+    ) {
+        access.require(organizationId, authentication, CurrentActor.Role.OWNER, CurrentActor.Role.ADMIN);
+        return billing.quote(organizationId, request.planId(), request.promotionCode());
     }
 
     @GetMapping("/organizations/{organizationId}/billing/usage")
@@ -131,7 +141,7 @@ public class BillingController {
         billing.processWebhook(envelope);
     }
 
-    public record CheckoutRequest(@NotNull UUID planId) {
+    public record CheckoutRequest(@NotNull UUID planId, @Size(max = 40) String promotionCode) {
     }
 
     public record RefundRequest(

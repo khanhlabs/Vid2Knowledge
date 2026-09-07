@@ -74,6 +74,24 @@ raw response hay payment payload. Production console dùng structured JSON để
 có thể truy vấn không cần parse tự do. Chỉ thêm APM trả phí khi native metrics không trả lời được một SLO có
 ảnh hưởng doanh thu; review ingestion cost hàng tháng cùng P&L dashboard.
 
+## Promotion and referral operation
+
+Campaign chỉ được tạo qua `POST /internal/promotions` bằng Cloud Run service account/OIDC; không insert
+trực tiếp vào database. Code, discount, channel, plan prefix và attribution reference là immutable để
+không viết lại lịch sử economics. Nếu cấu hình sai, gọi `DELETE /internal/promotions/{campaignId}` để
+deactivate rồi tạo campaign mới. `partnerReference` phải là opaque CRM/partner ID, tuyệt đối không chứa
+PII. Giữ window/capacity nhỏ cho thử nghiệm đầu tiên; không dùng promotion cho top-up.
+
+Trước khi mở rộng campaign, đối soát `reserved`, `redeemed`, `attributedRevenueVnd` và
+`discountGrantedVnd` từ `GET /internal/promotions` với payment/invoice ledger. Reservation hết hạn không
+chiếm capacity và được release atomically ở checkout tiếp theo; payment thành công mới được tính
+redeemed/revenue. Dừng campaign ngay nếu discount làm account contribution margin dưới 60%, CAC payback
+trên 12 tháng hoặc cohort không có renewal signal. Không đánh giá channel chỉ bằng số mã đã dùng.
+
+Khi có payment mismatch, không sửa redemption/invoice bằng SQL. Chạy reconciliation; nếu order terminal,
+reservation được release. Nếu cần correction tài chính, dùng audited adjustment/refund workflow và giữ
+nguyên price snapshot ban đầu.
+
 ## Data retention operation
 
 Billing reconciliation gọi cùng transaction boundary của maintenance workflow cho retention cleanup;

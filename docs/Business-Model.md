@@ -99,6 +99,10 @@ Track gross revenue retention, net revenue retention, expansion MRR, contraction
 | Business | Từ 7,99 triệu VNĐ/tháng, ưu tiên hợp đồng năm | 5.000 phút, 50 instructor, 5.000 active learners, API/SSO/audit/SLA có giới hạn | Expansion và enterprise margin |
 
 - Annual discount tối đa tương đương hai tháng, trừ khi lower churn/CAC chứng minh mức khác tốt hơn.
+- Promotion tự phục vụ có hard ceiling theo channel: referral 15%, partner 20%, sales 25%, retention
+  30%. Đây là trần, không phải mức mặc định; operator phải so attributed revenue, discount granted,
+  CAC/payback và renewal theo cohort trước khi tăng. Không cấp mã 50% qua API dù database có safety
+  ceiling 50% cho rolling compatibility.
 - Không bán lifetime deal và không dùng từ “unlimited”.
 - Overage dùng credit pack trả trước; giá sàn phải bao phủ p95 shadow cost, payment, support và contribution margin mục tiêu.
 - Custom integration/SLA tính setup fee hoặc minimum annual commitment riêng.
@@ -121,7 +125,9 @@ Track gross revenue retention, net revenue retention, expansion MRR, contraction
 3. Discovery theo ROI: giờ soạn bài, số video, số learner, completion, chi phí nhân sự, churn học viên và quy trình đo kết quả.
 4. Demo bằng chính một video của buyer; đề xuất paid pilot có scope, deadline, outcome và price rõ.
 5. Sau pilot, business review bằng số giờ tiết kiệm, activation, completion, learning result, support và kế hoạch cohort tiếp theo.
-6. Chuyển sang annual Training Team; dùng referral/partner commission có thời hạn để buyer/creator giới thiệu account mới.
+6. Chuyển sang annual Training Team; dùng referral/partner code có thời hạn và capacity hữu hạn để
+   buyer/creator giới thiệu account mới. Scale một code chỉ khi contribution LTV/CAC đạt ít nhất 3 và
+   payback không quá 12 tháng; lượt redemption không thay thế retention/renewal evidence.
 
 Funnel source of truth nằm trong database/CRM table hoặc CRM được chọn sau; PostHog không thay thế sales ledger. Founder time phải được shadow-cost vào CAC để tránh ảo tưởng kênh acquisition miễn phí.
 
