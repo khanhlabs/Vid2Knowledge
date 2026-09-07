@@ -29,7 +29,7 @@ Browser/PWA
 | Auth | Supabase Auth | Google OAuth, magic link, invitation; giảm security code | Enterprise SSO qua adapter/IdP khi có hợp đồng |
 | Compute | Cloud Run Singapore | Scale-to-zero, container chuẩn, request-based | Min instance > 0 khi latency/revenue biện minh |
 | Queue | Cloud Tasks | Durable push, retry/rate limit, 1M ops free/tháng | Pub/Sub chỉ khi fan-out/event volume thực sự cần |
-| Scheduler | Cloud Scheduler | Outbox/reconciliation/cleanup, 3 jobs free/account | Dedicated scheduler khi task set vượt giới hạn vận hành |
+| Scheduler | Cloud Scheduler | Outbox/reconciliation/notification, 3 jobs; cleanup và learning reminders được gộp vào hai cycle sau | Dedicated scheduler khi task set vượt giới hạn vận hành |
 | Storage | Cloudflare R2 | S3-compatible, free egress, lifecycle | Tách bucket/region hoặc enterprise storage theo compliance |
 | Payment | payOS/VietQR | Phù hợp Việt Nam, webhook và tiền về tài khoản | Thêm adapter quốc tế; Stripe không phải mặc định cho pháp nhân VN |
 | Email | Resend | API đơn giản, free 3.000 email/tháng | Dedicated provider/IP khi deliverability/volume yêu cầu |

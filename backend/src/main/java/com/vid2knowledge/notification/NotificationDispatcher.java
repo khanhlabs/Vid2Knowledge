@@ -142,6 +142,9 @@ public class NotificationDispatcher {
                     "Tiếp tục checklist từ học liệu, khóa học, cohort đến một học viên hoàn thành.", "/app");
             case "TRIAL_EXPIRING" -> lifecycle(job, organization, "Trial Vid2Knowledge sắp kết thúc",
                     "Chọn gói phù hợp để giữ quota, học liệu và luồng đào tạo không bị gián đoạn.", "/app#billing");
+            case "ASSIGNMENT_AVAILABLE" -> assignment(job, payload, organization, false);
+            case "ASSIGNMENT_DUE" -> assignment(job, payload, organization, true);
+            case "REVIEW_DUE" -> reviewDue(job, payload, organization);
             default -> throw new NotificationDeliveryException("Unsupported notification type", false, null);
         };
     }
@@ -159,29 +162,79 @@ public class NotificationDispatcher {
         return new OutboundEmail(job.recipient(), subject, html, text, job.id().toString());
     }
 
+    private OutboundEmail assignment(
+            ClaimedNotification job, JsonNode payload, String organization, boolean deadlineReminder
+    ) {
+        String title = escaped(payload, "assignmentTitle");
+        String link = learnerLink(job.organizationId());
+        String subject;
+        String detail;
+        if (deadlineReminder) {
+            String dueAt = DATE.format(parseInstant(payload, "dueAt"));
+            subject = "Sắp đến hạn: " + HtmlUtils.htmlUnescape(title);
+            detail = "Bài học “" + title + "” đến hạn lúc " + dueAt + " (GMT+7).";
+        } else {
+            subject = "Bài học mới: " + HtmlUtils.htmlUnescape(title);
+            detail = "Bài học “" + title + "” đã sẵn sàng.";
+        }
+        String html = "<h2>" + HtmlUtils.htmlEscape(subject) + "</h2><p>" + organization + ": "
+                + detail + "</p><p><a href=\"" + HtmlUtils.htmlEscape(link)
+                + "\">Mở bài học</a></p><p>Bạn có thể tắt email nhắc học trong cài đặt tài khoản.</p>";
+        String text = HtmlUtils.htmlUnescape(organization) + ": " + HtmlUtils.htmlUnescape(detail) + " " + link
+                + " Bạn có thể tắt email nhắc học trong cài đặt tài khoản.";
+        return new OutboundEmail(job.recipient(), subject, html, text, job.id().toString());
+    }
+
+    private OutboundEmail reviewDue(ClaimedNotification job, JsonNode payload, String organization) {
+        int dueCards = dueReviewCount(job.organizationId(), parseUuid(payload, "userId"));
+        if (dueCards < 1) {
+            throw new NotificationDeliveryException("Review reminder count is invalid", false, null);
+        }
+        String link = learnerLink(job.organizationId());
+        String subject = "Có " + dueCards + " thẻ cần ôn hôm nay";
+        String detail = "Bạn có " + dueCards + " thẻ đến hạn ôn để duy trì ghi nhớ.";
+        String html = "<h2>" + HtmlUtils.htmlEscape(subject) + "</h2><p>" + organization + ": "
+                + HtmlUtils.htmlEscape(detail) + "</p><p><a href=\"" + HtmlUtils.htmlEscape(link)
+                + "\">Ôn tập ngay</a></p><p>Bạn có thể tắt email nhắc học trong cài đặt tài khoản.</p>";
+        String text = HtmlUtils.htmlUnescape(organization) + ": " + detail + " " + link
+                + " Bạn có thể tắt email nhắc học trong cài đặt tài khoản.";
+        return new OutboundEmail(job.recipient(), subject, html, text, job.id().toString());
+    }
+
     private String cancellationReason(ClaimedNotification job, JsonNode payload) {
-        if (!job.type().startsWith("ONBOARDING_") && !"ACTIVATION_NUDGE".equals(job.type())
-                && !"TRIAL_EXPIRING".equals(job.type())) return null;
+        boolean lifecycle = job.type().startsWith("ONBOARDING_") || "ACTIVATION_NUDGE".equals(job.type())
+                || "TRIAL_EXPIRING".equals(job.type());
+        boolean reminder = "ASSIGNMENT_AVAILABLE".equals(job.type()) || "ASSIGNMENT_DUE".equals(job.type())
+                || "REVIEW_DUE".equals(job.type());
+        if (!lifecycle && !reminder) return null;
         UUID userId;
         try {
             userId = UUID.fromString(payload.path("userId").asText());
         } catch (RuntimeException failure) {
-            throw new NotificationDeliveryException("Lifecycle user ID is invalid", false, failure);
+            throw new NotificationDeliveryException("Notification user ID is invalid", false, failure);
         }
-        Boolean eligible = jdbc.queryForObject(
+        List<RecipientEligibility> recipients = jdbc.query(
                 """
-                SELECT EXISTS(
-                    SELECT 1 FROM users u JOIN memberships m ON m.user_id = u.id
-                    JOIN organizations o ON o.id = m.organization_id
-                    WHERE u.id = ? AND u.status = 'ACTIVE' AND m.organization_id = ?
-                      AND m.status = 'ACTIVE' AND o.status = 'ACTIVE'
-                      AND COALESCE((SELECT product_guidance_enabled
-                                    FROM notification_preferences WHERE user_id = u.id), TRUE)
-                )
+                SELECT COALESCE(n.product_guidance_enabled, TRUE) AS product_guidance_enabled,
+                       COALESCE(n.assignment_reminders_enabled, TRUE) AS assignment_reminders_enabled,
+                       m.role
+                FROM users u JOIN memberships m ON m.user_id = u.id
+                JOIN organizations o ON o.id = m.organization_id
+                LEFT JOIN notification_preferences n ON n.user_id = u.id
+                WHERE u.id = ? AND u.status = 'ACTIVE' AND m.organization_id = ?
+                  AND m.status = 'ACTIVE' AND o.status = 'ACTIVE'
                 """,
-                Boolean.class, userId, job.organizationId()
+                (result, row) -> new RecipientEligibility(
+                        result.getBoolean("product_guidance_enabled"),
+                        result.getBoolean("assignment_reminders_enabled"), result.getString("role")
+                ),
+                userId, job.organizationId()
         );
-        if (!Boolean.TRUE.equals(eligible)) return "RECIPIENT_OR_PREFERENCE_INELIGIBLE";
+        if (recipients.isEmpty()) return "RECIPIENT_INELIGIBLE";
+        RecipientEligibility eligibility = recipients.getFirst();
+        if (lifecycle && !eligibility.productGuidance()) return "PRODUCT_GUIDANCE_DISABLED";
+        if (reminder && !eligibility.assignmentReminders()) return "ASSIGNMENT_REMINDERS_DISABLED";
+        if (reminder && !"LEARNER".equals(eligibility.role())) return "RECIPIENT_NOT_LEARNER";
         if ("ACTIVATION_NUDGE".equals(job.type())) {
             Boolean activated = jdbc.queryForObject(
                     "SELECT EXISTS(SELECT 1 FROM learner_progress WHERE organization_id = ? AND status = 'COMPLETED')",
@@ -199,7 +252,63 @@ public class NotificationDispatcher {
             );
             if (Boolean.TRUE.equals(paid)) return "ORGANIZATION_PAID";
         }
+        if ("ASSIGNMENT_AVAILABLE".equals(job.type()) || "ASSIGNMENT_DUE".equals(job.type())) {
+            UUID assignmentId = parseUuid(payload, "assignmentId");
+            Boolean actionable = jdbc.queryForObject(
+                    """
+                    SELECT EXISTS(SELECT 1 FROM assignments a
+                        JOIN assignment_recipients ar ON ar.assignment_id = a.id
+                          AND ar.organization_id = a.organization_id
+                        JOIN learner_progress lp ON lp.assignment_id = ar.assignment_id AND lp.user_id = ar.user_id
+                        WHERE a.organization_id = ? AND a.id = ? AND ar.user_id = ?
+                          AND a.state = 'PUBLISHED' AND a.available_at <= ?
+                          AND (a.due_at IS NULL OR a.due_at > ?) AND lp.status <> 'COMPLETED')
+                    """,
+                    Boolean.class, job.organizationId(), assignmentId, userId,
+                    Timestamp.from(clock.instant()), Timestamp.from(clock.instant())
+            );
+            if (!Boolean.TRUE.equals(actionable)) return "ASSIGNMENT_NOT_ACTIONABLE";
+        }
+        if ("REVIEW_DUE".equals(job.type())) {
+            if (dueReviewCount(job.organizationId(), userId) == 0) return "NO_REVIEWS_DUE";
+        }
         return null;
+    }
+
+    private int dueReviewCount(UUID organizationId, UUID userId) {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT count(*) FROM flashcard_memory_states f
+                JOIN assignments a ON a.id = f.assignment_id AND a.organization_id = f.organization_id
+                JOIN learner_progress lp ON lp.assignment_id = f.assignment_id AND lp.user_id = f.user_id
+                WHERE f.organization_id = ? AND f.user_id = ? AND f.due_at <= ?
+                  AND a.state = 'PUBLISHED' AND a.available_at <= ?
+                  AND (a.due_at IS NULL OR a.due_at > ?) AND lp.status <> 'COMPLETED'
+                """,
+                Integer.class, organizationId, userId, Timestamp.from(clock.instant()),
+                Timestamp.from(clock.instant()), Timestamp.from(clock.instant())
+        );
+        return count == null ? 0 : count;
+    }
+
+    private String learnerLink(UUID organizationId) {
+        return properties.frontendBaseUrl().resolve("/learn/" + organizationId).toString();
+    }
+
+    private static UUID parseUuid(JsonNode payload, String field) {
+        try {
+            return UUID.fromString(payload.path(field).asText());
+        } catch (RuntimeException failure) {
+            throw new NotificationDeliveryException("Notification " + field + " is invalid", false, failure);
+        }
+    }
+
+    private static Instant parseInstant(JsonNode payload, String field) {
+        try {
+            return Instant.parse(payload.path(field).asText());
+        } catch (RuntimeException failure) {
+            throw new NotificationDeliveryException("Notification " + field + " is invalid", false, failure);
+        }
     }
 
     private void cancel(ClaimedNotification job, String reason) {
@@ -311,7 +420,9 @@ public class NotificationDispatcher {
     private static String escaped(JsonNode payload, String field) {
         String value = payload.path(field).asText();
         if (value.isBlank()) {
-            throw new IllegalArgumentException("Missing notification payload field " + field);
+            throw new NotificationDeliveryException(
+                    "Missing notification payload field " + field, false, null
+            );
         }
         return HtmlUtils.htmlEscape(value);
     }
@@ -321,6 +432,8 @@ public class NotificationDispatcher {
             String encryptedPayload, int attemptCount, String leaseOwner
     ) {
     }
+
+    private record RecipientEligibility(boolean productGuidance, boolean assignmentReminders, String role) { }
 
     public record DispatchResult(int claimed, int sent, int retried, int deadLettered, int cancelled) {
     }

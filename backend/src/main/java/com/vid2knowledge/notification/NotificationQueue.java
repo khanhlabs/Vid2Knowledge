@@ -3,11 +3,27 @@ package com.vid2knowledge.notification;
 import com.vid2knowledge.auth.CurrentActor;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public interface NotificationQueue {
     void onboarding(
             UUID organizationId, UUID userId, String recipientEmail, Instant trialEndsAt
+    );
+
+    void assignmentAvailable(
+            UUID organizationId, UUID userId, String recipientEmail, String organizationName,
+            UUID assignmentId, String assignmentTitle, Instant availableAt
+    );
+
+    void assignmentDue(
+            UUID organizationId, UUID userId, String recipientEmail, String organizationName,
+            UUID assignmentId, String assignmentTitle, Instant dueAt, Instant notifyAt
+    );
+
+    void reviewDue(
+            UUID organizationId, UUID userId, String recipientEmail, String organizationName,
+            int dueCards, LocalDate reminderDate, Instant notifyAt
     );
 
     void invitation(

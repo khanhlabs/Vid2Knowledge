@@ -23,7 +23,11 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -65,6 +69,7 @@ class NotificationDeliveryIntegrationTest {
         );
         cipher = new NotificationCipher(properties);
         queue = new JdbcNotificationQueue(jdbc, cipher, new ObjectMapper());
+        jdbc.update("UPDATE learner_progress SET status = 'COMPLETED' WHERE status <> 'COMPLETED'");
         jdbc.update("DELETE FROM notification_jobs");
         organizationId = seedOrganization();
     }
@@ -249,6 +254,77 @@ class NotificationDeliveryIntegrationTest {
         )).isEqualTo(3L);
     }
 
+    @Test
+    void dueLearningWorkIsScheduledOnceAndDeliveredThroughTheExistingQueue() {
+        Instant now = Instant.now();
+        ReminderFixture fixture = seedReminderFixture(now);
+        var scheduler = new ReminderSchedulingService(
+                jdbc, queue, java.time.Clock.fixed(now, ZoneOffset.UTC)
+        );
+
+        assertThat(scheduler.schedule()).isEqualTo(new ReminderSchedulingService.ScheduleResult(1, 1, 1));
+        assertThat(scheduler.schedule()).isEqualTo(new ReminderSchedulingService.ScheduleResult(0, 0, 0));
+        Instant reviewNotifyAt = jdbc.queryForObject(
+                "SELECT available_at FROM notification_jobs WHERE organization_id = ? AND notification_type = 'REVIEW_DUE'",
+                Timestamp.class, organizationId
+        ).toInstant();
+        assertThat(reviewNotifyAt.atZone(ZoneId.of("Asia/Ho_Chi_Minh")).getHour()).isEqualTo(8);
+
+        jdbc.update(
+                "UPDATE notification_jobs SET available_at = ? WHERE organization_id = ?",
+                Timestamp.from(now.minusSeconds(1)), organizationId
+        );
+        List<OutboundEmail> sent = new ArrayList<>();
+        var result = dispatcher(email -> {
+            sent.add(email);
+            return "reminder-" + sent.size();
+        }).dispatch("worker-reminders");
+
+        assertThat(result.sent()).isEqualTo(3);
+        assertThat(sent).extracting(OutboundEmail::recipient).containsOnly(fixture.email());
+        assertThat(sent).extracting(OutboundEmail::subject)
+                .anyMatch(subject -> subject.startsWith("Bài học mới:"))
+                .anyMatch(subject -> subject.startsWith("Sắp đến hạn:"))
+                .anyMatch(subject -> subject.contains("thẻ cần ôn"));
+        assertThat(sent).extracting(OutboundEmail::text)
+                .allMatch(text -> text.contains("/learn/" + organizationId));
+    }
+
+    @Test
+    void reminderPreferenceAndCurrentProgressPreventStaleEmail() {
+        Instant now = Instant.now();
+        ReminderFixture optedOut = seedReminderFixture(now);
+        jdbc.update(
+                "INSERT INTO notification_preferences(user_id, assignment_reminders_enabled) VALUES (?, FALSE)",
+                optedOut.userId()
+        );
+        var scheduler = new ReminderSchedulingService(
+                jdbc, queue, java.time.Clock.fixed(now, ZoneOffset.UTC)
+        );
+        assertThat(scheduler.schedule()).isEqualTo(new ReminderSchedulingService.ScheduleResult(0, 0, 0));
+
+        jdbc.update("UPDATE notification_preferences SET assignment_reminders_enabled = TRUE WHERE user_id = ?",
+                optedOut.userId());
+        assertThat(scheduler.schedule()).isEqualTo(new ReminderSchedulingService.ScheduleResult(1, 1, 1));
+        jdbc.update(
+                "UPDATE learner_progress SET status = 'COMPLETED', progress_percent = 100, completed_at = ? "
+                        + "WHERE assignment_id = ? AND user_id = ?",
+                Timestamp.from(now), optedOut.assignmentId(), optedOut.userId()
+        );
+        jdbc.update(
+                "UPDATE notification_jobs SET available_at = ? WHERE organization_id = ?",
+                Timestamp.from(now.minusSeconds(1)), organizationId
+        );
+        AtomicInteger sends = new AtomicInteger();
+        var result = dispatcher(email -> {
+            sends.incrementAndGet();
+            return "must-not-send";
+        }).dispatch("worker-stale-reminders");
+
+        assertThat(result.cancelled()).isEqualTo(3);
+        assertThat(sends).hasValue(0);
+    }
+
     private NotificationDispatcher dispatcher(NotificationSender sender) {
         return new NotificationDispatcher(
                 jdbc, transactions, cipher, sender, properties, new ObjectMapper()
@@ -274,4 +350,97 @@ class NotificationDeliveryIntegrationTest {
         );
         return orgId;
     }
+
+    private ReminderFixture seedReminderFixture(Instant now) {
+        UUID ownerId = jdbc.queryForObject(
+                "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId
+        );
+        UUID learnerId = UuidV7Generator.generate();
+        String email = "learner-" + learnerId + "@example.com";
+        jdbc.update(
+                "INSERT INTO users(id, auth_subject, email, normalized_email, display_name) VALUES (?, ?, ?, ?, ?)",
+                learnerId, "learner-" + learnerId, email, email, "Learner"
+        );
+        jdbc.update(
+                "INSERT INTO memberships(organization_id, user_id, role) VALUES (?, ?, 'LEARNER')",
+                organizationId, learnerId
+        );
+        UUID sourceId = UuidV7Generator.generate();
+        jdbc.update(
+                "INSERT INTO sources(id, organization_id, type, canonical_uri, created_by) VALUES (?, ?, 'TEXT', ?, ?)",
+                sourceId, organizationId, "text://reminder/" + sourceId, ownerId
+        );
+        UUID packageId = UuidV7Generator.generate();
+        UUID revisionId = UuidV7Generator.generate();
+        jdbc.update(
+                "INSERT INTO learning_packages(id, organization_id, source_id, publication_state) "
+                        + "VALUES (?, ?, ?, 'PUBLISHED')",
+                packageId, organizationId, sourceId
+        );
+        jdbc.update(
+                "INSERT INTO package_revisions(id, organization_id, package_id, revision_no, content_json, "
+                        + "edited_by, verification_state) VALUES (?, ?, ?, 1, '{}'::jsonb, ?, 'HUMAN_VERIFIED')",
+                revisionId, organizationId, packageId, ownerId
+        );
+        jdbc.update("UPDATE learning_packages SET current_revision_id = ? WHERE id = ?", revisionId, packageId);
+        UUID courseId = UuidV7Generator.generate();
+        UUID moduleId = UuidV7Generator.generate();
+        UUID lessonId = UuidV7Generator.generate();
+        UUID cohortId = UuidV7Generator.generate();
+        UUID assignmentId = UuidV7Generator.generate();
+        jdbc.update(
+                "INSERT INTO courses(id, organization_id, title, state, created_by) "
+                        + "VALUES (?, ?, 'Retention Course', 'PUBLISHED', ?)",
+                courseId, organizationId, ownerId
+        );
+        jdbc.update(
+                "INSERT INTO course_modules(id, organization_id, course_id, title, position) "
+                        + "VALUES (?, ?, ?, 'Module', 1)",
+                moduleId, organizationId, courseId
+        );
+        jdbc.update(
+                "INSERT INTO lessons(id, organization_id, module_id, package_id, title, position) "
+                        + "VALUES (?, ?, ?, ?, 'Lesson', 1)",
+                lessonId, organizationId, moduleId, packageId
+        );
+        jdbc.update(
+                "INSERT INTO cohorts(id, organization_id, name, created_by) VALUES (?, ?, 'Cohort', ?)",
+                cohortId, organizationId, ownerId
+        );
+        jdbc.update(
+                """
+                INSERT INTO assignments(
+                    id, organization_id, cohort_id, lesson_id, package_revision_id, title,
+                    available_at, due_at, state, created_by, published_at
+                ) VALUES (?, ?, ?, ?, ?, 'Kỹ năng bán hàng', ?, ?, 'PUBLISHED', ?, ?)
+                """,
+                assignmentId, organizationId, cohortId, lessonId, revisionId,
+                Timestamp.from(now.minus(Duration.ofDays(1))), Timestamp.from(now.plus(Duration.ofHours(12))),
+                ownerId, Timestamp.from(now.minus(Duration.ofDays(1)))
+        );
+        jdbc.update(
+                "INSERT INTO assignment_recipients(organization_id, assignment_id, user_id, assigned_at) "
+                        + "VALUES (?, ?, ?, ?)",
+                organizationId, assignmentId, learnerId, Timestamp.from(now.minus(Duration.ofDays(1)))
+        );
+        jdbc.update(
+                "INSERT INTO learner_progress(organization_id, assignment_id, user_id, updated_at) VALUES (?, ?, ?, ?)",
+                organizationId, assignmentId, learnerId, Timestamp.from(now)
+        );
+        jdbc.update(
+                """
+                INSERT INTO flashcard_memory_states(
+                    organization_id, assignment_id, user_id, package_revision_id, card_id, state,
+                    stability_days, difficulty, due_at, last_reviewed_at, review_count, lapse_count,
+                    algorithm_version, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 'card-1', 'REVIEW', 2, 5, ?, ?, 1, 0, 'fsrs-6-v1', ?, ?)
+                """,
+                organizationId, assignmentId, learnerId, revisionId, Timestamp.from(now.minusSeconds(1)),
+                Timestamp.from(now.minus(Duration.ofDays(2))), Timestamp.from(now), Timestamp.from(now)
+        );
+        return new ReminderFixture(learnerId, assignmentId, email);
+    }
+
+    private record ReminderFixture(UUID userId, UUID assignmentId, String email) { }
 }

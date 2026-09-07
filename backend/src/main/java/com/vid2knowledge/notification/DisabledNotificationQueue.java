@@ -5,6 +5,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Component
@@ -12,6 +13,27 @@ import java.util.UUID;
 public class DisabledNotificationQueue implements NotificationQueue {
     @Override
     public void onboarding(UUID organizationId, UUID userId, String recipientEmail, Instant trialEndsAt) {
+    }
+
+    @Override
+    public void assignmentAvailable(
+            UUID organizationId, UUID userId, String recipientEmail, String organizationName,
+            UUID assignmentId, String assignmentTitle, Instant availableAt
+    ) {
+    }
+
+    @Override
+    public void assignmentDue(
+            UUID organizationId, UUID userId, String recipientEmail, String organizationName,
+            UUID assignmentId, String assignmentTitle, Instant dueAt, Instant notifyAt
+    ) {
+    }
+
+    @Override
+    public void reviewDue(
+            UUID organizationId, UUID userId, String recipientEmail, String organizationName,
+            int dueCards, LocalDate reminderDate, Instant notifyAt
+    ) {
     }
 
     @Override

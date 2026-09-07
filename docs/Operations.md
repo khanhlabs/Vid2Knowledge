@@ -90,7 +90,10 @@ Không giảm retention các record hợp đồng/pháp lý nếu chưa có lega
 lần đổi biến `RETENTION_*`, chạy staging cleanup trên snapshot và đối soát count trả về trước production.
 
 Lifecycle email không có cron riêng: lúc tạo trial, API ghi ba `notification_jobs` với `available_at`
-khác nhau; notification dispatcher hiện hữu claim chúng. Theo dõi `PENDING/PROCESSING/DEAD/CANCELLED`
+khác nhau; notification dispatcher hiện hữu claim chúng. Mỗi notification cycle cũng chạy scheduler
+idempotent cho assignment/review; endpoint `/internal/tasks/reviews/schedule` chỉ dùng để recovery thủ
+công, không cần Cloud Scheduler thứ tư. Review digest được xếp lúc 08:00 `Asia/Ho_Chi_Minh`; số thẻ được
+tính lại ngay trước provider call. Theo dõi `PENDING/PROCESSING/DEAD/CANCELLED`
 theo loại email. `CANCELLED` do opt-out/chuyển paid/đã activation là kết quả bình thường, không alert;
 chỉ alert tỷ lệ `DEAD` hoặc backlog job đã quá `available_at`. Không gửi bù lifecycle email đã bị cancel.
 `notification_preference_changes` là bằng chứng consent, không nằm trong cleanup notification terminal;

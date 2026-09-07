@@ -240,6 +240,12 @@ hết trial trước 3 ngày. Dispatcher hiện hữu xử lý cả job đến h
 mới. Trước lúc gửi, worker kiểm tra lại trạng thái user/member/organization, preference hiện hành,
 learner completion và paid subscription; email không còn phù hợp bị cancel + redact, không gọi provider.
 
+Cùng notification cycle sẽ phát hiện assignment mới, deadline trong 7 ngày và flashcard đã đến hạn rồi
+xếp job theo assignment/user hoặc user/ngày. Assignment availability chỉ pre-schedule tối đa 30 ngày;
+deadline gửi trước 24 giờ; review digest gửi lúc 08:00 `Asia/Ho_Chi_Minh`. Trước provider call, dispatcher
+kiểm tra lại membership, preference, assignment/progress/deadline và số thẻ hiện còn đến hạn. Endpoint
+`/internal/tasks/reviews/schedule` cho phép operator chạy riêng cùng logic idempotent khi recovery.
+
 ### Privacy
 
 - `GET /api/v1/privacy/export` trả JSON portable của đúng authenticated subject, với

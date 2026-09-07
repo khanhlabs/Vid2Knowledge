@@ -11,6 +11,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -44,6 +45,49 @@ public class JdbcNotificationQueue implements NotificationQueue {
         enqueueAt(organizationId, "TRIAL_EXPIRING", "onboarding/trial-expiring/" + organizationId + "/" + recipientKey,
                 recipientEmail, payload, conversionAt.isAfter(clock.instant())
                         ? conversionAt : clock.instant().plus(java.time.Duration.ofHours(1)));
+    }
+
+    @Override
+    public void assignmentAvailable(
+            UUID organizationId, UUID userId, String recipientEmail, String organizationName,
+            UUID assignmentId, String assignmentTitle, Instant availableAt
+    ) {
+        enqueueAt(
+                organizationId, "ASSIGNMENT_AVAILABLE", "assignment/available/" + assignmentId + "/" + userId,
+                recipientEmail, Map.of(
+                        "userId", userId.toString(), "assignmentId", assignmentId.toString(),
+                        "assignmentTitle", assignmentTitle, "organizationName", organizationName
+                ), availableAt.isAfter(clock.instant()) ? availableAt : clock.instant()
+        );
+    }
+
+    @Override
+    public void assignmentDue(
+            UUID organizationId, UUID userId, String recipientEmail, String organizationName,
+            UUID assignmentId, String assignmentTitle, Instant dueAt, Instant notifyAt
+    ) {
+        enqueueAt(
+                organizationId, "ASSIGNMENT_DUE", "assignment/due/" + assignmentId + "/" + userId,
+                recipientEmail, Map.of(
+                        "userId", userId.toString(), "assignmentId", assignmentId.toString(),
+                        "assignmentTitle", assignmentTitle, "dueAt", dueAt.toString(),
+                        "organizationName", organizationName
+                ), notifyAt.isAfter(clock.instant()) ? notifyAt : clock.instant()
+        );
+    }
+
+    @Override
+    public void reviewDue(
+            UUID organizationId, UUID userId, String recipientEmail, String organizationName,
+            int dueCards, LocalDate reminderDate, Instant notifyAt
+    ) {
+        enqueueAt(
+                organizationId, "REVIEW_DUE", "review/due/" + organizationId + "/" + userId + "/" + reminderDate,
+                recipientEmail, Map.of(
+                        "userId", userId.toString(), "dueCards", dueCards,
+                        "organizationName", organizationName, "reminderDate", reminderDate.toString()
+                ), notifyAt
+        );
     }
 
     @Override
