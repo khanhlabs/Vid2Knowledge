@@ -265,6 +265,8 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `POST /internal/tasks/outbox/dispatch`.
 - `POST /internal/tasks/notifications/dispatch`.
 - `POST /internal/tasks/billing/reconcile`.
+- `POST /internal/tasks/privacy/deletions`: scheduler riêng mỗi 10 phút, tối đa 3 identity/lần;
+  không nằm trong billing reconciliation để provider privacy không chiếm deadline thanh toán.
 - `POST /internal/tasks/reviews/schedule`.
 - `POST /internal/tasks/retention/cleanup`.
 - `GET|POST /internal/promotions`, `DELETE /internal/promotions/{campaignId}` chỉ dành cho service
@@ -310,8 +312,14 @@ kiểm tra lại membership, preference, assignment/progress/deadline và số t
   Sole owner phải chuyển ownership trước. Maintenance task pseudonymize identity và membership,
   redact Q&A/email payload, giữ ledger cần cho tài chính dưới pseudonymous UUID và lưu SHA-256
   identity block để JWT cũ không thể tự tạo lại account.
-- Việc xóa identity trong Supabase Auth vẫn là bước operator bắt buộc sau khi local request hoàn tất;
-  application block bảo đảm identity còn sót ở IdP không lấy lại quyền truy cập.
+- State machine: `REQUESTED → IDENTITY_PENDING → COMPLETED`; chỉ `REQUESTED` được hủy.
+  Local erasure lưu provider UUID trước khi pseudonymize; Supabase Admin DELETE chạy ngoài transaction.
+  Chỉ provider success hoặc 404 mới ghi `provider_deleted_at`/`completed_at`. Failure giữ pending,
+  lưu loại lỗi, tăng attempt và backoff 1–60 phút; task vẫn xử lý request kế tiếp. Local mode tắt
+  Supabase Admin giữ pending, không tự ghi completed.
+- V35 chuyển completion cũ thiếu bằng chứng IdP thành `IDENTITY_REVIEW`, giữ `locally_erased_at`.
+  Những request này cần operator đối soát. JWT stateless cũ có thể còn hạn sau khi xóa Auth user;
+  application subject block và membership LEFT tiếp tục chặn truy cập.
 
 ### Legal acceptance
 

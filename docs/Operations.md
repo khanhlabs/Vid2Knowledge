@@ -5,6 +5,11 @@
 Không nhận dữ liệu hoặc tiền thật cho tới khi owner xác nhận bằng chứng cho từng mục:
 
 - Supabase production là Pro, đặt tại Singapore, PITR/daily backup hoạt động và đã restore thử vào database rỗng.
+- Bật `SUPABASE_ADMIN_ENABLED` với HTTPS `SUPABASE_URL` cùng project JWT issuer; server-side
+  secret/service_role key nằm trong Secret Manager `v2k-supabase-secret-key`. Chạy thử xóa một test
+  account hết grace period và xác nhận cả Auth user biến mất lẫn request `COMPLETED`.
+  Theo [Supabase API keys](https://supabase.com/docs/guides/getting-started/api-keys), opaque
+  `sb_secret_` chỉ gửi qua `apikey`; adapter chỉ thêm bearer header cho legacy service_role JWT.
 - GCP budget alert 50/80/100%, Gemini quota và Cloud Run max instance đã đặt; payOS vẫn off cho tới khi signed-webhook/reconciliation smoke test đạt.
 - Cloudflare TLS, WAF/rate limit và Pages security headers đã bật; origin Cloud Run chỉ nhận frontend origin qua CORS.
 - Resend domain xác thực, invitation/receipt/renewal test gửi thành công; encryption key có bản sao trong secret recovery process.
@@ -50,8 +55,18 @@ RPO ban đầu 24 giờ, RTO 4 giờ. Nếu hợp đồng yêu cầu tốt hơn,
   reconciliation payment, outbox và notification trước khi mở traffic.
 - Secret leak: vô hiệu/rotate tại provider trước, tạo secret version mới, deploy revision mới, kiểm tra
   audit logs và revoke các credential liên quan. Không commit secret đã lộ vào lịch sử.
-- Privacy deletion: task local pseudonymize và block subject; operator xóa Supabase Auth identity,
-  ghi ticket/bằng chứng hoàn tất. Financial/audit ledger chỉ còn pseudonymous ID theo retention policy.
+- Privacy deletion: scheduler riêng gọi `/internal/tasks/privacy/deletions` mỗi 10 phút. Local erasure
+  và block subject commit trước; Supabase Admin DELETE có timeout tối đa 10 giây, batch tối đa 3.
+  Alert `AUTH_IDENTITY_DELETION_FAILED` yêu cầu kiểm tra secret/project, provider outage, hoặc object
+  thuộc user trong Supabase Storage. Không đưa provider response/secret/UUID danh tính vào log hay ticket.
+  Nếu request còn `REQUESTED`, kiểm tra ownership phát sinh trong grace period: phải chuyển owner
+  trước khi erasure tiếp tục; membership được khóa và kiểm tra lại ngay lúc xóa.
+  Khi khắc phục, retry tự tiếp tục; 404 được coi là đã xóa. Financial/audit ledger giữ pseudonymous ID
+  theo retention policy. JWT cũ còn hạn vẫn bị application block.
+- Legacy privacy `IDENTITY_REVIEW`: V35 phát hiện local completion thiếu bằng chứng Supabase. Operator
+  có quyền hạn chế đối soát Auth UUID với SHA-256 trong `deleted_identity_blocks`, ghi bằng chứng vào
+  ticket bảo mật, rồi trong transaction chuyển đúng request sang `IDENTITY_PENDING`, điền UUID đã
+  đối soát và để scheduler xác nhận deletion. Không đoán UUID từ email hoặc tự đặt `COMPLETED`.
 - Business webhook dead-letter: xem delivery log theo endpoint, phân loại permanent 4xx với transient
   408/425/429/5xx, yêu cầu buyer sửa receiver trước khi rotate/re-enable. Không gửi lại thủ công bằng cách
   tạo event giả và không gửi payload sang ticket/chat. Key/secret lộ phải revoke/rotate ngay; pending

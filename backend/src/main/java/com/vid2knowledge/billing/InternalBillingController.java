@@ -6,7 +6,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import com.vid2knowledge.privacy.PrivacyService;
 import com.vid2knowledge.privacy.RetentionService;
 
 @RestController
@@ -15,19 +14,17 @@ import com.vid2knowledge.privacy.RetentionService;
 public class InternalBillingController {
 
     private final BillingService billing;
-    private final PrivacyService privacy;
     private final RetentionService retention;
 
-    public InternalBillingController(BillingService billing, PrivacyService privacy, RetentionService retention) {
+    public InternalBillingController(BillingService billing, RetentionService retention) {
         this.billing = billing;
-        this.privacy = privacy;
         this.retention = retention;
     }
 
     @PostMapping
     public MaintenanceResult reconcile() {
         return new MaintenanceResult(
-                billing.reconcilePendingPayments(), privacy.processDueDeletions(), retention.cleanup()
+                billing.reconcilePendingPayments(), retention.cleanup()
         );
     }
 
@@ -52,7 +49,6 @@ public class InternalBillingController {
 
     public record MaintenanceResult(
             BillingService.ReconciliationResult billing,
-            PrivacyService.ProcessingResult privacyDeletions,
             RetentionService.CleanupResult retention
     ) { }
 }

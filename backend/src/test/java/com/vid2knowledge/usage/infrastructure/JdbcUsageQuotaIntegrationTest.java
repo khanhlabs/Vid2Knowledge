@@ -896,6 +896,10 @@ class JdbcUsageQuotaIntegrationTest {
         var owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
 
         new OrganizationAdminService(jdbc).transferOwnership(owner, nextOwnerId, "owner-transfer-1");
+        UUID thirdMemberId = seedLearner(organizationId);
+        assertThatThrownBy(() -> new OrganizationAdminService(jdbc).transferOwnership(
+                owner, thirdMemberId, "stale-owner-transfer"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
 
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM memberships WHERE organization_id = ? AND role = 'OWNER' AND status = 'ACTIVE'",

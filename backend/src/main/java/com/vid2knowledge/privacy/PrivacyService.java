@@ -2,6 +2,8 @@ package com.vid2knowledge.privacy;
 
 import com.vid2knowledge.common.id.RequestFingerprint;
 import com.vid2knowledge.common.id.UuidV7Generator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -21,15 +23,21 @@ import java.util.UUID;
 @Service
 @ConditionalOnProperty(prefix = "features", name = "persistence-enabled", havingValue = "true", matchIfMissing = true)
 public class PrivacyService {
+    private static final Logger log = LoggerFactory.getLogger(PrivacyService.class);
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final ObjectMapper mapper;
+    private final AuthIdentityAdmin identityAdmin;
     private final Clock clock = Clock.systemUTC();
 
-    public PrivacyService(JdbcTemplate jdbc, TransactionTemplate transactions, ObjectMapper mapper) {
+    public PrivacyService(
+            JdbcTemplate jdbc, TransactionTemplate transactions, ObjectMapper mapper,
+            AuthIdentityAdmin identityAdmin
+    ) {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.mapper = mapper;
+        this.identityAdmin = identityAdmin;
     }
 
     public JsonNode export(UUID userId) {
@@ -155,36 +163,64 @@ public class PrivacyService {
         List<UUID> due = jdbc.query(
                 """
                 SELECT id FROM privacy_deletion_requests
-                WHERE state = 'REQUESTED' AND scheduled_for <= ?
-                ORDER BY scheduled_for LIMIT 50
+                WHERE state IN ('REQUESTED', 'IDENTITY_PENDING') AND scheduled_for <= ?
+                  AND (provider_next_attempt_at IS NULL OR provider_next_attempt_at <= CURRENT_TIMESTAMP)
+                ORDER BY COALESCE(provider_next_attempt_at, scheduled_for), id LIMIT 3
                 """,
                 (result, row) -> result.getObject("id", UUID.class), Timestamp.from(clock.instant())
         );
         int completed = 0;
         for (UUID id : due) {
-            if (Boolean.TRUE.equals(transactions.execute(status -> erase(id)))) {
-                completed++;
+            try {
+                PendingIdentity pending = transactions.execute(status -> eraseLocally(id));
+                if (pending == null) continue;
+                if (!identityAdmin.enabled()) throw new IllegalStateException("Auth identity deletion is disabled");
+                identityAdmin.delete(pending.providerUserId());
+                if (Boolean.TRUE.equals(transactions.execute(status -> markProviderDeleted(id)))) completed++;
+            } catch (RuntimeException failure) {
+                recordProviderFailure(id, failure);
             }
+        }
+        Long reviewCount = jdbc.queryForObject(
+                "SELECT count(*) FROM privacy_deletion_requests WHERE state = 'IDENTITY_REVIEW'", Long.class);
+        if (reviewCount != null && reviewCount > 0) {
+            log.error("AUTH_IDENTITY_DELETION_FAILED legacyReviewCount={}", reviewCount);
         }
         return new ProcessingResult(due.size(), completed);
     }
 
-    private boolean erase(UUID requestId) {
+    private PendingIdentity eraseLocally(UUID requestId) {
         Instant now = clock.instant();
         List<UserForDeletion> users = jdbc.query(
                 """
-                SELECT u.id, u.auth_subject, u.normalized_email
+                SELECT d.state, d.auth_provider_user_id, u.id, u.auth_subject, u.normalized_email
                 FROM privacy_deletion_requests d JOIN users u ON u.id = d.user_id
-                WHERE d.id = ? AND d.state = 'REQUESTED' AND d.scheduled_for <= ?
+                WHERE d.id = ? AND d.state IN ('REQUESTED', 'IDENTITY_PENDING') AND d.scheduled_for <= ?
                 FOR UPDATE OF d, u
                 """,
                 (result, row) -> new UserForDeletion(
+                        result.getString("state"), result.getObject("auth_provider_user_id", UUID.class),
                         result.getObject("id", UUID.class), result.getString("auth_subject"),
                         result.getString("normalized_email")
                 ), requestId, Timestamp.from(now)
         );
-        if (users.isEmpty()) return false;
+        if (users.isEmpty()) return null;
         UserForDeletion user = users.getFirst();
+        if ("IDENTITY_PENDING".equals(user.state())) {
+            return new PendingIdentity(user.providerUserId());
+        }
+        UUID providerUserId;
+        try {
+            providerUserId = UUID.fromString(user.subject());
+        } catch (IllegalArgumentException invalidSubject) {
+            throw new IllegalStateException("Supabase auth subject is not a UUID", invalidSubject);
+        }
+        List<Boolean> ownerships = jdbc.query(
+                "SELECT role = 'OWNER' AND status = 'ACTIVE' AS owns FROM memberships WHERE user_id = ? ORDER BY organization_id FOR UPDATE",
+                (result, row) -> result.getBoolean("owns"), user.id());
+        if (ownerships.contains(true)) {
+            throw new IllegalStateException("Transfer organization ownership before account erasure");
+        }
         jdbc.update("UPDATE memberships SET status = 'LEFT', updated_at = ? WHERE user_id = ?",
                 Timestamp.from(now), user.id());
         jdbc.update(
@@ -232,17 +268,52 @@ public class PrivacyService {
                 "deleted:" + user.id(), deletedEmail, deletedEmail, Timestamp.from(now), user.id()
         );
         jdbc.update(
-                "UPDATE privacy_deletion_requests SET state = 'COMPLETED', completed_at = ? WHERE id = ?",
-                Timestamp.from(now), requestId
+                """
+                UPDATE privacy_deletion_requests
+                SET state = 'IDENTITY_PENDING', auth_provider_user_id = ?, provider_last_error = NULL,
+                    locally_erased_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND state = 'REQUESTED'
+                """,
+                providerUserId, requestId
         );
-        return true;
+        return new PendingIdentity(providerUserId);
+    }
+
+    private boolean markProviderDeleted(UUID requestId) {
+        Instant now = clock.instant();
+        int updated = jdbc.update(
+                """
+                UPDATE privacy_deletion_requests
+                SET state = 'COMPLETED', provider_attempt_count = provider_attempt_count + 1,
+                    provider_last_error = NULL, provider_next_attempt_at = NULL,
+                    provider_deleted_at = ?, completed_at = ?
+                WHERE id = ? AND state = 'IDENTITY_PENDING'
+                """,
+                Timestamp.from(now), Timestamp.from(now), requestId
+        );
+        return updated == 1;
+    }
+
+    private void recordProviderFailure(UUID requestId, RuntimeException failure) {
+        String error = failure.getClass().getSimpleName();
+        jdbc.update(
+                """
+                UPDATE privacy_deletion_requests
+                SET provider_attempt_count = provider_attempt_count + 1, provider_last_error = ?,
+                    provider_next_attempt_at = CURRENT_TIMESTAMP
+                        + make_interval(secs => LEAST(3600, 60 * power(2, LEAST(provider_attempt_count, 6)))::int)
+                WHERE id = ? AND state IN ('REQUESTED', 'IDENTITY_PENDING')
+                """,
+                error.substring(0, Math.min(error.length(), 500)), requestId
+        );
+        log.error("AUTH_IDENTITY_DELETION_FAILED requestId={} errorType={}", requestId, error);
     }
 
     private List<DeletionRequest> findActive(UUID userId) {
         return jdbc.query(
                 """
                 SELECT id, state, requested_at, scheduled_for, cancelled_at, completed_at
-                FROM privacy_deletion_requests WHERE user_id = ? AND state = 'REQUESTED'
+                FROM privacy_deletion_requests WHERE user_id = ? AND state IN ('REQUESTED', 'IDENTITY_PENDING', 'IDENTITY_REVIEW')
                 """,
                 (result, row) -> new DeletionRequest(
                         result.getObject("id", UUID.class), result.getString("state"),
@@ -258,5 +329,8 @@ public class PrivacyService {
     ) { }
 
     public record ProcessingResult(int checked, int completed) { }
-    private record UserForDeletion(UUID id, String subject, String normalizedEmail) { }
+    private record UserForDeletion(
+            String state, UUID providerUserId, UUID id, String subject, String normalizedEmail
+    ) { }
+    private record PendingIdentity(UUID providerUserId) { }
 }

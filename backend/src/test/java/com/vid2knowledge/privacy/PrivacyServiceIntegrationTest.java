@@ -37,6 +37,8 @@ class PrivacyServiceIntegrationTest {
     private PrivacyService privacy;
     private UUID userId;
     private UUID organizationId;
+    private boolean providerFails;
+    private UUID deletedProviderId;
 
     @BeforeAll
     static void migrate() {
@@ -51,14 +53,21 @@ class PrivacyServiceIntegrationTest {
         );
         jdbc = new JdbcTemplate(dataSource);
         privacy = new PrivacyService(
-                jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource)), new ObjectMapper()
+                jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource)), new ObjectMapper(),
+                new AuthIdentityAdmin() {
+                    public boolean enabled() { return true; }
+                    public void delete(UUID id) {
+                        if (providerFails) throw new IllegalStateException("provider secret must not be persisted");
+                        deletedProviderId = id;
+                    }
+                }
         );
         userId = UuidV7Generator.generate();
         organizationId = UuidV7Generator.generate();
         String unique = userId.toString();
         jdbc.update(
                 "INSERT INTO users(id, auth_subject, email, normalized_email, display_name) VALUES (?, ?, ?, ?, ?)",
-                userId, "privacy-subject-" + unique, unique + "@example.com", unique + "@example.com", "Privacy User"
+                userId, unique, unique + "@example.com", unique + "@example.com", "Privacy User"
         );
         jdbc.update("INSERT INTO organizations(id, name, slug) VALUES (?, 'Privacy Org', ?)",
                 organizationId, "privacy-" + organizationId);
@@ -69,7 +78,7 @@ class PrivacyServiceIntegrationTest {
     @Test
     void exportContainsOnlyTheAuthenticatedUsersPortableData() {
         new NotificationPreferenceService(jdbc).update(
-                "privacy-subject-" + userId,
+                userId.toString(),
                 new NotificationPreferenceService.Preferences(false, true, false)
         );
         var exported = privacy.export(userId);
@@ -234,6 +243,9 @@ class PrivacyServiceIntegrationTest {
         var result = privacy.processDueDeletions();
 
         assertThat(result.completed()).isEqualTo(1);
+        assertThat(deletedProviderId).isEqualTo(userId);
+        assertThat(jdbc.queryForObject("SELECT state FROM privacy_deletion_requests WHERE id = ?",
+                String.class, request.id())).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject("SELECT status FROM users WHERE id = ?", String.class, userId))
                 .isEqualTo("DELETED");
         assertThat(jdbc.queryForObject(
@@ -251,7 +263,55 @@ class PrivacyServiceIntegrationTest {
                 0, 0, Duration.ofDays(14), Duration.ofDays(7)
         ));
         assertThatThrownBy(() -> identities.provision(
-                "privacy-subject-" + userId, userId + "@example.com", "Returned"
+                userId.toString(), userId + "@example.com", "Returned"
         )).isInstanceOf(ResponseStatusException.class).hasMessageContaining("cannot be reprovisioned");
+    }
+
+    @Test
+    void refusesErasureIfUserBecameOwnerDuringGracePeriod() {
+        jdbc.update("UPDATE memberships SET role = 'LEARNER' WHERE user_id = ?", userId);
+        var request = privacy.requestDeletion(userId);
+        jdbc.update("UPDATE privacy_deletion_requests SET requested_at = ?, scheduled_for = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minus(Duration.ofDays(8))),
+                Timestamp.from(Instant.now().minusSeconds(1)), request.id());
+        jdbc.update("UPDATE memberships SET role = 'OWNER' WHERE user_id = ?", userId);
+
+        assertThat(privacy.processDueDeletions().completed()).isZero();
+        assertThat(privacy.activeDeletion(userId).state()).isEqualTo("REQUESTED");
+        assertThat(jdbc.queryForObject("SELECT status FROM users WHERE id = ?", String.class, userId)).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT status FROM memberships WHERE user_id = ?", String.class, userId)).isEqualTo("ACTIVE");
+        assertThat(deletedProviderId).isNull();
+        // Clean up this intentionally blocked request in the shared test database.
+        privacy.cancelDeletion(userId);
+    }
+
+    @Test
+    void providerFailureStaysPendingThenRetriesWithoutRepeatingLocalErasure() {
+        jdbc.update("UPDATE memberships SET role = 'LEARNER' WHERE user_id = ?", userId);
+        var request = privacy.requestDeletion(userId);
+        jdbc.update("UPDATE privacy_deletion_requests SET requested_at = ?, scheduled_for = ? WHERE id = ?",
+                Timestamp.from(Instant.now().minus(Duration.ofDays(8))),
+                Timestamp.from(Instant.now().minusSeconds(1)), request.id());
+        providerFails = true;
+
+        assertThat(privacy.processDueDeletions().completed()).isZero();
+        assertThat(privacy.activeDeletion(userId).state()).isEqualTo("IDENTITY_PENDING");
+        assertThat(jdbc.queryForObject("SELECT status FROM users WHERE id = ?", String.class, userId))
+                .isEqualTo("DELETED");
+        assertThat(jdbc.queryForObject("SELECT provider_last_error FROM privacy_deletion_requests WHERE id = ?",
+                String.class, request.id())).isEqualTo("IllegalStateException");
+        assertThat(jdbc.queryForObject("SELECT completed_at IS NULL AND provider_next_attempt_at > CURRENT_TIMESTAMP FROM privacy_deletion_requests WHERE id = ?",
+                Boolean.class, request.id())).isTrue();
+        assertThat(privacy.processDueDeletions().checked()).isZero();
+        assertThatThrownBy(() -> privacy.cancelDeletion(userId)).isInstanceOf(ResponseStatusException.class);
+
+        providerFails = false;
+        jdbc.update("UPDATE privacy_deletion_requests SET provider_next_attempt_at = CURRENT_TIMESTAMP WHERE id = ?", request.id());
+        assertThat(privacy.processDueDeletions().completed()).isEqualTo(1);
+        assertThat(deletedProviderId).isEqualTo(userId);
+        assertThat(jdbc.queryForObject("SELECT provider_attempt_count FROM privacy_deletion_requests WHERE id = ?",
+                Integer.class, request.id())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM deleted_identity_blocks WHERE deletion_request_id = ?",
+                Integer.class, request.id())).isEqualTo(1);
     }
 }

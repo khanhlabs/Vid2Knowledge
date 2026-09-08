@@ -128,6 +128,12 @@ payos:
 billing:
   require-profile-before-checkout: ${BILLING_REQUIRE_PROFILE_BEFORE_CHECKOUT:false}
 
+supabase-admin:
+  enabled: ${SUPABASE_ADMIN_ENABLED:false}
+  url: ${SUPABASE_URL:}
+  secret-key: ${SUPABASE_SECRET_KEY:}
+  timeout: ${SUPABASE_ADMIN_TIMEOUT:10s}
+
 notifications:
   enabled: ${NOTIFICATIONS_ENABLED:false}
   api-key: ${RESEND_API_KEY:}

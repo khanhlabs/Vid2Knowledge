@@ -2,6 +2,9 @@ project_id       = "your-gcp-project"
 environment      = "staging"
 backend_image    = "asia-southeast1-docker.pkg.dev/your-gcp-project/vid2knowledge/backend@sha256:replace"
 auth_issuer_uri  = "https://your-project.supabase.co/auth/v1"
+supabase_url     = "https://your-project.supabase.co"
+# Add the server-side secret/service_role key to Secret Manager before enabling; required in prod.
+supabase_admin_enabled = false
 frontend_origin  = "https://staging.example.com"
 sales_operator_members = ["user:founder@example.com"]
 # Optional but strongly recommended before enabling paid providers.

@@ -23,7 +23,7 @@ class DatabaseMigrationTest {
                 .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                 .load();
 
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(34);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(35);
         flyway.validate();
 
         try (var connection = DriverManager.getConnection(

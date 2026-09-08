@@ -103,14 +103,16 @@ public class OrganizationAdminService {
         );
         if (eligible == null || eligible != 1) throw notFound();
         Instant now = clock.instant();
-        jdbc.update(
-                "UPDATE memberships SET role = 'ADMIN', updated_at = ? WHERE organization_id = ? AND user_id = ? AND role = 'OWNER'",
+        int previousOwner = jdbc.update(
+                "UPDATE memberships SET role = 'ADMIN', updated_at = ? WHERE organization_id = ? AND user_id = ? AND role = 'OWNER' AND status = 'ACTIVE'",
                 Timestamp.from(now), actor.organizationId(), actor.userId()
         );
-        jdbc.update(
-                "UPDATE memberships SET role = 'OWNER', updated_at = ? WHERE organization_id = ? AND user_id = ?",
+        if (previousOwner != 1) throw notFound();
+        int nextOwner = jdbc.update(
+                "UPDATE memberships SET role = 'OWNER', updated_at = ? WHERE organization_id = ? AND user_id = ? AND status = 'ACTIVE'",
                 Timestamp.from(now), actor.organizationId(), nextOwnerId
         );
+        if (nextOwner != 1) throw notFound();
         audit(actor, "OWNERSHIP_TRANSFERRED", nextOwnerId, correlationId);
     }
 

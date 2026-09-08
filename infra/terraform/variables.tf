@@ -24,6 +24,20 @@ variable "backend_image" {
 }
 
 variable "auth_issuer_uri" { type = string }
+variable "supabase_admin_enabled" {
+  description = "Enable server-side Auth identity deletion after adding the secret version. Required in production."
+  type        = bool
+  default     = false
+}
+variable "supabase_url" {
+  description = "Supabase project HTTPS origin; must match the JWT issuer's project."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.supabase_url == "" || can(regex("^https://[A-Za-z0-9.-]+/?$", var.supabase_url))
+    error_message = "supabase_url must be an HTTPS origin without credentials, query, or path."
+  }
+}
 variable "auth_audience" {
   type    = string
   default = "authenticated"
@@ -152,6 +166,7 @@ variable "secret_ids" {
     db_password                 = string
     gemini_api_key              = string
     youtube_api_key             = string
+    supabase_secret_key         = string
     payos_client_id             = string
     payos_api_key               = string
     payos_checksum_key          = string
@@ -167,6 +182,7 @@ variable "secret_ids" {
     db_password                 = "v2k-db-password"
     gemini_api_key              = "v2k-gemini-api-key"
     youtube_api_key             = "v2k-youtube-api-key"
+    supabase_secret_key         = "v2k-supabase-secret-key"
     payos_client_id             = "v2k-payos-client-id"
     payos_api_key               = "v2k-payos-api-key"
     payos_checksum_key          = "v2k-payos-checksum-key"

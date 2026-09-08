@@ -32,6 +32,7 @@ locals {
   }
   secret_env = merge(
     local.core_secret_env,
+    var.supabase_admin_enabled ? { SUPABASE_SECRET_KEY = var.secret_ids.supabase_secret_key } : {},
     var.payos_enabled ? local.payos_secret_env : {},
     var.notifications_enabled ? local.notification_secret_env : {},
     var.integrations_enabled ? local.integration_secret_env : {},
@@ -43,6 +44,8 @@ locals {
     OUTBOX_POLLER_ENABLED              = "false"
     AUTH_ISSUER_URI                    = var.auth_issuer_uri
     AUTH_AUDIENCE                      = var.auth_audience
+    SUPABASE_ADMIN_ENABLED             = tostring(var.supabase_admin_enabled)
+    SUPABASE_URL                       = var.supabase_url
     TASK_SERVICE_ACCOUNT_EMAIL         = google_service_account.task_invoker.email
     TASK_OIDC_AUDIENCE                 = local.internal_audience
     SALES_SERVICE_ACCOUNT_EMAIL        = google_service_account.sales_invoker.email
@@ -107,6 +110,14 @@ resource "terraform_data" "production_launch_guard" {
   }
 
   lifecycle {
+    precondition {
+      condition     = var.environment != "prod" || var.supabase_admin_enabled
+      error_message = "Production requires automated Supabase Auth identity deletion."
+    }
+    precondition {
+      condition     = !var.supabase_admin_enabled || (var.supabase_url != "" && var.auth_issuer_uri == "${trimsuffix(var.supabase_url, "/")}/auth/v1")
+      error_message = "Supabase admin URL must reference the same project as auth_issuer_uri."
+    }
     precondition {
       condition     = var.environment != "prod" || length(var.alert_notification_emails) >= 2
       error_message = "Production requires at least two independent alert_notification_emails recipients."
@@ -584,6 +595,18 @@ resource "google_logging_metric" "webhook_dead_letter" {
   depends_on = [google_project_service.required]
 }
 
+resource "google_logging_metric" "identity_deletion_failed" {
+  name        = "${local.prefix}-identity-deletion-failed"
+  description = "Counts incomplete Auth identity deletion attempts or unresolved legacy deletions."
+  filter      = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.api.name}\" AND (jsonPayload.message : \"AUTH_IDENTITY_DELETION_FAILED\" OR textPayload : \"AUTH_IDENTITY_DELETION_FAILED\")"
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+  depends_on = [google_project_service.required]
+}
+
 resource "google_monitoring_alert_policy" "commercial_integrity_events" {
   display_name = "${local.prefix}: commercial integrity event"
   combiner     = "OR"
@@ -595,7 +618,23 @@ resource "google_monitoring_alert_policy" "commercial_integrity_events" {
 
   documentation {
     mime_type = "text/markdown"
-    content   = "A paid-provider circuit opened, payOS reconciliation mismatched, or an email reached dead-letter. Follow the corresponding runbook in docs/Operations.md."
+    content   = "A provider circuit opened, payment reconciliation mismatched, a delivery reached dead-letter, or Auth identity deletion needs attention. Follow the corresponding runbook in docs/Operations.md."
+  }
+
+  conditions {
+    display_name = "Auth identity deletion needs attention"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND metric.type = \"logging.googleapis.com/user/${google_logging_metric.identity_deletion_failed.name}\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+      trigger { count = 1 }
+    }
   }
 
   conditions {
@@ -720,6 +759,29 @@ resource "google_cloud_scheduler_job" "billing_reconciliation" {
   http_target {
     http_method = "POST"
     uri         = "${google_cloud_run_v2_service.api.uri}/internal/tasks/billing/reconcile"
+    headers     = { "Content-Type" = "application/json" }
+    oidc_token {
+      service_account_email = google_service_account.task_invoker.email
+      audience              = local.internal_audience
+    }
+  }
+  depends_on = [google_cloud_run_v2_service_iam_member.public_api]
+}
+
+resource "google_cloud_scheduler_job" "privacy_deletions" {
+  name             = "${local.prefix}-privacy-deletions"
+  region           = var.region
+  schedule         = "*/10 * * * *"
+  time_zone        = "Etc/UTC"
+  attempt_deadline = "60s"
+  retry_config {
+    retry_count          = 2
+    min_backoff_duration = "30s"
+    max_backoff_duration = "120s"
+  }
+  http_target {
+    http_method = "POST"
+    uri         = "${google_cloud_run_v2_service.api.uri}/internal/tasks/privacy/deletions"
     headers     = { "Content-Type" = "application/json" }
     oidc_token {
       service_account_email = google_service_account.task_invoker.email
