@@ -311,9 +311,13 @@ Chi tiết kiến trúc nằm tại `Technical-Architecture.md`; data model, API
 ### 11.3 Observability
 
 - Structured JSON logs với trace/correlation/job/org ID đã pseudonymize.
-- OpenTelemetry traces, Micrometer metrics và Cloud Monitoring alerts.
-- Sentry frontend/backend cho error grouping và release tracking; scrub PII.
-- Alerts: error rate, task oldest age, job p95, DB connection saturation, payment webhook failure, budget anomaly và provider circuit open.
+- Structured JSON/correlation và Cloud Run/Tasks/Logging metrics đi thẳng vào Cloud Monitoring trước;
+  không thêm telemetry vendor chỉ vì có free tier.
+- Sentry/OTel/Micrometer exporter chỉ bật khi native signal không trả lời được một SLO ảnh hưởng doanh
+  thu, sau PII scrub test, sampling/retention/cost cap và rollback flag.
+- Alerts giai đoạn đầu: API/worker 5xx, API p95, queue depth/failure, email/webhook dead-letter, payment
+  reconciliation mismatch, provider circuit và budget. DB pool quan sát qua Hikari logs/health cùng
+  Supabase dashboard; thêm exporter khi paid traffic chứng minh cần time-series saturation.
 
 ### 11.4 Backup, recovery và SLO
 

@@ -13,7 +13,7 @@ Browser/PWA
             ├─ payOS through PaymentProvider
             ├─ Resend through NotificationProvider
             ├─ Cloudflare R2 through ObjectStorage port
-            └─ PostHog / OpenTelemetry / Sentry
+            └─ Structured events/logs → Cloud Monitoring native
 ```
 
 Đây là multi-provider có chủ đích để giữ chi phí thấp: Cloudflare cho static/egress, GCP cho compute/queue gần Gemini, Supabase cho Postgres/Auth. Mọi integration phải nằm sau port để có thể thay thế. Không tạo distributed transaction giữa provider; dùng inbox/outbox, idempotency và reconciliation.
@@ -33,8 +33,8 @@ Browser/PWA
 | Storage | Cloudflare R2 | S3-compatible, free egress, lifecycle | Tách bucket/region hoặc enterprise storage theo compliance |
 | Payment | payOS/VietQR | Phù hợp Việt Nam, webhook và tiền về tài khoản | Thêm adapter quốc tế; Stripe không phải mặc định cho pháp nhân VN |
 | Email | Resend | API đơn giản, free 3.000 email/tháng | Dedicated provider/IP khi deliverability/volume yêu cầu |
-| Product analytics | PostHog | Funnel, flags, experiments; free tier lớn | Warehouse riêng khi BI/revenue scale |
-| Error/trace | Sentry + OTel/Cloud Monitoring | Error grouping + hạ tầng native | Sampling/retention theo chi phí |
+| Product analytics | PostgreSQL business events + reconciled metrics | Không gửi PII sang vendor, cùng nguồn sự thật với revenue | PostHog chỉ sau consent/cost review và nhu cầu experiment thật |
+| Error/trace | Structured JSON + Cloud Monitoring native trước; Sentry/OTel khi SLO cần | Không trả APM khi chưa có traffic, vẫn có correlation và alert | Chỉ bật vendor sau cost review, scrub PII |
 
 Tham chiếu giá phải revalidate trước deploy: [Cloud Run](https://cloud.google.com/run/pricing), [Cloud Tasks](https://cloud.google.com/tasks/pricing), [Cloud Scheduler](https://cloud.google.com/scheduler/pricing), [Supabase](https://supabase.com/pricing), [Cloudflare Pages](https://developers.cloudflare.com/pages/platform/limits/), [R2](https://developers.cloudflare.com/r2/pricing/), [Resend](https://resend.com/pricing), [PostHog](https://posthog.com/pricing), [payOS](https://payos.vn/docs/api/).
 

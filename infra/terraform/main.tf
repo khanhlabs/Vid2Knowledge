@@ -424,6 +424,41 @@ resource "google_monitoring_alert_policy" "worker_server_errors" {
   depends_on  = [google_project_service.required]
 }
 
+resource "google_monitoring_alert_policy" "api_latency" {
+  display_name = "${local.prefix}: API p95 latency"
+  combiner     = "OR"
+  enabled      = true
+  severity     = "WARNING"
+  notification_channels = [
+    for channel in google_monitoring_notification_channel.operations_email : channel.name
+  ]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "API p95 container latency exceeded two seconds for ten minutes. Check revision, database pool and provider calls before raising Cloud Run concurrency."
+  }
+
+  conditions {
+    display_name = "API request latency p95 > 2000ms for 10m"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.api.name}\" AND metric.type = \"run.googleapis.com/request_latencies\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 2000
+      duration        = "600s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_PERCENTILE_95"
+        cross_series_reducer = "REDUCE_MAX"
+      }
+      trigger { count = 1 }
+    }
+  }
+
+  alert_strategy { auto_close = "1800s" }
+  user_labels = local.labels
+  depends_on  = [google_project_service.required]
+}
+
 resource "google_monitoring_alert_policy" "analysis_queue_backlog" {
   display_name = "${local.prefix}: analysis queue backlog"
   combiner     = "OR"

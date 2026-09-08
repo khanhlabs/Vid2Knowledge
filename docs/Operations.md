@@ -61,7 +61,9 @@ RPO ban đầu 24 giờ, RTO 4 giờ. Nếu hợp đồng yêu cầu tốt hơn,
 
 Terraform dùng trực tiếp Cloud Monitoring metrics để không phải trả thêm APM vendor: API/worker 5xx lớn hơn
 5 trong 5 phút là critical; Cloud Tasks non-OK attempt lớn hơn 5 trong 5 phút là critical; queue depth lớn
-hơn 50 liên tục 10 phút là warning. Log-based metrics báo critical ngay khi AI circuit mở, payOS reconciliation
+hơn 50 liên tục 10 phút là warning; API p95 container latency lớn hơn 2 giây trong 10 phút cũng là warning.
+Latency dùng distribution metric `run.googleapis.com/request_latencies` với `ALIGN_PERCENTILE_95`, không
+ước lượng percentile từ log rời rạc. Log-based metrics báo critical ngay khi AI circuit mở, payOS reconciliation
 lệch, email hết retry hoặc Business webhook vào dead-letter. Mỗi alert phải có tối thiểu hai email
 production đã xác thực.
 
