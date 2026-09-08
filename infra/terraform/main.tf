@@ -6,6 +6,7 @@ locals {
     cost_center = "product"
   }
   internal_audience = "https://tasks.vid2knowledge.internal/${var.environment}"
+  sales_audience    = "https://sales.vid2knowledge.internal/${var.environment}"
   core_secret_env = {
     DB_URL          = var.secret_ids.db_url
     DB_USERNAME     = var.secret_ids.db_username
@@ -44,6 +45,8 @@ locals {
     AUTH_AUDIENCE                      = var.auth_audience
     TASK_SERVICE_ACCOUNT_EMAIL         = google_service_account.task_invoker.email
     TASK_OIDC_AUDIENCE                 = local.internal_audience
+    SALES_SERVICE_ACCOUNT_EMAIL        = google_service_account.sales_invoker.email
+    SALES_OIDC_AUDIENCE                = local.sales_audience
     PAYOS_ENABLED                      = tostring(var.payos_enabled)
     PAYOS_RETURN_URL                   = var.payos_return_url
     PAYOS_CANCEL_URL                   = var.payos_cancel_url
@@ -108,6 +111,22 @@ resource "terraform_data" "production_launch_guard" {
       error_message = "Production requires at least two independent alert_notification_emails recipients."
     }
     precondition {
+      condition     = var.environment != "prod" || length(var.sales_operator_members) >= 1
+      error_message = "Production requires at least one explicit sales_operator_members principal for the paid-pilot queue."
+    }
+    precondition {
+      condition = var.environment != "prod" || alltrue([
+        for version in [
+          var.legal_policies.policy_set_version,
+          var.legal_policies.terms_version,
+          var.legal_policies.privacy_version,
+          var.legal_policies.acceptable_use_version,
+          var.legal_policies.ai_notice_version,
+        ] : !strcontains(lower(version), "draft")
+      ])
+      error_message = "Production legal policy versions must be approved identifiers, not drafts."
+    }
+    precondition {
       condition = !var.object_storage_enabled || (
         var.object_storage_bucket != "" && can(regex("^https://[^/]+/?$", var.object_storage_endpoint))
       )
@@ -132,6 +151,18 @@ resource "google_service_account" "runtime" {
 resource "google_service_account" "task_invoker" {
   account_id   = "${local.prefix}-tasks"
   display_name = "Vid2Knowledge signed task invoker"
+}
+
+resource "google_service_account" "sales_invoker" {
+  account_id   = "${local.prefix}-sales"
+  display_name = "Vid2Knowledge restricted sales operator"
+}
+
+resource "google_service_account_iam_member" "sales_operator_token_creator" {
+  for_each           = var.sales_operator_members
+  service_account_id = google_service_account.sales_invoker.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = each.value
 }
 
 resource "google_project_iam_member" "runtime_task_enqueuer" {
@@ -182,7 +213,7 @@ resource "google_cloud_run_v2_service" "worker" {
   deletion_protection = var.environment == "prod"
   ingress             = "INGRESS_TRAFFIC_ALL"
   labels              = local.labels
-  custom_audiences    = [local.internal_audience]
+  custom_audiences    = [local.internal_audience, local.sales_audience]
 
   template {
     service_account                  = google_service_account.runtime.email
@@ -236,7 +267,7 @@ resource "google_cloud_run_v2_service" "api" {
   deletion_protection = var.environment == "prod"
   ingress             = "INGRESS_TRAFFIC_ALL"
   labels              = local.labels
-  custom_audiences    = [local.internal_audience]
+  custom_audiences    = [local.internal_audience, local.sales_audience]
 
   template {
     service_account                  = google_service_account.runtime.email

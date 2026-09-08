@@ -478,6 +478,71 @@ button:disabled {
   max-width: 1180px;
   margin: 6rem auto 0;
 }
+.pilot-page {
+  min-height: 100vh;
+  padding: 0 5vw 5rem;
+  background: #f5f4ed;
+}
+.pilot-layout {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-top: clamp(3rem, 7vw, 6rem);
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(480px, 1.2fr);
+  gap: clamp(2rem, 6vw, 6rem);
+}
+.pilot-offer h1 {
+  font-size: clamp(2.4rem, 5vw, 4.5rem);
+}
+.pilot-offer li {
+  margin-bottom: 0.7rem;
+  color: #536057;
+  line-height: 1.5;
+}
+.pilot-form {
+  margin-top: 0;
+  padding: clamp(1.5rem, 4vw, 2.5rem);
+  border: 1px solid #d1d5ca;
+  border-radius: 14px;
+  background: #fff;
+}
+.pilot-form h2 {
+  margin-top: 0;
+  font-family: Georgia, serif;
+  font-size: 2rem;
+}
+.pilot-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.pilot-fields input,
+.pilot-fields select,
+.pilot-fields textarea {
+  width: 100%;
+}
+.pilot-fields textarea {
+  min-height: 100px;
+}
+.pilot-fields .wide-field {
+  grid-column: 1 / -1;
+}
+.pilot-consent {
+  margin: 1.3rem 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+@media (max-width: 800px) {
+  .pilot-layout {
+    grid-template-columns: 1fr;
+  }
+  .pilot-fields {
+    grid-template-columns: 1fr;
+  }
+  .pilot-fields .wide-field {
+    grid-column: auto;
+  }
+}
 .pricing-section h2,
 .panel h2,
 .assignment-list h2 {

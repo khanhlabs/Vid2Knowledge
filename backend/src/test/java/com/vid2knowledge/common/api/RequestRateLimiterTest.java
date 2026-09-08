@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class RequestRateLimiterTest {
     private final RateLimitProperties properties = new RateLimitProperties(
-            true, 10, 2, 3, Duration.ofMinutes(1), 1000
+            true, 10, 2, 3, 2, Duration.ofMinutes(1), 1000
     );
 
     @Test
@@ -33,7 +33,7 @@ class RequestRateLimiterTest {
     @Test
     void disabledLimiterDoesNotRetainOrRejectRequests() {
         var disabled = new RequestRateLimiter(
-                new RateLimitProperties(false, 1, 1, 1, Duration.ofMinutes(1), 1000),
+                new RateLimitProperties(false, 1, 1, 1, 1, Duration.ofMinutes(1), 1000),
                 Clock.systemUTC()
         );
 

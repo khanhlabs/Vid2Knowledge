@@ -44,6 +44,9 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
     private int selectLimit(String path) {
         var properties = limiter.properties();
+        if (path.equals("/api/v1/public/pilot-leads")) {
+            return properties.leadSubmissions();
+        }
         if (path.contains("/billing/") || path.contains("/webhooks/payos")) {
             return properties.paymentMutations();
         }
@@ -54,6 +57,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     }
 
     private static String routeClass(String path) {
+        if (path.equals("/api/v1/public/pilot-leads")) return "pilot-lead";
         if (path.contains("/billing/") || path.contains("/webhooks/payos")) return "payment";
         if (path.contains("/analysis-jobs") || path.endsWith("/knowledge-index") || path.endsWith("/qa")) {
             return "expensive";

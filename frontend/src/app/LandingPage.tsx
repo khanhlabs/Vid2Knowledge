@@ -8,8 +8,8 @@ export function LandingPage() {
         <img src={logo} alt="Vid2Knowledge" />
         <div className="nav-actions">
           <Link to="/login">Đăng nhập</Link>
-          <Link className="button-link" to="/login">
-            Dùng thử cho đội ngũ
+          <Link className="button-link" to="/pilot">
+            Đặt paid pilot
           </Link>
         </div>
       </nav>
@@ -27,6 +27,7 @@ export function LandingPage() {
               Bắt đầu trial 60 phút
             </Link>
             <Link to="/sample">Xem khóa học mẫu</Link>
+            <Link to="/pilot">Dùng video của bạn</Link>
           </div>
           <p className="consent">
             Chỉ xử lý video công khai mà tổ chức có quyền sử dụng. Học liệu AI
@@ -112,6 +113,20 @@ export function LandingPage() {
             <p>Onboarding, API, audit và SLA có giới hạn rõ.</p>
           </article>
         </div>
+      </section>
+      <section className="sample-callout">
+        <div>
+          <p className="eyebrow">CHỨNG MINH ROI TRƯỚC KHI MỞ RỘNG</p>
+          <h2>Pilot trả phí, scope rõ, outcome đo được.</h2>
+          <p>
+            Bắt đầu với 300–600 phút video và một cohort. Human QA và báo cáo
+            outcome nằm trong scope; không coi traffic hay lời khen là bằng
+            chứng sản phẩm có lãi.
+          </p>
+        </div>
+        <Link className="button-link" to="/pilot">
+          Đặt buổi xác định scope
+        </Link>
       </section>
     </main>
   )

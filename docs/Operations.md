@@ -147,6 +147,19 @@ chiếu từng nguồn tới source/package/learner completion, organization t�
 refund. Chỉ tăng đầu tư cho sample khi paid conversion/contribution tốt hơn cohort direct đủ mẫu;
 không tối ưu theo page interaction hoặc signup đơn thuần.
 
+### Paid-pilot sales queue
+
+Form `/pilot` gửi vào `POST /api/v1/public/pilot-leads` với idempotency và application rate limit 5
+request/IP/phút; Cloudflare WAF/rate-limit là lớp phân tán bắt buộc. Khi bot abuse vượt lớp này, bật
+Cloudflare Turnstile và chỉ backend verify token; không nhúng secret vào client. Sales operator lấy
+Google ID token bằng cách impersonate Terraform output `sales_invoker_service_account`, audience bằng
+`sales_oidc_audience`; task service account phải nhận 403 trên `/internal/sales/**`.
+
+Xử lý queue theo priority rồi thời gian tạo, chuyển state tuần tự và ghi lý do cụ thể khi `LOST`. Chỉ
+đánh dấu `WON` sau khi organization thật đã được tạo; funnel khi đó đối chiếu toàn bộ payment trừ refund
+thành công. Export PII ra spreadsheet/email bị cấm; response có `no-store`. Privacy version lưu cùng
+consent phải là bản đã legal-review trước production, không được dùng `*-draft`.
+
 ## Data retention operation
 
 Billing reconciliation gọi cùng transaction boundary của maintenance workflow cho retention cleanup;
@@ -156,6 +169,9 @@ và invitation terminal/hết hạn 90 ngày. Outbound webhook terminal giữ 30
 terminal/version cũ giữ 90 ngày. Idempotency record bị xóa ngay sau `expires_at`.
 Source upload `REJECTED|EXPIRED` giữ metadata 30 ngày; object tạm không dựa vào database cleanup mà
 dựa vào R2 lifecycle 1 ngày, nên upload bị bỏ dở không tích lũy storage cost.
+Lead chưa chuyển thành khách (`NEW|CONTACTED|QUALIFIED|PROPOSAL|LOST`) không hoạt động 180 ngày được
+redact tên/email/tổ chức/note/submitter evidence; event và source aggregate còn lại để đo funnel. Lead
+`WON` theo customer/contract retention và không bị operational cleanup tự động redact.
 
 Cleanup chỉ redaction payload và xóa operational record đã terminal. Nó cố ý giữ webhook provider/event
 key để chống replay, package revision canonical, learning evidence, financial/cost ledger và audit log.

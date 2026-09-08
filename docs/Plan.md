@@ -42,6 +42,9 @@ Chi tiết kiến trúc nằm tại `Technical-Architecture.md`; data model, API
 - Public sample chỉ là artifact minh họa zero-AI để buyer hiểu workflow trước signup; sample interaction
   không tính activation. First-touch allowlist được chụp khi tạo organization và báo cáo tới paid/net
   revenue; quyết định funnel dựa trên conversion thật, không dựa click.
+- `/pilot` thu authority/volume/cohort/goal và consent bằng idempotent public API; sales queue dùng OIDC
+  identity riêng, state trail bất biến và link `WON` tới organization để đo source/campaign → net cash.
+  Lead chưa mua được redact PII sau 180 ngày; fit score chỉ ưu tiên founder time, không phải demand proof.
 - Đề xuất pilot 5–15 triệu VNĐ với scope 300–600 phút, một cohort, human QA và outcome report.
 - Proposal ghi success metric, content rights, dữ liệu xử lý, support boundary, thời hạn và điều kiện chuyển recurring plan.
 - Thu tiền/cam kết mua trước khi coi pilot là valid; lời khen, signup và survey intent không thay thế payment evidence.

@@ -149,12 +149,30 @@ class PrivacyServiceIntegrationTest {
                 UUID.randomUUID(), organizationId, "pending-source-uploads/retention-test",
                 Timestamp.from(old), userId, Timestamp.from(old), Timestamp.from(old)
         );
+        UUID oldLeadId = UUID.randomUUID();
+        Instant oldLead = now.minus(Duration.ofDays(181));
+        jdbc.update(
+                """
+                INSERT INTO pilot_leads(
+                    id, idempotency_key, request_fingerprint, contact_name, work_email,
+                    normalized_email, organization_name, buyer_role, monthly_video_minutes,
+                    learner_count, primary_goal, acquisition_source, contact_consent_version,
+                    contact_consent_at, submitter_hash, fit_score, priority, status,
+                    lost_reason, created_at, updated_at
+                ) VALUES (?, ?, 'fingerprint', 'Old Lead', 'old-lead@example.com',
+                    'old-lead@example.com', 'Old Academy', 'TRAINING_MANAGER', 'BETWEEN_300_599',
+                    'BETWEEN_50_199', 'PROVE_LEARNING', 'DIRECT', 'pilot-contact-v1-draft',
+                    ?, 'submitter-hash', 70, 'HOT', 'LOST', 'No budget', ?, ?)
+                """,
+                oldLeadId, "old-pilot-lead-" + oldLeadId, Timestamp.from(oldLead),
+                Timestamp.from(oldLead), Timestamp.from(oldLead)
+        );
         var service = new RetentionService(
                 jdbc,
                 new RetentionProperties(
                         Duration.ofDays(30), Duration.ofDays(90), Duration.ofDays(30),
                         Duration.ofDays(30), Duration.ofDays(90), Duration.ofDays(30),
-                        Duration.ofDays(90), Duration.ofDays(30)
+                        Duration.ofDays(90), Duration.ofDays(30), Duration.ofDays(180)
                 ),
                 Clock.fixed(now, java.time.ZoneOffset.UTC)
         );
@@ -167,6 +185,10 @@ class PrivacyServiceIntegrationTest {
         assertThat(result.deletedTerminalNotifications()).isEqualTo(1);
         assertThat(result.deletedTerminalInvitations()).isEqualTo(1);
         assertThat(result.deletedTerminalSourceUploads()).isEqualTo(1);
+        assertThat(result.redactedTerminalPilotLeads()).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT work_email FROM pilot_leads WHERE id = ?", String.class, oldLeadId
+        )).isEqualTo("REDACTED");
         assertThat(jdbc.queryForObject(
                 "SELECT signature FROM payment_webhook_inbox WHERE event_key = 'retention-event'", String.class
         )).isEqualTo("REDACTED");

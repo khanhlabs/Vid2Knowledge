@@ -86,6 +86,8 @@ Module giao tiếp bằng application ports và domain events trong cùng proces
 ## 6. Security architecture
 
 - Internet chỉ tới Pages, public API và payment webhook; worker/internal endpoints yêu cầu GCP OIDC.
+  Cloud Tasks/Scheduler và sales operator dùng hai service account + audience khác nhau; task identity
+  không đọc được lead PII và sales identity không gọi được task handler.
 - JWT xác thực identity; organization membership trong DB xác thực authorization.
 - Service-role key không xuất hiện trong frontend. Frontend chỉ dùng public Supabase key theo thiết kế.
 - R2 object private, presigned URL thời hạn ngắn, key prefix tenant-randomized.

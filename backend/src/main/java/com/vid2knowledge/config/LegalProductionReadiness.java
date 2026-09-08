@@ -15,6 +15,14 @@ public class LegalProductionReadiness {
         if (!legal.reviewed()) {
             throw new IllegalStateException("Production legal policies must be reviewed and explicitly enabled");
         }
+        for (String version : List.of(
+                legal.policySetVersion(), legal.termsVersion(), legal.privacyVersion(),
+                legal.acceptableUseVersion(), legal.aiNoticeVersion()
+        )) {
+            if (version.toLowerCase(java.util.Locale.ROOT).contains("draft")) {
+                throw new IllegalStateException("Production legal policy versions must not be drafts");
+            }
+        }
         for (URI uri : List.of(
                 legal.termsUrl(), legal.privacyUrl(), legal.acceptableUseUrl(), legal.aiNoticeUrl()
         )) {

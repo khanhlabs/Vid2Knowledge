@@ -15,7 +15,8 @@ public record RetentionProperties(
         Duration terminalInvitation,
         Duration terminalWebhookDelivery,
         Duration terminalIntegrationCredential,
-        Duration terminalSourceUpload
+        Duration terminalSourceUpload,
+        Duration terminalPilotLead
 ) {
     public RetentionProperties {
         requirePositive(generationPayload, "generation payload");
@@ -26,6 +27,7 @@ public record RetentionProperties(
         requirePositive(terminalWebhookDelivery, "terminal webhook delivery");
         requirePositive(terminalIntegrationCredential, "terminal integration credential");
         requirePositive(terminalSourceUpload, "terminal source upload");
+        requirePositive(terminalPilotLead, "terminal pilot lead");
     }
 
     private static void requirePositive(Duration value, String label) {

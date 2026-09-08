@@ -123,10 +123,22 @@ public class RetentionService {
                 """,
                 Timestamp.from(now.minus(retention.terminalSourceUpload()))
         );
+        int pilotLeads = jdbc.update(
+                """
+                UPDATE pilot_leads SET contact_name = 'REDACTED', work_email = 'REDACTED',
+                    normalized_email = 'REDACTED', organization_name = 'REDACTED', note = NULL,
+                    submitter_hash = 'REDACTED',
+                    lost_reason = CASE WHEN status = 'LOST' THEN 'REDACTED' ELSE NULL END,
+                    redacted_at = ?, updated_at = ?
+                WHERE redacted_at IS NULL AND updated_at < ?
+                  AND status <> 'WON'
+                """,
+                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now.minus(retention.terminalPilotLead()))
+        );
         return new CleanupResult(
                 expiredIdempotency, generationPayloads, webhookPayloads, webhookDeliveries,
                 integrationSecrets, integrationApiKeys, webhookEndpoints,
-                outboxEvents, notifications, invitations, sourceUploads
+                outboxEvents, notifications, invitations, sourceUploads, pilotLeads
         );
     }
 
@@ -141,6 +153,7 @@ public class RetentionService {
             int deletedTerminalOutboxEvents,
             int deletedTerminalNotifications,
             int deletedTerminalInvitations,
-            int deletedTerminalSourceUploads
+            int deletedTerminalSourceUploads,
+            int redactedTerminalPilotLeads
     ) { }
 }

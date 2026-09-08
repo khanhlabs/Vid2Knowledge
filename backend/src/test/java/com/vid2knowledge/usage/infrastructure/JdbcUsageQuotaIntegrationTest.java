@@ -42,6 +42,7 @@ import com.vid2knowledge.analytics.AcquisitionAnalyticsService;
 import com.vid2knowledge.config.PayOsProperties;
 import com.vid2knowledge.notification.DisabledNotificationQueue;
 import com.vid2knowledge.support.SupportAccessService;
+import com.vid2knowledge.sales.PilotLeadService;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.domain.QuotaExceededException;
 import com.vid2knowledge.usage.domain.UsageMetric;
@@ -1409,6 +1410,64 @@ class JdbcUsageQuotaIntegrationTest {
                 """,
                 Long.class, subscriptionId
         )).isEqualTo(3L);
+    }
+
+    @Test
+    void qualifiedPilotLeadIsIdempotentScoredAndHasAnImmutableSalesTrail() {
+        var leads = new PilotLeadService(jdbc, transactions);
+        var request = new PilotLeadService.LeadRequest(
+                "Nguyen Minh", "minh@example.vn", "Hoc vien Minh",
+                PilotLeadService.BuyerRole.TRAINING_MANAGER,
+                PilotLeadService.Minutes.BETWEEN_600_1499,
+                PilotLeadService.Learners.BETWEEN_200_499,
+                PilotLeadService.Goal.PROVE_LEARNING, "One paid cohort ready",
+                PilotLeadService.Source.PARTNER, "trainer-network", true
+        );
+
+        var submitted = leads.submit(request, "pilot-lead-idempotency-001", "127.0.0.1|test-agent");
+        var replay = leads.submit(request, "pilot-lead-idempotency-001", "127.0.0.1|test-agent");
+        assertThat(replay.id()).isEqualTo(submitted.id());
+        assertThat(submitted.priority()).isEqualTo("HOT");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM pilot_leads", Long.class)).isEqualTo(1L);
+        assertThatThrownBy(() -> leads.submit(
+                new PilotLeadService.LeadRequest(
+                        "Another buyer", "other@example.vn", "Other academy",
+                        PilotLeadService.BuyerRole.OWNER, PilotLeadService.Minutes.UNDER_100,
+                        PilotLeadService.Learners.UNDER_50, PilotLeadService.Goal.OTHER,
+                        null, PilotLeadService.Source.DIRECT, null, true
+                ), "pilot-lead-idempotency-001", "127.0.0.1|test-agent"
+        )).hasMessageContaining("Idempotency key");
+
+        leads.update(submitted.id(), new PilotLeadService.StatusUpdate(
+                PilotLeadService.Status.CONTACTED, null, null
+        ), "sales-operator");
+        assertThatThrownBy(() -> leads.update(submitted.id(), new PilotLeadService.StatusUpdate(
+                PilotLeadService.Status.CONTACTED, null, null
+        ), "sales-operator")).hasMessageContaining("already has this status");
+        leads.update(submitted.id(), new PilotLeadService.StatusUpdate(
+                PilotLeadService.Status.QUALIFIED, null, null
+        ), "sales-operator");
+        leads.update(submitted.id(), new PilotLeadService.StatusUpdate(
+                PilotLeadService.Status.PROPOSAL, null, null
+        ), "sales-operator");
+        var won = leads.update(submitted.id(), new PilotLeadService.StatusUpdate(
+                PilotLeadService.Status.WON, organizationId, null
+        ), "sales-operator");
+        assertThat(won.organizationId()).isEqualTo(organizationId);
+        assertThat(leads.queue(null)).isEmpty();
+        assertThat(leads.queue(PilotLeadService.Status.WON)).extracting(PilotLeadService.LeadView::id)
+                .containsExactly(submitted.id());
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM pilot_lead_events WHERE pilot_lead_id = ?", Long.class, submitted.id()
+        )).isEqualTo(5L);
+        var funnel = leads.funnel().getFirst();
+        assertThat(funnel.acquisitionSource()).isEqualTo("PARTNER");
+        assertThat(funnel.leads()).isEqualTo(1);
+        assertThat(funnel.contacted()).isEqualTo(1);
+        assertThat(funnel.won()).isEqualTo(1);
+        assertThatThrownBy(() -> leads.update(submitted.id(), new PilotLeadService.StatusUpdate(
+                PilotLeadService.Status.LOST, null, "Changed mind"
+        ), "sales-operator")).hasMessageContaining("transition");
     }
 
     @Test

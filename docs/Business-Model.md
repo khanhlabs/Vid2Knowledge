@@ -135,7 +135,11 @@ Track gross revenue retention, net revenue retention, expansion MRR, contraction
    buyer/creator giới thiệu account mới. Scale một code chỉ khi contribution LTV/CAC đạt ít nhất 3 và
    payback không quá 12 tháng; lượt redemption không thay thế retention/renewal evidence.
 
-Funnel source of truth nằm trong database/CRM table hoặc CRM được chọn sau; PostHog không thay thế sales ledger. Founder time phải được shadow-cost vào CAC để tránh ảo tưởng kênh acquisition miễn phí.
+Funnel source of truth hiện nằm trong `pilot_leads` + immutable `pilot_lead_events`: form công khai thu
+buyer authority, volume, cohort size, goal và explicit consent; queue nội bộ ưu tiên fit và báo cáo
+source/campaign tới `WON` cùng net cash sau refund. CRM chỉ được thay thế khi có migration/reconciliation
+rõ ràng; PostHog không thay sales ledger. Founder time phải được shadow-cost vào CAC để tránh ảo tưởng
+kênh acquisition miễn phí.
 
 ## 13. Kiểm toán khả năng sinh lời
 

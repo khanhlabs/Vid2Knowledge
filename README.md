@@ -2,7 +2,7 @@
 
 Vid2Knowledge turns supported public YouTube videos and authorised buyer-owned private videos into evidence-linked active-learning materials. The backend uses Gemini to generate structured notes, key takeaways, flashcards, and quizzes while enforcing tenant rights, quota, and cost controls.
 
-The repository contains an actively implemented B2B2C MVP with tenant isolation, evidence-based buyer onboarding, authoring and learning workflows, billing, privacy controls, buyer-outcome analytics, and account-level profitability controls. Public production launch remains gated by real paid-pilot evidence, the Gemini benchmark, legal review, and configured cloud/provider credentials.
+The repository contains an actively implemented B2B2C MVP with a qualified paid-pilot funnel, tenant isolation, evidence-based buyer onboarding, authoring and learning workflows, billing, privacy controls, buyer-outcome analytics, and account-level profitability controls. Public production launch remains gated by real paid-pilot evidence, the Gemini benchmark, legal review, and configured cloud/provider credentials.
 
 ## Technology Stack
 
@@ -63,6 +63,7 @@ Vid2Knowledge/
 │   │   │   │   │   ├── exception/         # API error model and global exception handling
 │   │   │   │   │   └── validation/        # Reusable validation rules
 │   │   │   │   ├── config/                # Security, CORS, and configuration properties
+│   │   │   │   ├── sales/                 # Public pilot capture and restricted sales funnel
 │   │   │   │   ├── usage/                 # Quota and usage-tracking module
 │   │   │   │   └── user/                  # User-profile module
 │   │   │   └── resources/
@@ -87,6 +88,7 @@ Vid2Knowledge/
 │   │   │   ├── auth/                      # Authentication UI
 │   │   │   ├── history/                   # Analysis-history UI
 │   │   │   ├── learner/                   # Assignment and learning experience
+│   │   │   ├── sales/                     # Qualified paid-pilot landing and capture
 │   │   │   ├── usage/                     # Quota and usage UI
 │   │   │   └── workspace/                 # Buyer operations, billing, authoring and analytics
 │   │   ├── shared/                        # Reusable frontend code

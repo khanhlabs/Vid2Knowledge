@@ -10,11 +10,12 @@ public record RateLimitProperties(
         int generalMutations,
         int expensiveMutations,
         int paymentMutations,
+        int leadSubmissions,
         Duration window,
         int maxKeys
 ) {
     public RateLimitProperties {
-        if (generalMutations < 1 || expensiveMutations < 1 || paymentMutations < 1) {
+        if (generalMutations < 1 || expensiveMutations < 1 || paymentMutations < 1 || leadSubmissions < 1) {
             throw new IllegalArgumentException("Rate limits must be positive");
         }
         if (window == null || window.isZero() || window.isNegative()) {

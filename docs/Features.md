@@ -136,6 +136,11 @@ Learners access assigned material without paying. Revenue initially comes from a
 
 Commercial validation starts before self-serve billing. Pricing is not approved until measured marginal cost, payment fees, support cost, sales/onboarding effort, cache-hit assumptions, and target contribution margin are documented. Export alone is not a paid value proposition.
 
+The implemented `/pilot` funnel qualifies authority, monthly source volume, cohort size and desired
+outcome before founder time is spent. A restricted internal queue records sequential sales stages and
+links a won lead to its real organization and net cash; traffic, form submissions and model fit scores
+remain leading indicators rather than revenue proof.
+
 Packaging follows a land-and-expand model: paid pilot → Creator/Training Team subscription → more processed minutes, cohorts, seats, courses, integrations, or enterprise controls. Discounts must be justified by lower churn, annual prepayment, lower service cost, or strategic distribution.
 
 ## 7. Trust, privacy, and content policy requirements

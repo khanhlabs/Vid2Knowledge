@@ -61,6 +61,10 @@
   impersonation, không trả email learner, content, prompt/output, payment payload hoặc secret.
 - `organization_acquisition_attributions`: immutable first-touch source tại lúc organization được tạo;
   chỉ nhận allowlist `DIRECT|SAMPLE_COURSE`, không giữ raw UTM, URL, email hoặc client fingerprint.
+- `pilot_leads`, `pilot_lead_events`: qualified lead trước signup với explicit contact consent,
+  idempotency fingerprint, allowlisted source/campaign, fit score và immutable status trail. PII chỉ
+  hiện ở restricted sales queue; public response không trả score/priority. Lead `WON` bắt buộc link
+  đúng một organization để attributed net revenue không bị đếm đôi.
 - `entitlements`, `usage_reservations`, `usage_ledger`, `cost_ledger`; ledger append-only.
 - `payment_webhook_inbox`, `outbox_events`, `idempotency_records`.
 - `notification_jobs`, `notification_deliveries`, `notification_preferences`,
@@ -107,6 +111,14 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 ```
 
 ## 4. Public API v1
+
+### Paid-pilot acquisition
+
+- `POST /api/v1/public/pilot-leads` không cần đăng nhập nhưng bắt buộc `Idempotency-Key`, consent,
+  buyer role, video-minute band, learner band, goal và allowlisted acquisition source. Endpoint có
+  rate-limit riêng; chỉ trả opaque lead ID và thời điểm nhận, không trả fit score hay sales state.
+- Backend ghi version Privacy Policy đang cấu hình tại thời điểm submit. URL campaign chỉ nhận token
+  `[A-Za-z0-9_.-]` tối đa 80 ký tự; không lưu raw URL, referrer, UTM tự do hoặc analytics fingerprint.
 
 ### Identity/organization
 
@@ -259,6 +271,12 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
   status, aggregate job state 7 ngày, pending billing/dead delivery count và thời điểm payment gần nhất.
 - `GET /internal/analytics/acquisition` trả funnel theo nguồn từ organization → source → package →
   learner value → paid cùng net cash sau refund. Endpoint dùng internal OIDC và `no-store`.
+- `GET /internal/sales/pilot-leads`, `GET /internal/sales/pilot-leads/funnel` và
+  `PATCH /internal/sales/pilot-leads/{leadId}` dùng một sales service account/audience riêng, không dùng
+  Cloud Tasks identity. Queue ưu tiên `HOT|WARM|NURTURE`; state chỉ đi
+  `NEW → CONTACTED → QUALIFIED → PROPOSAL → WON`, hoặc sang `LOST`; mọi transition có actor hash,
+  `LOST` cần reason và `WON` cần organization. Queue mặc định chỉ trả lead active; dùng query `status`
+  để điều tra terminal state. Mọi response bắt buộc `Cache-Control: no-store`.
 
 Retention cleanup xóa idempotency đã hết hạn; redaction raw Gemini output và processed payment
 webhook body/signature; xóa outbox, notification, invitation và metadata source upload terminal theo
@@ -301,7 +319,9 @@ kiểm tra lại membership, preference, assignment/progress/deadline và số t
 - Đổi bất kỳ policy version nào tự động yêu cầu re-consent. Production từ chối boot nếu policies chưa
   được owner đánh dấu legal-reviewed hoặc URL không phải HTTPS; placeholder trong frontend chỉ dùng dev.
 
-Chỉ Cloud Tasks/Scheduler service account được gọi; kiểm tra OIDC audience/issuer/service-account email. Handler luôn idempotent và trả 2xx cho event đã xử lý.
+Task endpoint chỉ cho Cloud Tasks/Scheduler service account; sales endpoint chỉ cho sales service
+account. Cả hai kiểm tra riêng audience/issuer/email và không dùng chung credential. Task handler luôn
+idempotent và trả 2xx cho event đã xử lý.
 
 ## 6. HTTP contract
 

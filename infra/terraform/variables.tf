@@ -29,6 +29,17 @@ variable "auth_audience" {
   default = "authenticated"
 }
 variable "frontend_origin" { type = string }
+variable "sales_operator_members" {
+  description = "IAM principals allowed to impersonate the PII-restricted sales service account, for example user:founder@example.com."
+  type        = set(string)
+  default     = []
+  validation {
+    condition = alltrue([
+      for member in var.sales_operator_members : can(regex("^(user|group):[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", member))
+    ])
+    error_message = "sales_operator_members must contain user: or group: IAM principals with valid email addresses."
+  }
+}
 variable "billing_account_id" {
   description = "Optional Cloud Billing account ID. Set it to create hard-to-ignore project budget alerts."
   type        = string

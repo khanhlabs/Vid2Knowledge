@@ -14,6 +14,12 @@ class LegalProductionReadinessTest {
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("reviewed");
         assertThatThrownBy(() -> new LegalProductionReadiness(properties(true, "http")))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("HTTPS");
+        assertThatThrownBy(() -> new LegalProductionReadiness(new LegalProperties(
+                "2026-draft", "v1", URI.create("https://example.com/legal"),
+                "v1", URI.create("https://example.com/legal"),
+                "v1", URI.create("https://example.com/legal"),
+                "v1", URI.create("https://example.com/legal"), true, true
+        ))).isInstanceOf(IllegalStateException.class).hasMessageContaining("drafts");
         assertThatCode(() -> new LegalProductionReadiness(properties(true, "https"))).doesNotThrowAnyException();
     }
 

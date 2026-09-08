@@ -105,6 +105,10 @@ task-queue:
   dispatch-batch-size: ${OUTBOX_DISPATCH_BATCH_SIZE:10}
   outbox-max-attempts: ${OUTBOX_MAX_ATTEMPTS:10}
 
+sales-access:
+  service-account-email: ${SALES_SERVICE_ACCOUNT_EMAIL:}
+  oidc-audience: ${SALES_OIDC_AUDIENCE:}
+
 commercial:
   trial-processed-video-seconds: ${TRIAL_PROCESSED_VIDEO_SECONDS:3600}
   trial-qa-queries: ${TRIAL_QA_QUERIES:20}
@@ -157,6 +161,7 @@ rate-limit:
   general-mutations: ${RATE_LIMIT_GENERAL_MUTATIONS:240}
   expensive-mutations: ${RATE_LIMIT_EXPENSIVE_MUTATIONS:30}
   payment-mutations: ${RATE_LIMIT_PAYMENT_MUTATIONS:20}
+  lead-submissions: ${RATE_LIMIT_LEAD_SUBMISSIONS:5}
   window: ${RATE_LIMIT_WINDOW:1m}
   max-keys: ${RATE_LIMIT_MAX_KEYS:50000}
 
@@ -169,3 +174,4 @@ retention:
   terminal-webhook-delivery: ${RETENTION_TERMINAL_WEBHOOK_DELIVERY:30d}
   terminal-integration-credential: ${RETENTION_TERMINAL_INTEGRATION_CREDENTIAL:90d}
   terminal-source-upload: ${RETENTION_TERMINAL_SOURCE_UPLOAD:30d}
+  terminal-pilot-lead: ${RETENTION_TERMINAL_PILOT_LEAD:180d}
