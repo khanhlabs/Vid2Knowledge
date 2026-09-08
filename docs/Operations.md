@@ -155,6 +155,13 @@ Cloudflare Turnstile và chỉ backend verify token; không nhúng secret vào c
 Google ID token bằng cách impersonate Terraform output `sales_invoker_service_account`, audience bằng
 `sales_oidc_audience`; task service account phải nhận 403 trên `/internal/sales/**`.
 
+Dùng `ops/sales.ps1` thay vì tự ghép token/curl. Truyền ba Terraform outputs `api_url`,
+`sales_oidc_audience`, `sales_invoker_service_account`; script chỉ nhận HTTPS origin, lấy short-lived
+Google ID token có `--include-email`, không ghi token ra output và yêu cầu PowerShell confirmation trước
+mọi transition. Ví dụ đọc queue: `./ops/sales.ps1 -ApiUrl $api -Audience $aud -ServiceAccount $sa
+-Command Queue`; chuyển lead: thêm `-Command Update -LeadId $lead -Status CONTACTED`. Output queue có PII,
+chỉ chạy trên máy tin cậy, không redirect ra file, chat hoặc spreadsheet.
+
 Lead `HOT`, `WARM`, `NURTURE` có SLA phản hồi lần đầu lần lượt 4/24/72 giờ. Queue đưa lead `NEW` quá hạn
 lên trước rồi mới sắp theo priority/thời gian tạo; funnel đo overdue và average minutes-to-contact từ
 immutable event đầu tiên, không dựa trên timestamp do client gửi. Chuyển state tuần tự và ghi lý do cụ thể khi `LOST`. Chỉ

@@ -114,6 +114,8 @@ Vid2Knowledge/
 │   ├── cloud-run/                         # Cloud Run deployment resources
 │   ├── docker/                            # Docker-related resources
 │   └── terraform/                         # Infrastructure as Code resources
+├── ops/
+│   └── sales.ps1                          # Guarded founder sales-queue operations
 ├── docker-compose.yaml                    # Local PostgreSQL container
 └── README.md                              # Project documentation
 ```

@@ -127,6 +127,27 @@ jobs:
       - name: Validate Terraform
         run: terraform validate
 
+  operations:
+    name: Operations tooling validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Parse PowerShell operations scripts
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/ops/sales.ps1", [ref]$tokens, [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | Format-List | Out-String | Write-Error
+            exit 1
+          }
+
   container-security:
     name: Backend container security
     runs-on: ubuntu-latest
