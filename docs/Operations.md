@@ -23,14 +23,20 @@ Không nhận dữ liệu hoặc tiền thật cho tới khi owner xác nhận b
 
 ## Backup and restore
 
-Mỗi ngày kiểm tra trạng thái managed backup của Supabase. Mỗi tháng tạo thêm logical `pg_dump`
-custom-format, mã hóa trước khi upload vào private object storage có lifecycle; không ghi database URL
-hoặc password vào command history. Giữ ít nhất 3 monthly restore points, theo hợp đồng và retention
-policy đã công bố.
+Mỗi ngày kiểm tra trạng thái managed backup của Supabase. Mỗi tháng chạy `ops/backup-database.ps1`: cung
+cấp kết nối chỉ qua process env `PGHOST|PGPORT|PGDATABASE|PGUSER|PGPASSWORD`, age public recipient qua
+tham số, và tùy chọn R2 endpoint/bucket. Script tạo `pg_dump` custom-format, mã hóa bằng `age` trước khi
+ghi vào thư mục đích/upload qua S3 API, tạo SHA-256 manifest và luôn xóa plaintext tạm. R2 credential chỉ
+được cấp qua chuẩn `AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY`; không đưa database URL/password/private age
+identity vào command history, file cấu hình hay Terraform state. Giữ ít nhất 3 monthly restore points,
+theo hợp đồng và retention policy đã công bố.
 
-Mỗi quý restore bản gần nhất vào project/database cô lập, chạy Flyway `validate`, smoke query số lượng
-organization/payment/package và toàn bộ backend integration test. Ghi ngày, backup ID, người thực hiện,
-thời gian restore và sai lệch; một file backup chưa restore thử không được tính là backup đã kiểm chứng.
+Mỗi quý chạy `ops/restore-drill.ps1 -Environment isolated-restore-drill` trên database PostgreSQL mới.
+Script fail trước restore nếu target đã có bất kỳ public table nào, yêu cầu confirmation mức High, kiểm
+tra archive, restore không owner/privilege, xác nhận đúng Flyway migration kỳ vọng và smoke count
+organization/payment/package, rồi ghi evidence JSON gồm backup hash/thời lượng/count—không chứa endpoint
+hay credential. Sau đó chạy toàn bộ backend integration test với schema hiện hành. Một file backup chưa
+restore thử không được tính là backup đã kiểm chứng; evidence không thay thế ticket/operator sign-off.
 
 RPO ban đầu 24 giờ, RTO 4 giờ. Nếu hợp đồng yêu cầu tốt hơn, nâng backup/PITR trước khi ký SLA.
 

@@ -115,6 +115,8 @@ Vid2Knowledge/
 │   ├── docker/                            # Docker-related resources
 │   └── terraform/                         # Infrastructure as Code resources
 ├── ops/
+│   ├── backup-database.ps1                # Encrypted logical backup and optional R2 upload
+│   ├── restore-drill.ps1                  # Empty-target restore verification and evidence
 │   └── sales.ps1                          # Guarded founder sales-queue operations
 ├── docker-compose.yaml                    # Local PostgreSQL container
 └── README.md                              # Project documentation
