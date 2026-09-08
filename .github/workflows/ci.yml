@@ -4,6 +4,7 @@ permissions:
   contents: read
 
 on:
+  workflow_dispatch:
   pull_request:
     branches:
       - main
@@ -11,6 +12,7 @@ on:
   push:
     branches:
       - main
+      - khanh
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -51,8 +53,21 @@ jobs:
       - name: Test frontend
         run: npm test
 
-      - name: Build frontend
-        run: npm run build
+      - name: Install smoke-test browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend and run browser smoke tests
+        run: npm run test:e2e
+
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke-failures
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
 
       - name: Generate frontend CycloneDX SBOM
         run: npm sbom --omit=dev --sbom-format=cyclonedx --sbom-type=application > frontend-sbom.cdx.json

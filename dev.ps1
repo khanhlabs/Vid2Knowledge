@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('db-up', 'db-down', 'test', 'build', 'smoke')]
+    [ValidateSet('db-up', 'db-down', 'test', 'test-e2e', 'build', 'smoke')]
     [string]$Task
 )
 
@@ -32,6 +32,14 @@ function Invoke-FrontendQuality {
 }
 
 switch ($Task) {
+    'test-e2e' {
+        Push-Location (Join-Path $Workspace 'frontend')
+        try {
+            & npm.cmd run test:e2e
+            if ($LASTEXITCODE -ne 0) { throw 'Browser smoke verification failed.' }
+        }
+        finally { Pop-Location }
+    }
     'db-up' {
         docker compose --project-directory $Workspace up -d postgres
         if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL failed to start.' }

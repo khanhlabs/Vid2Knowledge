@@ -4,7 +4,16 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist', 'coverage', 'eslint.config.js'] },
+  {
+    ignores: [
+      'dist',
+      'dist-smoke',
+      'coverage',
+      'playwright-report',
+      'test-results',
+      'eslint.config.js',
+    ],
+  },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

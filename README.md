@@ -79,6 +79,8 @@ Vid2Knowledge/
 │   ├── mvnw                               # Maven Wrapper for Unix-like systems
 │   └── mvnw.cmd                           # Maven Wrapper for Windows
 ├── frontend/
+│   ├── e2e/                               # Desktop/mobile browser smoke tests
+│   ├── playwright.config.ts               # Isolated production-build smoke runner
 │   ├── src/
 │   │   ├── app/                           # Application shell and root React component
 │   │   ├── assets/
@@ -123,6 +125,15 @@ Vid2Knowledge/
 ```
 
 ## Access
+
+Browser smoke checks run with `./dev.ps1 test-e2e`, or `npm run test:e2e` from `frontend`.
+Install the browser once with `npx playwright install chromium` after `npm ci`.
+The runner builds an isolated `dist-smoke` with cloud auth disabled, starts its own preview server on port 4173, and checks sample learning,
+pilot form consent/retry/attribution, and signed-out route protection on desktop and mobile Chromium.
+Pilot HTTP responses are mocked; these checks do not prove live Supabase, payOS, or AI integration.
+Use `npm run build` for deployable assets; `dist-smoke` is only for these tests.
+CI runs the same suite and keeps failure traces/screenshots for seven days, following
+the [Playwright CI workflow](https://playwright.dev/docs/ci).
 
 There is no public deployment URL yet. This section will be updated when the application is deployed.
 
