@@ -54,4 +54,8 @@ public class DisabledNotificationQueue implements NotificationQueue {
     public void renewalPaymentRequired(UUID organizationId, UUID invoiceId, String invoiceNumber,
                                        long amountVnd, String checkoutUrl, Instant periodEnd) {
     }
+
+    @Override
+    public void pilotLeadAlert(UUID leadId, String priority, String acquisitionSource, Instant receivedAt) {
+    }
 }

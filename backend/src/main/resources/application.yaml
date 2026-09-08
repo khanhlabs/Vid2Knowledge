@@ -134,6 +134,7 @@ notifications:
   from: ${NOTIFICATION_FROM:}
   resend-base-url: ${RESEND_BASE_URL:https://api.resend.com}
   frontend-base-url: ${FRONTEND_BASE_URL:}
+  sales-alert-recipient: ${SALES_ALERT_RECIPIENT:}
   encryption-key: ${NOTIFICATION_ENCRYPTION_KEY:}
   batch-size: ${NOTIFICATION_BATCH_SIZE:25}
   max-attempts: ${NOTIFICATION_MAX_ATTEMPTS:8}

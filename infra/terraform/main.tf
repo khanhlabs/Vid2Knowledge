@@ -56,6 +56,7 @@ locals {
     OBJECT_STORAGE_ENDPOINT            = var.object_storage_endpoint
     OBJECT_STORAGE_BUCKET              = var.object_storage_bucket
     NOTIFICATION_FROM                  = var.notification_from
+    SALES_ALERT_RECIPIENT              = var.sales_alert_recipient
     FRONTEND_BASE_URL                  = var.frontend_origin
     LEGAL_POLICY_SET_VERSION           = var.legal_policies.policy_set_version
     LEGAL_TERMS_VERSION                = var.legal_policies.terms_version
@@ -113,6 +114,10 @@ resource "terraform_data" "production_launch_guard" {
     precondition {
       condition     = var.environment != "prod" || length(var.sales_operator_members) >= 1
       error_message = "Production requires at least one explicit sales_operator_members principal for the paid-pilot queue."
+    }
+    precondition {
+      condition     = !var.notifications_enabled || var.sales_alert_recipient != ""
+      error_message = "Enabled notifications require sales_alert_recipient so paid-pilot leads cannot go unnoticed."
     }
     precondition {
       condition = var.environment != "prod" || alltrue([

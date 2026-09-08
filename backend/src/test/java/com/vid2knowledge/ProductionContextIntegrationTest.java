@@ -57,6 +57,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "notifications.api-key=re_test",
         "notifications.from=Vid2Knowledge <hello@example.com>",
         "notifications.frontend-base-url=https://app.example.com",
+        "notifications.sales-alert-recipient=founder@example.com",
         "notifications.encryption-key=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         "integrations.enabled=true",
         "integrations.encryption-key=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",

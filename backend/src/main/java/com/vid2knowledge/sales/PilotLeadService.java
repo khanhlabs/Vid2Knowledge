@@ -3,6 +3,7 @@ package com.vid2knowledge.sales;
 import com.vid2knowledge.common.id.RequestFingerprint;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.config.LegalProperties;
+import com.vid2knowledge.notification.NotificationQueue;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
@@ -30,21 +31,32 @@ public class PilotLeadService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final String contactConsentVersion;
+    private final NotificationQueue notifications;
     private final Clock clock = Clock.systemUTC();
 
     @Autowired
-    public PilotLeadService(JdbcTemplate jdbc, TransactionTemplate transactions, LegalProperties legal) {
-        this(jdbc, transactions, legal.privacyVersion());
+    public PilotLeadService(
+            JdbcTemplate jdbc, TransactionTemplate transactions, LegalProperties legal, NotificationQueue notifications
+    ) {
+        this(jdbc, transactions, legal.privacyVersion(), notifications);
     }
 
     public PilotLeadService(JdbcTemplate jdbc, TransactionTemplate transactions) {
-        this(jdbc, transactions, CONTACT_CONSENT_VERSION);
+        this(jdbc, transactions, CONTACT_CONSENT_VERSION, null);
     }
 
-    private PilotLeadService(JdbcTemplate jdbc, TransactionTemplate transactions, String contactConsentVersion) {
+    public PilotLeadService(JdbcTemplate jdbc, TransactionTemplate transactions, NotificationQueue notifications) {
+        this(jdbc, transactions, CONTACT_CONSENT_VERSION, notifications);
+    }
+
+    private PilotLeadService(
+            JdbcTemplate jdbc, TransactionTemplate transactions, String contactConsentVersion,
+            NotificationQueue notifications
+    ) {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.contactConsentVersion = contactConsentVersion;
+        this.notifications = notifications;
     }
 
     public Submission submit(LeadRequest request, String idempotencyKey, String submitterEvidence) {
@@ -104,6 +116,9 @@ public class PilotLeadService {
                     """,
                     UuidV7Generator.generate(), id, Timestamp.from(now)
             );
+            if (notifications != null) {
+                notifications.pilotLeadAlert(id, priority, input.acquisitionSource().name(), now);
+            }
             return new Submission(id, priority, now);
         });
     }

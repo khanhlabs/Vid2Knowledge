@@ -188,6 +188,13 @@ chỉ alert tỷ lệ `DEAD` hoặc backlog job đã quá `available_at`. Không
 `notification_preference_changes` là bằng chứng consent, không nằm trong cleanup notification terminal;
 thời hạn giữ phải theo privacy policy và legal approval của công ty.
 
+Mỗi pilot lead mới cũng ghi một `PILOT_LEAD_ALERT` trong cùng database transaction. Dedupe key gắn với
+lead ID nên retry form không tạo alert thứ hai. Email tới `SALES_ALERT_RECIPIENT` chỉ chứa lead ID,
+priority, acquisition source và thời điểm nhận; founder phải mở sales queue bằng dedicated OIDC identity
+để xem PII. Khi dispatcher gửi xong, payload mã hóa bị thay bằng `REDACTED`. Production/staging không được
+bật `NOTIFICATIONS_ENABLED` nếu chưa cấu hình inbox này; smoke test phải submit cùng idempotency key hai
+lần, xác nhận đúng một email và tuyệt đối không có tên/email/note của prospect trong nội dung.
+
 ## Release and rollback
 
 Image backend phải pin theo digest/commit SHA. Migration theo expand/contract; deploy schema tương thích

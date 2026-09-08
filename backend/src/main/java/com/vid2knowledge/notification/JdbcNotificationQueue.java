@@ -3,6 +3,7 @@ package com.vid2knowledge.notification;
 import com.vid2knowledge.auth.CurrentActor;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.common.id.RequestFingerprint;
+import com.vid2knowledge.config.NotificationProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -22,12 +23,16 @@ public class JdbcNotificationQueue implements NotificationQueue {
     private final JdbcTemplate jdbc;
     private final NotificationCipher cipher;
     private final ObjectMapper mapper;
+    private final NotificationProperties properties;
     private final Clock clock = Clock.systemUTC();
 
-    public JdbcNotificationQueue(JdbcTemplate jdbc, NotificationCipher cipher, ObjectMapper mapper) {
+    public JdbcNotificationQueue(
+            JdbcTemplate jdbc, NotificationCipher cipher, ObjectMapper mapper, NotificationProperties properties
+    ) {
         this.jdbc = jdbc;
         this.cipher = cipher;
         this.mapper = mapper;
+        this.properties = properties;
     }
 
     @Override
@@ -135,6 +140,18 @@ public class JdbcNotificationQueue implements NotificationQueue {
         }
     }
 
+    @Override
+    public void pilotLeadAlert(UUID leadId, String priority, String acquisitionSource, Instant receivedAt) {
+        enqueuePilotLead(
+                leadId, "PILOT_LEAD_ALERT", "pilot-lead/alert/" + leadId,
+                properties.salesAlertRecipient(), Map.of(
+                        "leadId", leadId.toString(), "priority", priority,
+                        "acquisitionSource", acquisitionSource, "receivedAt", receivedAt.toString(),
+                        "organizationName", "Vid2Knowledge Sales"
+                )
+        );
+    }
+
     private void enqueue(UUID organizationId, String type, String dedupeKey,
                          String recipient, Map<String, Object> payload) {
         enqueueAt(organizationId, type, dedupeKey, recipient, payload, clock.instant());
@@ -159,6 +176,29 @@ public class JdbcNotificationQueue implements NotificationQueue {
             );
         } catch (Exception failure) {
             throw new IllegalStateException("Could not queue notification", failure);
+        }
+    }
+
+    private void enqueuePilotLead(
+            UUID leadId, String type, String dedupeKey, String recipient, Map<String, Object> payload
+    ) {
+        try {
+            UUID id = UuidV7Generator.generate();
+            Instant now = clock.instant();
+            String encrypted = cipher.encrypt(mapper.writeValueAsString(payload), id.toString());
+            jdbc.update(
+                    """
+                    INSERT INTO notification_jobs(
+                        id, pilot_lead_id, notification_type, dedupe_key, recipient_email,
+                        encrypted_payload, available_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (dedupe_key) DO NOTHING
+                    """,
+                    id, leadId, type, dedupeKey, recipient, encrypted,
+                    Timestamp.from(now), Timestamp.from(now), Timestamp.from(now)
+            );
+        } catch (Exception failure) {
+            throw new IllegalStateException("Could not queue pilot lead notification", failure);
         }
     }
 

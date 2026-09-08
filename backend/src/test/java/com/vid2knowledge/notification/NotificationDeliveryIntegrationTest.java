@@ -5,6 +5,7 @@ import com.vid2knowledge.auth.IdentityService;
 import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.config.CommercialProperties;
 import com.vid2knowledge.config.NotificationProperties;
+import com.vid2knowledge.sales.PilotLeadService;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,10 +66,10 @@ class NotificationDeliveryIntegrationTest {
                 .getBytes(StandardCharsets.UTF_8));
         properties = new NotificationProperties(
                 true, "re_test", "Vid2Knowledge <hello@example.com>", URI.create("https://api.resend.com"),
-                URI.create("https://app.example.com"), key, 25, 3, Duration.ofMinutes(2)
+                URI.create("https://app.example.com"), "founder@example.com", key, 25, 3, Duration.ofMinutes(2)
         );
         cipher = new NotificationCipher(properties);
-        queue = new JdbcNotificationQueue(jdbc, cipher, new ObjectMapper());
+        queue = new JdbcNotificationQueue(jdbc, cipher, new ObjectMapper(), properties);
         jdbc.update("UPDATE learner_progress SET status = 'COMPLETED' WHERE status <> 'COMPLETED'");
         jdbc.update("DELETE FROM notification_jobs");
         organizationId = seedOrganization();
@@ -111,6 +112,38 @@ class NotificationDeliveryIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "SELECT encrypted_payload FROM notification_jobs WHERE organization_id = ?",
                 String.class, organizationId
+        )).isEqualTo("REDACTED");
+    }
+
+    @Test
+    void newPilotLeadAlertsFounderOnceWithoutPuttingProspectPiiInEmail() {
+        var leads = new PilotLeadService(jdbc, transactions, queue);
+        var request = new PilotLeadService.LeadRequest(
+                "Nguyen Van Buyer", "buyer@private.example", "Private Academy",
+                PilotLeadService.BuyerRole.OWNER, PilotLeadService.Minutes.BETWEEN_600_1499,
+                PilotLeadService.Learners.BETWEEN_200_499, PilotLeadService.Goal.PROVE_LEARNING,
+                "Sensitive sales context", PilotLeadService.Source.FOUNDER_OUTREACH, "founder-sep", true
+        );
+
+        var submitted = leads.submit(request, "pilot-alert-test-0001", "203.0.113.10|test-agent");
+        leads.submit(request, "pilot-alert-test-0001", "203.0.113.10|test-agent");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM notification_jobs WHERE pilot_lead_id = ?", Long.class, submitted.id()
+        )).isEqualTo(1L);
+        AtomicReference<OutboundEmail> delivered = new AtomicReference<>();
+        assertThat(dispatcher(email -> {
+            delivered.set(email);
+            return "pilot-alert-1";
+        }).dispatch("worker-sales-alert").sent()).isEqualTo(1);
+        assertThat(delivered.get().recipient()).isEqualTo("founder@example.com");
+        assertThat(delivered.get().subject()).contains("HOT");
+        assertThat(delivered.get().text())
+                .contains(submitted.id().toString(), "FOUNDER_OUTREACH")
+                .doesNotContain("Nguyen Van Buyer", "buyer@private.example", "Private Academy", "Sensitive");
+        assertThat(jdbc.queryForObject(
+                "SELECT encrypted_payload FROM notification_jobs WHERE pilot_lead_id = ?",
+                String.class, submitted.id()
         )).isEqualTo("REDACTED");
     }
 

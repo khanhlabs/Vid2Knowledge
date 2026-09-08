@@ -70,7 +70,9 @@
 - `notification_jobs`, `notification_deliveries`, `notification_preferences`,
   `notification_preference_changes`. Preference mặc định bật hướng dẫn sản phẩm/nhắc bài tập nhưng tắt
   marketing; mỗi thay đổi có ledger bất biến để chứng minh consent. Job bị suppression chuyển
-  `CANCELLED`, ghi lý do/thời điểm và redact payload mã hóa.
+  `CANCELLED`, ghi lý do/thời điểm và redact payload mã hóa. Mỗi job thuộc đúng một organization hoặc
+  một pre-signup pilot lead; lead alert chỉ mang opaque ID, priority và acquisition source, không mang
+  contact PII qua email.
 - `business_events`, `daily_organization_metrics`, `daily_course_metrics`.
 
 Chi tiết column/constraint của từng bảng phải được ghi trong migration design trước milestone liên quan. Không tạo toàn bộ bảng ở migration đầu tiên.

@@ -41,4 +41,6 @@ public interface NotificationQueue {
             UUID organizationId, UUID invoiceId, String invoiceNumber,
             long amountVnd, String checkoutUrl, Instant periodEnd
     );
+
+    void pilotLeadAlert(UUID leadId, String priority, String acquisitionSource, Instant receivedAt);
 }

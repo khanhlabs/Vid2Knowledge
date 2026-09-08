@@ -18,6 +18,7 @@ object_storage_endpoint = "https://your-account-id.r2.cloudflarestorage.com"
 object_storage_bucket   = "vid2knowledge-staging-private"
 # Add a distinct 32-byte base64 secret version to v2k-integration-encryption-key before enabling.
 notification_from     = "Vid2Knowledge <hello@example.com>"
+sales_alert_recipient = "founder@example.com"
 legal_policies = {
   policy_set_version     = "2026-09-staging"
   terms_version          = "2026-09-staging"

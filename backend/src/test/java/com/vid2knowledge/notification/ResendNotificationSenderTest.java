@@ -77,7 +77,7 @@ class ResendNotificationSenderTest {
         return new NotificationProperties(
                 true, "re_test", "Vid2Knowledge <hello@example.com>",
                 URI.create("http://localhost:" + server.getAddress().getPort()),
-                URI.create("https://app.example.com"), key, 25, 3, Duration.ofMinutes(2)
+                URI.create("https://app.example.com"), "founder@example.com", key, 25, 3, Duration.ofMinutes(2)
         );
     }
 }

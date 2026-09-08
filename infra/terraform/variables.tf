@@ -106,6 +106,15 @@ variable "notification_from" {
   type        = string
   default     = ""
 }
+variable "sales_alert_recipient" {
+  description = "Founder inbox receiving PII-minimized paid-pilot lead alerts when notifications are enabled."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.sales_alert_recipient == "" || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.sales_alert_recipient))
+    error_message = "sales_alert_recipient must be an email address."
+  }
+}
 
 variable "legal_policies" {
   description = "Versioned public legal documents. Production must use counsel-reviewed HTTPS URLs."

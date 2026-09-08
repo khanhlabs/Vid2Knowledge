@@ -145,8 +145,23 @@ public class NotificationDispatcher {
             case "ASSIGNMENT_AVAILABLE" -> assignment(job, payload, organization, false);
             case "ASSIGNMENT_DUE" -> assignment(job, payload, organization, true);
             case "REVIEW_DUE" -> reviewDue(job, payload, organization);
+            case "PILOT_LEAD_ALERT" -> pilotLeadAlert(job, payload);
             default -> throw new NotificationDeliveryException("Unsupported notification type", false, null);
         };
+    }
+
+    private OutboundEmail pilotLeadAlert(ClaimedNotification job, JsonNode payload) {
+        String leadId = escaped(payload, "leadId");
+        String priority = escaped(payload, "priority");
+        String source = escaped(payload, "acquisitionSource");
+        String receivedAt = DATE.format(parseInstant(payload, "receivedAt"));
+        String subject = "[" + HtmlUtils.htmlUnescape(priority) + "] Pilot lead mới";
+        String detail = "Lead " + leadId + " từ nguồn " + source + " nhận lúc " + receivedAt + " (GMT+7).";
+        String html = "<h2>" + HtmlUtils.htmlEscape(subject) + "</h2><p>" + detail
+                + "</p><p>Mở sales queue được bảo vệ để xem thông tin liên hệ. Không chuyển tiếp email này.</p>";
+        String text = subject + ". " + HtmlUtils.htmlUnescape(detail)
+                + " Mở sales queue được bảo vệ để xem thông tin liên hệ. Không chuyển tiếp email này.";
+        return new OutboundEmail(job.recipient(), subject, html, text, job.id().toString());
     }
 
     private OutboundEmail lifecycle(
