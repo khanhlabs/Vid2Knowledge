@@ -56,6 +56,8 @@ public class DisabledNotificationQueue implements NotificationQueue {
     }
 
     @Override
-    public void pilotLeadAlert(UUID leadId, String priority, String acquisitionSource, Instant receivedAt) {
+    public void pilotLeadAlert(
+            UUID leadId, String priority, String acquisitionSource, Instant receivedAt, Instant contactDueAt
+    ) {
     }
 }

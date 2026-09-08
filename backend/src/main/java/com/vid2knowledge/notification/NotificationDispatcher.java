@@ -155,8 +155,10 @@ public class NotificationDispatcher {
         String priority = escaped(payload, "priority");
         String source = escaped(payload, "acquisitionSource");
         String receivedAt = DATE.format(parseInstant(payload, "receivedAt"));
+        String contactDueAt = DATE.format(parseInstant(payload, "contactDueAt"));
         String subject = "[" + HtmlUtils.htmlUnescape(priority) + "] Pilot lead mới";
-        String detail = "Lead " + leadId + " từ nguồn " + source + " nhận lúc " + receivedAt + " (GMT+7).";
+        String detail = "Lead " + leadId + " từ nguồn " + source + " nhận lúc " + receivedAt
+                + "; cần phản hồi trước " + contactDueAt + " (GMT+7).";
         String html = "<h2>" + HtmlUtils.htmlEscape(subject) + "</h2><p>" + detail
                 + "</p><p>Mở sales queue được bảo vệ để xem thông tin liên hệ. Không chuyển tiếp email này.</p>";
         String text = subject + ". " + HtmlUtils.htmlUnescape(detail)

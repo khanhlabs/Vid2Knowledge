@@ -42,5 +42,7 @@ public interface NotificationQueue {
             long amountVnd, String checkoutUrl, Instant periodEnd
     );
 
-    void pilotLeadAlert(UUID leadId, String priority, String acquisitionSource, Instant receivedAt);
+    void pilotLeadAlert(
+            UUID leadId, String priority, String acquisitionSource, Instant receivedAt, Instant contactDueAt
+    );
 }

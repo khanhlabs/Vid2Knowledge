@@ -14,6 +14,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -92,6 +93,7 @@ public class PilotLeadService {
             int fitScore = score(input);
             String priority = fitScore >= 70 ? "HOT" : fitScore >= 45 ? "WARM" : "NURTURE";
             UUID id = UuidV7Generator.generate();
+            Instant contactDueAt = now.plus(contactSla(priority));
             jdbc.update(
                     """
                     INSERT INTO pilot_leads(
@@ -99,15 +101,15 @@ public class PilotLeadService {
                         normalized_email, organization_name, buyer_role, monthly_video_minutes,
                         learner_count, primary_goal, note, acquisition_source, acquisition_campaign,
                         contact_consent_version, contact_consent_at, submitter_hash,
-                        fit_score, priority, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        fit_score, priority, contact_due_at, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     id, idempotencyKey, fingerprint, input.contactName(), input.workEmail(),
                     input.workEmail().toLowerCase(Locale.ROOT), input.organizationName(), input.buyerRole().name(),
                     input.monthlyVideoMinutes().name(), input.learnerCount().name(), input.primaryGoal().name(),
                     input.note(), input.acquisitionSource().name(), input.acquisitionCampaign(),
                     contactConsentVersion, Timestamp.from(now), RequestFingerprint.sha256(submitterEvidence),
-                    fitScore, priority, Timestamp.from(now), Timestamp.from(now)
+                    fitScore, priority, Timestamp.from(contactDueAt), Timestamp.from(now), Timestamp.from(now)
             );
             jdbc.update(
                     """
@@ -117,7 +119,7 @@ public class PilotLeadService {
                     UuidV7Generator.generate(), id, Timestamp.from(now)
             );
             if (notifications != null) {
-                notifications.pilotLeadAlert(id, priority, input.acquisitionSource().name(), now);
+                notifications.pilotLeadAlert(id, priority, input.acquisitionSource().name(), now, contactDueAt);
             }
             return new Submission(id, priority, now);
         });
@@ -134,11 +136,14 @@ public class PilotLeadService {
                        monthly_video_minutes, learner_count, primary_goal, note,
                        acquisition_source, acquisition_campaign, fit_score, priority, status,
                        organization_id, lost_reason, contact_consent_version,
-                       contact_consent_at, created_at, updated_at
+                       contact_consent_at, contact_due_at,
+                       (status = 'NEW' AND contact_due_at < CURRENT_TIMESTAMP) AS contact_overdue,
+                       created_at, updated_at
                 FROM pilot_leads
                 WHERE redacted_at IS NULL
                 """ + statusClause + """
-                ORDER BY CASE priority WHEN 'HOT' THEN 1 WHEN 'WARM' THEN 2 ELSE 3 END,
+                ORDER BY CASE WHEN status = 'NEW' AND contact_due_at < CURRENT_TIMESTAMP THEN 0 ELSE 1 END,
+                         CASE priority WHEN 'HOT' THEN 1 WHEN 'WARM' THEN 2 ELSE 3 END,
                          created_at LIMIT 500
                 """,
                 PilotLeadService::mapLead, arguments
@@ -150,10 +155,7 @@ public class PilotLeadService {
                 """
                 SELECT l.acquisition_source, l.acquisition_campaign,
                        count(*) AS leads,
-                       count(*) FILTER (WHERE EXISTS (
-                           SELECT 1 FROM pilot_lead_events e
-                           WHERE e.pilot_lead_id = l.id AND e.to_status = 'CONTACTED'
-                       )) AS contacted,
+                       count(*) FILTER (WHERE contact.first_contacted_at IS NOT NULL) AS contacted,
                        count(*) FILTER (WHERE EXISTS (
                            SELECT 1 FROM pilot_lead_events e
                            WHERE e.pilot_lead_id = l.id AND e.to_status = 'QUALIFIED'
@@ -164,6 +166,9 @@ public class PilotLeadService {
                        )) AS proposals,
                        count(*) FILTER (WHERE l.status = 'WON') AS won,
                        count(*) FILTER (WHERE l.status = 'LOST') AS lost,
+                       count(*) FILTER (WHERE l.status = 'NEW' AND l.contact_due_at < CURRENT_TIMESTAMP) AS overdue,
+                       round(avg(EXTRACT(EPOCH FROM (contact.first_contacted_at - l.created_at)) / 60)
+                           FILTER (WHERE contact.first_contacted_at IS NOT NULL)) AS avg_minutes_to_contact,
                        sum(CASE WHEN l.status = 'WON' THEN
                            COALESCE((SELECT sum(p.amount_vnd) FROM payments p
                                      WHERE p.organization_id = l.organization_id), 0)
@@ -171,6 +176,11 @@ public class PilotLeadService {
                                        WHERE r.organization_id = l.organization_id AND r.state = 'SUCCEEDED'), 0)
                            ELSE 0 END) AS net_revenue_vnd
                 FROM pilot_leads l
+                LEFT JOIN LATERAL (
+                    SELECT min(e.occurred_at) AS first_contacted_at
+                    FROM pilot_lead_events e
+                    WHERE e.pilot_lead_id = l.id AND e.to_status = 'CONTACTED'
+                ) contact ON TRUE
                 GROUP BY l.acquisition_source, l.acquisition_campaign
                 ORDER BY net_revenue_vnd DESC, leads DESC
                 """,
@@ -178,6 +188,7 @@ public class PilotLeadService {
                         result.getString("acquisition_source"), result.getString("acquisition_campaign"),
                         result.getLong("leads"), result.getLong("contacted"), result.getLong("qualified"),
                         result.getLong("proposals"), result.getLong("won"), result.getLong("lost"),
+                        result.getLong("overdue"), nullableLong(result, "avg_minutes_to_contact"),
                         result.getLong("net_revenue_vnd")
                 )
         );
@@ -233,7 +244,9 @@ public class PilotLeadService {
                        monthly_video_minutes, learner_count, primary_goal, note,
                        acquisition_source, acquisition_campaign, fit_score, priority, status,
                        organization_id, lost_reason, contact_consent_version,
-                       contact_consent_at, created_at, updated_at
+                       contact_consent_at, contact_due_at,
+                       (status = 'NEW' AND contact_due_at < CURRENT_TIMESTAMP) AS contact_overdue,
+                       created_at, updated_at
                 FROM pilot_leads WHERE id = ?
                 """,
                 PilotLeadService::mapLead, leadId
@@ -250,9 +263,16 @@ public class PilotLeadService {
                 result.getInt("fit_score"), result.getString("priority"), result.getString("status"),
                 result.getObject("organization_id", UUID.class), result.getString("lost_reason"),
                 result.getString("contact_consent_version"),
-                result.getTimestamp("contact_consent_at").toInstant(), result.getTimestamp("created_at").toInstant(),
+                result.getTimestamp("contact_consent_at").toInstant(),
+                result.getTimestamp("contact_due_at").toInstant(), result.getBoolean("contact_overdue"),
+                result.getTimestamp("created_at").toInstant(),
                 result.getTimestamp("updated_at").toInstant()
         );
+    }
+
+    private static Long nullableLong(java.sql.ResultSet result, String column) throws java.sql.SQLException {
+        long value = result.getLong(column);
+        return result.wasNull() ? null : value;
     }
 
     private static LeadInput normalize(LeadRequest request) {
@@ -305,6 +325,14 @@ public class PilotLeadService {
         return Math.min(100, score);
     }
 
+    private static Duration contactSla(String priority) {
+        return switch (priority) {
+            case "HOT" -> Duration.ofHours(4);
+            case "WARM" -> Duration.ofHours(24);
+            default -> Duration.ofHours(72);
+        };
+    }
+
     private static boolean allowedTransition(Status from, Status to) {
         return switch (from) {
             case NEW -> to == Status.CONTACTED || to == Status.LOST;
@@ -354,10 +382,12 @@ public class PilotLeadService {
             String monthlyVideoMinutes, String learnerCount, String primaryGoal, String note,
             String acquisitionSource, String acquisitionCampaign, int fitScore, String priority,
             String status, UUID organizationId, String lostReason, String contactConsentVersion,
-            Instant contactConsentAt, Instant createdAt, Instant updatedAt
+            Instant contactConsentAt, Instant contactDueAt, boolean contactOverdue,
+            Instant createdAt, Instant updatedAt
     ) { }
     public record FunnelRow(
             String acquisitionSource, String acquisitionCampaign, long leads, long contacted,
-            long qualified, long proposals, long won, long lost, long netRevenueVnd
+            long qualified, long proposals, long won, long lost, long overdue,
+            Long avgMinutesToContact, long netRevenueVnd
     ) { }
 }

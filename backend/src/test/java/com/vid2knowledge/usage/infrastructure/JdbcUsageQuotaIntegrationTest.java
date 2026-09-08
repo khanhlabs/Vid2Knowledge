@@ -1429,6 +1429,13 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(replay.id()).isEqualTo(submitted.id());
         assertThat(submitted.priority()).isEqualTo("HOT");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM pilot_leads", Long.class)).isEqualTo(1L);
+        var queued = leads.queue(null).getFirst();
+        assertThat(java.time.Duration.between(queued.createdAt(), queued.contactDueAt()))
+                .isEqualTo(java.time.Duration.ofHours(4));
+        assertThat(queued.contactOverdue()).isFalse();
+        jdbc.update("UPDATE pilot_leads SET contact_due_at = CURRENT_TIMESTAMP - INTERVAL '1 minute' WHERE id = ?",
+                submitted.id());
+        assertThat(leads.queue(null).getFirst().contactOverdue()).isTrue();
         assertThatThrownBy(() -> leads.submit(
                 new PilotLeadService.LeadRequest(
                         "Another buyer", "other@example.vn", "Other academy",
@@ -1465,6 +1472,8 @@ class JdbcUsageQuotaIntegrationTest {
         assertThat(funnel.leads()).isEqualTo(1);
         assertThat(funnel.contacted()).isEqualTo(1);
         assertThat(funnel.won()).isEqualTo(1);
+        assertThat(funnel.overdue()).isZero();
+        assertThat(funnel.avgMinutesToContact()).isNotNull().isGreaterThanOrEqualTo(0L);
         assertThatThrownBy(() -> leads.update(submitted.id(), new PilotLeadService.StatusUpdate(
                 PilotLeadService.Status.LOST, null, "Changed mind"
         ), "sales-operator")).hasMessageContaining("transition");

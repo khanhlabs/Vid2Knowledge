@@ -121,6 +121,8 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
   rate-limit riêng; chỉ trả opaque lead ID và thời điểm nhận, không trả fit score hay sales state.
 - Backend ghi version Privacy Policy đang cấu hình tại thời điểm submit. URL campaign chỉ nhận token
   `[A-Za-z0-9_.-]` tối đa 80 ký tự; không lưu raw URL, referrer, UTM tự do hoặc analytics fingerprint.
+- Server gán contact SLA 4/24/72 giờ cho priority `HOT/WARM/NURTURE`. Restricted queue trả deadline và
+  cờ overdue; funnel trả overdue count và average minutes-to-first-contact lấy từ immutable event trail.
 
 ### Identity/organization
 

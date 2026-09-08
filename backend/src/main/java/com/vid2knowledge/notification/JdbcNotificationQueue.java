@@ -141,12 +141,15 @@ public class JdbcNotificationQueue implements NotificationQueue {
     }
 
     @Override
-    public void pilotLeadAlert(UUID leadId, String priority, String acquisitionSource, Instant receivedAt) {
+    public void pilotLeadAlert(
+            UUID leadId, String priority, String acquisitionSource, Instant receivedAt, Instant contactDueAt
+    ) {
         enqueuePilotLead(
                 leadId, "PILOT_LEAD_ALERT", "pilot-lead/alert/" + leadId,
                 properties.salesAlertRecipient(), Map.of(
                         "leadId", leadId.toString(), "priority", priority,
                         "acquisitionSource", acquisitionSource, "receivedAt", receivedAt.toString(),
+                        "contactDueAt", contactDueAt.toString(),
                         "organizationName", "Vid2Knowledge Sales"
                 )
         );

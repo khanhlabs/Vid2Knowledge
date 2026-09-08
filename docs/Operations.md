@@ -155,7 +155,9 @@ Cloudflare Turnstile và chỉ backend verify token; không nhúng secret vào c
 Google ID token bằng cách impersonate Terraform output `sales_invoker_service_account`, audience bằng
 `sales_oidc_audience`; task service account phải nhận 403 trên `/internal/sales/**`.
 
-Xử lý queue theo priority rồi thời gian tạo, chuyển state tuần tự và ghi lý do cụ thể khi `LOST`. Chỉ
+Lead `HOT`, `WARM`, `NURTURE` có SLA phản hồi lần đầu lần lượt 4/24/72 giờ. Queue đưa lead `NEW` quá hạn
+lên trước rồi mới sắp theo priority/thời gian tạo; funnel đo overdue và average minutes-to-contact từ
+immutable event đầu tiên, không dựa trên timestamp do client gửi. Chuyển state tuần tự và ghi lý do cụ thể khi `LOST`. Chỉ
 đánh dấu `WON` sau khi organization thật đã được tạo; funnel khi đó đối chiếu toàn bộ payment trừ refund
 thành công. Export PII ra spreadsheet/email bị cấm; response có `no-store`. Privacy version lưu cùng
 consent phải là bản đã legal-review trước production, không được dùng `*-draft`.
@@ -190,7 +192,7 @@ thời hạn giữ phải theo privacy policy và legal approval của công ty.
 
 Mỗi pilot lead mới cũng ghi một `PILOT_LEAD_ALERT` trong cùng database transaction. Dedupe key gắn với
 lead ID nên retry form không tạo alert thứ hai. Email tới `SALES_ALERT_RECIPIENT` chỉ chứa lead ID,
-priority, acquisition source và thời điểm nhận; founder phải mở sales queue bằng dedicated OIDC identity
+priority, acquisition source, thời điểm nhận và deadline phản hồi; founder phải mở sales queue bằng dedicated OIDC identity
 để xem PII. Khi dispatcher gửi xong, payload mã hóa bị thay bằng `REDACTED`. Production/staging không được
 bật `NOTIFICATIONS_ENABLED` nếu chưa cấu hình inbox này; smoke test phải submit cùng idempotency key hai
 lần, xác nhận đúng một email và tuyệt đối không có tên/email/note của prospect trong nội dung.

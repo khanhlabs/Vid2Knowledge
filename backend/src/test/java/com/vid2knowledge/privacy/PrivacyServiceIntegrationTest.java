@@ -158,13 +158,13 @@ class PrivacyServiceIntegrationTest {
                     normalized_email, organization_name, buyer_role, monthly_video_minutes,
                     learner_count, primary_goal, acquisition_source, contact_consent_version,
                     contact_consent_at, submitter_hash, fit_score, priority, status,
-                    lost_reason, created_at, updated_at
+                    lost_reason, contact_due_at, created_at, updated_at
                 ) VALUES (?, ?, 'fingerprint', 'Old Lead', 'old-lead@example.com',
                     'old-lead@example.com', 'Old Academy', 'TRAINING_MANAGER', 'BETWEEN_300_599',
                     'BETWEEN_50_199', 'PROVE_LEARNING', 'DIRECT', 'pilot-contact-v1-draft',
-                    ?, 'submitter-hash', 70, 'HOT', 'LOST', 'No budget', ?, ?)
+                    ?, 'submitter-hash', 70, 'HOT', 'LOST', 'No budget', ?, ?, ?)
                 """,
-                oldLeadId, "old-pilot-lead-" + oldLeadId, Timestamp.from(oldLead),
+                oldLeadId, "old-pilot-lead-" + oldLeadId, Timestamp.from(oldLead), Timestamp.from(oldLead),
                 Timestamp.from(oldLead), Timestamp.from(oldLead)
         );
         var service = new RetentionService(
