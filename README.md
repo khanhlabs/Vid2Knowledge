@@ -81,6 +81,7 @@ Vid2Knowledge/
 ├── frontend/
 │   ├── e2e/                               # Desktop/mobile browser smoke tests
 │   ├── playwright.config.ts               # Isolated production-build smoke runner
+│   ├── playwright.full.config.ts          # Authenticated journey against a test backend
 │   ├── src/
 │   │   ├── app/                           # Application shell and root React component
 │   │   ├── assets/
@@ -134,6 +135,16 @@ Pilot HTTP responses are mocked; these checks do not prove live Supabase, payOS,
 Use `npm run build` for deployable assets; `dist-smoke` is only for these tests.
 CI runs the same suite and keeps failure traces/screenshots for seven days, following
 the [Playwright CI workflow](https://playwright.dev/docs/ci).
+
+For the authenticated flow, start Docker and run `./dev.ps1 test-e2e-full`. On other platforms, run
+`./mvnw -Pbrowser-e2e test-compile failsafe:integration-test failsafe:verify` from `backend`.
+This starts PostgreSQL Testcontainers, a loopback JWKS server with ephemeral RSA keys, the real backend
+with JWT authentication enabled, and a separate frontend build in `dist-journey`. The journey creates
+an organization, generates/reviews/publishes learning material, invites a learner, launches a cohort,
+submits an assessment, and checks tenant/role denials. Database assertions reconcile grading and usage/cost.
+Only video metadata and Gemini responses are replaced by test fixtures; no production test-login endpoint
+or bypass is shipped. This does not validate provider quality, email delivery, or hosted Supabase login.
+The opt-in Maven profile uses [Failsafe integration-test and verify](https://maven.apache.org/surefire/maven-failsafe-plugin/index.html).
 
 There is no public deployment URL yet. This section will be updated when the application is deployed.
 

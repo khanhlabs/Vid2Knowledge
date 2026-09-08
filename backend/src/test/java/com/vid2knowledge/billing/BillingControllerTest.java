@@ -18,6 +18,16 @@ import static org.mockito.Mockito.when;
 
 class BillingControllerTest {
     @Test
+    void usageJsonContainsTheDerivedBalancesConsumedByTheWorkspace() throws Exception {
+        var usage = new BillingService.UsageView(3600, 300, 120, 10, 20,
+                Instant.now(), Instant.now().plusSeconds(3600), 100, 4, 2);
+        var mapper = new tools.jackson.databind.ObjectMapper();
+        var json = mapper.readTree(mapper.writeValueAsString(usage));
+        assertThat(json.path("availableSeconds").asLong(-1)).isEqualTo(3180);
+        assertThat(json.path("availableQaQueries").asLong(-1)).isEqualTo(94);
+    }
+
+    @Test
     void invoiceCsvIsPrivateUtf8AndNeutralizesSpreadsheetFormulas() {
         BillingService billing = mock(BillingService.class);
         TenantAccessService access = mock(TenantAccessService.class);

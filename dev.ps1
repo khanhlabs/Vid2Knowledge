@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('db-up', 'db-down', 'test', 'test-e2e', 'build', 'smoke')]
+    [ValidateSet('db-up', 'db-down', 'test', 'test-e2e', 'test-e2e-full', 'build', 'smoke')]
     [string]$Task
 )
 
@@ -32,6 +32,14 @@ function Invoke-FrontendQuality {
 }
 
 switch ($Task) {
+    'test-e2e-full' {
+        Push-Location (Join-Path $Workspace 'backend')
+        try {
+            & .\mvnw.cmd --batch-mode --no-transfer-progress -Pbrowser-e2e test-compile failsafe:integration-test failsafe:verify
+            if ($LASTEXITCODE -ne 0) { throw 'Authenticated browser journey failed; see backend/target/browser-journey.log.' }
+        }
+        finally { Pop-Location }
+    }
     'test-e2e' {
         Push-Location (Join-Path $Workspace 'frontend')
         try {

@@ -1,5 +1,6 @@
 dist
 dist-smoke
+dist-journey
 coverage
 node_modules
 package-lock.json

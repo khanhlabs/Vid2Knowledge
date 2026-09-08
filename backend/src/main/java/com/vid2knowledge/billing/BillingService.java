@@ -1570,10 +1570,12 @@ public class BillingService {
             long qaQueryCommitted,
             long qaQueryReserved
     ) {
+        @com.fasterxml.jackson.annotation.JsonProperty
         public long availableSeconds() {
             return Math.max(0, allowanceSeconds - committedSeconds - reservedSeconds);
         }
 
+        @com.fasterxml.jackson.annotation.JsonProperty
         public long availableQaQueries() {
             return Math.max(0, qaQueryAllowance - qaQueryCommitted - qaQueryReserved);
         }

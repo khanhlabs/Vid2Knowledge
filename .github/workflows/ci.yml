@@ -116,6 +116,45 @@ jobs:
           path: backend/target/backend-sbom.json
           if-no-files-found: error
 
+  browser-integration:
+    name: Authenticated buyer-to-learner journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: [frontend, backend]
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Install frontend dependencies and Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run isolated backend and browser journey
+        working-directory: backend
+        run: ./mvnw --batch-mode --no-transfer-progress -Pbrowser-e2e test-compile failsafe:integration-test failsafe:verify
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-browser-failures
+          path: |
+            backend/target/browser-journey.log
+            backend/target/failsafe-reports/
+            frontend/test-results/full-stack/
+          retention-days: 7
+
   infrastructure:
     name: Terraform validation
     runs-on: ubuntu-latest
