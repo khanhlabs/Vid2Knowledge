@@ -8,8 +8,6 @@ import com.vid2knowledge.common.id.UuidV7Generator;
 import com.vid2knowledge.config.AiCostProperties;
 import com.vid2knowledge.usage.application.IdempotencyConflictException;
 import com.vid2knowledge.usage.application.UsageQuota;
-import com.vid2knowledge.usage.domain.UsageMetric;
-import com.vid2knowledge.usage.domain.UsageReservation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
@@ -23,7 +21,6 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.sql.Timestamp;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -45,6 +42,7 @@ public class GroundedQaService {
     private final AiCostProperties costs;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final QaExecutionStore executions;
 
     @Autowired
     public GroundedQaService(
@@ -65,6 +63,7 @@ public class GroundedQaService {
         this.costs = costs;
         this.transactions = transactions;
         this.clock = clock;
+        this.executions = new QaExecutionStore(jdbc, quota, transactions, clock);
     }
 
     public IndexResult index(CurrentActor actor, UUID packageId, String correlationId) {
@@ -142,53 +141,62 @@ public class GroundedQaService {
         if (indexed == null || indexed == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Learning package is not indexed for Q&A");
         }
-        UsageReservation reservation = quota.reserve(
-                learner.organizationId(), UsageMetric.QA_QUERY, 1,
-                "qa:" + assignmentId + ":" + learner.userId() + ":" + idempotencyKey,
-                Duration.ofMinutes(10), correlationId
-        );
-        long embeddingStarted = System.nanoTime();
-        List<Double> queryVector;
+        QaExecutionStore.Claim claim = executions.claim(
+                learner, assignmentId, question.trim(), idempotencyKey, correlationId);
+        if (!claim.owner()) {
+            return stored(learner, assignmentId, idempotencyKey).stream().findFirst()
+                    .orElseThrow(QaExecutionStore::unavailable).answer();
+        }
         try {
-            queryVector = provider.embed(
+            UUID embeddingCall = executions.startCall(claim, learner.organizationId(), "QUERY_EMBEDDING");
+            long embeddingStarted = System.nanoTime();
+            List<List<Double>> queryVectors = provider.embed(
                     List.of(question.trim()), KnowledgeAiProvider.EmbeddingPurpose.QUERY
-            ).getFirst();
-        } catch (RuntimeException exception) {
-            quota.release(reservation.id(), correlationId);
-            throw exception;
-        }
-        long embeddingLatency = (System.nanoTime() - embeddingStarted) / 1_000_000;
-        List<RetrievedChunk> contexts = retrieve(
-                learner.organizationId(), assignment.revisionId(), queryVector
-        );
-        if (contexts.isEmpty() || contexts.getFirst().similarity() < MIN_SIMILARITY) {
-            quota.commit(reservation.id(), 1, correlationId);
-            return persist(
-                    learner, assignmentId, question.trim(), idempotencyKey, reservation,
-                    null, contexts, List.of(), true,
-                    "Không tìm thấy đủ bằng chứng trong nội dung đã được duyệt để trả lời câu hỏi này.",
-                    correlationId, embeddingLatency
             );
+            long embeddingLatency = (System.nanoTime() - embeddingStarted) / 1_000_000;
+            executions.completeCall(embeddingCall, () -> recordEmbeddingCost(
+                    learner.organizationId(), estimateTokens(question.trim()), embeddingLatency,
+                    correlationId, "QA_QUERY_EMBEDDING"));
+            List<Double> queryVector = queryVectors.getFirst();
+            List<RetrievedChunk> contexts = retrieve(
+                    learner.organizationId(), assignment.revisionId(), queryVector
+            );
+            if (contexts.isEmpty() || contexts.getFirst().similarity() < MIN_SIMILARITY) {
+                return persist(
+                        learner, assignmentId, question.trim(), idempotencyKey, claim,
+                        null, contexts, List.of(), true,
+                        "Không tìm thấy đủ bằng chứng trong nội dung đã được duyệt để trả lời câu hỏi này.",
+                        correlationId, embeddingLatency
+                );
+            }
+            UUID answerCall = executions.startCall(claim, learner.organizationId(), "ANSWER");
+            AiGenerationResult generation = provider.generateGroundedAnswer(prompt(question.trim(), contexts));
+            executions.completeCall(answerCall, () -> recordGenerationCost(
+                    learner.organizationId(), generation, correlationId));
+            ParsedAnswer parsed = parse(generation.output(), contexts.size());
+            return persist(
+                    learner, assignmentId, question.trim(), idempotencyKey, claim,
+                    generation, contexts, parsed.citations(), parsed.insufficientEvidence(),
+                    parsed.answer(), correlationId, embeddingLatency
+            );
+        } catch (RuntimeException failure) {
+            try {
+                executions.fail(claim, correlationId);
+            } catch (RuntimeException accountingFailure) {
+                failure.addSuppressed(accountingFailure);
+                throw failure;
+            }
+            throw QaExecutionStore.unavailable();
         }
-        AiGenerationResult generation;
-        try {
-            generation = provider.generateGroundedAnswer(prompt(question.trim(), contexts));
-        } catch (RuntimeException exception) {
-            quota.commit(reservation.id(), 1, correlationId);
-            throw exception;
-        }
-        ParsedAnswer parsed = parse(generation.output(), contexts.size());
-        quota.commit(reservation.id(), 1, correlationId);
-        return persist(
-                learner, assignmentId, question.trim(), idempotencyKey, reservation,
-                generation, contexts, parsed.citations(), parsed.insufficientEvidence(),
-                parsed.answer(), correlationId, embeddingLatency
-        );
+    }
+
+    public int reconcileExpiredRequests() {
+        return executions.recoverExpired();
     }
 
     private Answer persist(
             CurrentActor learner, UUID assignmentId, String question, String idempotencyKey,
-            UsageReservation reservation, AiGenerationResult generation, List<RetrievedChunk> contexts,
+            QaExecutionStore.Claim claim, AiGenerationResult generation, List<RetrievedChunk> contexts,
             List<Integer> citationIndexes, boolean insufficient, String answer,
             String correlationId, long embeddingLatency
     ) {
@@ -256,15 +264,11 @@ public class GroundedQaService {
                         latency_ms, status, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    runId, learner.organizationId(), threadId, questionId, answerId, reservation.id(),
+                    runId, learner.organizationId(), threadId, questionId, answerId, claim.reservationId(),
                     providerName, model, input, output, latency,
                     insufficient ? "REFUSED" : "ANSWERED", Timestamp.from(now)
             );
-            if (generation != null) recordGenerationCost(learner.organizationId(), generation, correlationId);
-            recordEmbeddingCost(
-                    learner.organizationId(), estimateTokens(question), embeddingLatency,
-                    correlationId, "QA_QUERY_EMBEDDING"
-            );
+            executions.succeed(claim, correlationId);
             return new Answer(threadId, answerId, answer, insufficient, citations, now);
         });
     }
@@ -447,9 +451,10 @@ public class GroundedQaService {
         return prompt.toString();
     }
 
-    private void recordGenerationCost(UUID organizationId, AiGenerationResult generation, String correlationId) {
+    private UUID recordGenerationCost(UUID organizationId, AiGenerationResult generation, String correlationId) {
         long actual = costs.actual().toRateCard().estimateMicrousd(generation);
         long shadow = costs.shadow().toRateCard().estimateMicrousd(generation);
+        UUID costId = UuidV7Generator.generate();
         jdbc.update(
                 """
                 INSERT INTO cost_ledger(
@@ -458,19 +463,21 @@ public class GroundedQaService {
                     latency_ms, correlation_id, occurred_at
                 ) VALUES (?, ?, 'QA_ANSWER', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                UuidV7Generator.generate(), organizationId, generation.provider(), generation.model(),
+                costId, organizationId, generation.provider(), generation.model(),
                 generation.inputTokens(), generation.outputTokens(), generation.thoughtTokens(),
                 actual, shadow, generation.latencyMs(), correlationId, Timestamp.from(clock.instant())
         );
+        return costId;
     }
 
-    private void recordEmbeddingCost(
+    private UUID recordEmbeddingCost(
             UUID organizationId, long estimatedTokens, long latencyMs, String correlationId, String operation
     ) {
         AiGenerationResult usage = new AiGenerationResult(
                 "GOOGLE_GEMINI", provider.embeddingModel(), provider.embeddingModel(),
                 estimatedTokens, 0, 0, latencyMs, 0, "embedding-usage"
         );
+        UUID costId = UuidV7Generator.generate();
         jdbc.update(
                 """
                 INSERT INTO cost_ledger(
@@ -479,11 +486,12 @@ public class GroundedQaService {
                     correlation_id, occurred_at
                 ) VALUES (?, ?, ?, 'GOOGLE_GEMINI', ?, ?, ?, ?, ?, ?, ?)
                 """,
-                UuidV7Generator.generate(), organizationId, operation, provider.embeddingModel(), estimatedTokens,
+                costId, organizationId, operation, provider.embeddingModel(), estimatedTokens,
                 costs.actual().toRateCard().estimateMicrousd(usage),
                 costs.shadow().toRateCard().estimateMicrousd(usage), latencyMs,
                 correlationId, Timestamp.from(clock.instant())
         );
+        return costId;
     }
 
     private static long estimateTokens(String text) {

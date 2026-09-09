@@ -187,10 +187,10 @@ resource "google_project_iam_member" "runtime_task_enqueuer" {
   member  = "serviceAccount:${google_service_account.runtime.email}"
 }
 
-resource "google_project_iam_member" "runtime_secret_accessor" {
-  project = var.project_id
-  role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${google_service_account.runtime.email}"
+resource "google_service_account_iam_member" "runtime_task_identity_user" {
+  service_account_id = google_service_account.task_invoker.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.runtime.email}"
 }
 
 resource "google_service_account_iam_member" "tasks_token_creator" {
@@ -274,7 +274,7 @@ resource "google_cloud_run_v2_service" "worker" {
       }
     }
   }
-  depends_on = [google_project_service.required, google_secret_manager_secret.runtime]
+  depends_on = [google_project_service.required, google_secret_manager_secret_iam_member.runtime_accessor]
 }
 
 resource "google_cloud_run_v2_service" "api" {
@@ -328,7 +328,12 @@ resource "google_cloud_run_v2_service" "api" {
       }
     }
   }
-  depends_on = [google_project_service.required, google_secret_manager_secret.runtime]
+  depends_on = [
+    google_project_service.required,
+    google_secret_manager_secret_iam_member.runtime_accessor,
+    google_service_account_iam_member.runtime_task_identity_user,
+    google_project_iam_member.runtime_task_enqueuer,
+  ]
 }
 
 resource "google_billing_budget" "project" {
@@ -607,6 +612,18 @@ resource "google_logging_metric" "identity_deletion_failed" {
   depends_on = [google_project_service.required]
 }
 
+resource "google_logging_metric" "qa_cost_integrity" {
+  name        = "${local.prefix}-qa-cost-integrity"
+  description = "Counts unknown Q&A provider usage or exhausted failure-processing budgets."
+  filter      = "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"${google_cloud_run_v2_service.api.name}\" AND (jsonPayload.message : \"QA_PROVIDER_USAGE_UNKNOWN\" OR textPayload : \"QA_PROVIDER_USAGE_UNKNOWN\" OR jsonPayload.message : \"QA_EXECUTION_BUDGET_EXHAUSTED\" OR textPayload : \"QA_EXECUTION_BUDGET_EXHAUSTED\")"
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+  depends_on = [google_project_service.required]
+}
+
 resource "google_monitoring_alert_policy" "commercial_integrity_events" {
   display_name = "${local.prefix}: commercial integrity event"
   combiner     = "OR"
@@ -618,7 +635,23 @@ resource "google_monitoring_alert_policy" "commercial_integrity_events" {
 
   documentation {
     mime_type = "text/markdown"
-    content   = "A provider circuit opened, payment reconciliation mismatched, a delivery reached dead-letter, or Auth identity deletion needs attention. Follow the corresponding runbook in docs/Operations.md."
+    content   = "A provider circuit opened, Q&A cost needs reconciliation, payment reconciliation mismatched, a delivery reached dead-letter, or Auth identity deletion needs attention. Follow the corresponding runbook in docs/Operations.md."
+  }
+
+  conditions {
+    display_name = "Q&A provider cost needs attention"
+    condition_threshold {
+      filter          = "resource.type = \"cloud_run_revision\" AND metric.type = \"logging.googleapis.com/user/${google_logging_metric.qa_cost_integrity.name}\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+      trigger { count = 1 }
+    }
   }
 
   conditions {

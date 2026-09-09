@@ -144,6 +144,9 @@ an organization, generates/reviews/publishes learning material, invites a learne
 submits an assessment, and checks tenant/role denials. Database assertions reconcile grading and usage/cost.
 Only video metadata and Gemini responses are replaced by test fixtures; no production test-login endpoint
 or bypass is shipped. This does not validate provider quality, email delivery, or hosted Supabase login.
+The journey also switches an already-open owner's page to the learner identity without reloading,
+verifying that cached owner data and staff actions disappear. Frontend unit tests cover delayed
+responses, private downloads, upload cancellation and offline mutations across identity changes.
 The opt-in Maven profile uses [Failsafe integration-test and verify](https://maven.apache.org/surefire/maven-failsafe-plugin/index.html).
 
 There is no public deployment URL yet. This section will be updated when the application is deployed.

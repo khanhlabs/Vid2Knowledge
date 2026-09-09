@@ -11,7 +11,10 @@ Không nhận dữ liệu hoặc tiền thật cho tới khi owner xác nhận b
   Theo [Supabase API keys](https://supabase.com/docs/guides/getting-started/api-keys), opaque
   `sb_secret_` chỉ gửi qua `apikey`; adapter chỉ thêm bearer header cho legacy service_role JWT.
 - GCP budget alert 50/80/100%, Gemini quota và Cloud Run max instance đã đặt; payOS vẫn off cho tới khi signed-webhook/reconciliation smoke test đạt.
-- Cloudflare TLS, WAF/rate limit và Pages security headers đã bật; origin Cloud Run chỉ nhận frontend origin qua CORS.
+- Cloudflare TLS, WAF/rate limit và Pages security headers đã bật; CORS allowlist chỉ giới hạn browser,
+  không ngăn gọi thẳng Cloud Run. Phải xác minh trusted-edge routing trước khi coi WAF là bảo vệ mọi
+  public request. Anonymous limiter trong app dùng servlet peer; nhiều khách sau proxy có thể dùng
+  chung bucket, không tin forwarded header do client tự gửi.
 - Resend domain xác thực, invitation/receipt/renewal test gửi thành công; encryption key có bản sao trong secret recovery process.
 - Test cả ba email trial (welcome, activation nudge, trial expiry), link quay lại ứng dụng và trang
   preference. Xác nhận opt-out làm job đến hạn chuyển `CANCELLED`, payload thành `REDACTED` và không tạo
@@ -51,6 +54,18 @@ RPO ban đầu 24 giờ, RTO 4 giờ. Nếu hợp đồng yêu cầu tốt hơn,
   amount và payment-link ID. Không sửa ledger trực tiếp ngoài audited adjustment.
 - Provider outage: circuit breaker dừng retry không hữu ích; giữ reservation theo lease, mở lại qua
   reconciliation và theo dõi actual/shadow cost.
+- Q&A `QA_PROVIDER_USAGE_UNKNOWN`: đối soát execution/call ID và provider billing evidence; không
+  retry key lỗi hoặc coi usage thiếu là cost 0. Billing maintenance kết thúc execution quá 10 phút,
+  trả quota và giữ UNKNOWN; phản hồi provider đến muộn chỉ được ghi cost, không publish câu trả lời
+  của lease cũ. Dashboard `COST_UNVERIFIED` giữ lợi nhuận tạm tính cho đến khi có bằng chứng cost.
+  `QA_EXECUTION_BUDGET_EXHAUSTED` dừng processing mới cho entitlement đó: điều tra lỗi/quality trước
+  khi mở capacity qua luồng entitlement có audit, không xóa execution/ledger để reset cap. Failed
+  answer không trừ query allowance của khách; processing cap tính cả lượt lỗi để chặn retry đổi key.
+  Không tự đánh dấu UNKNOWN là SUCCEEDED nếu chưa có cost record; hiện chưa có operator API để
+  chốt usage provider bị mất, nên trạng thái này phải được giữ và chuyển thành reconciliation task.
+  V36 là migration mở rộng. Nếu cần rollback về ứng dụng trước V36, chặn endpoint Q&A ở ingress và
+  chờ request đang chạy kết thúc trước; code cũ không hiểu execution ownership và không được phục vụ
+  retry trên các key mới. Không rollback bằng cách drop bảng/cost evidence.
 - Database outage: dừng mutation/worker, không fail-open quota. Sau restore chạy Flyway validate,
   reconciliation payment, outbox và notification trước khi mở traffic.
 - Secret leak: vô hiệu/rotate tại provider trước, tạo secret version mới, deploy revision mới, kiểm tra

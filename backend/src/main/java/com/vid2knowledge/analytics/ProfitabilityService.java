@@ -149,11 +149,16 @@ public class ProfitabilityService {
                   COALESCE((SELECT sum(shadow_cost_microusd) FROM cost_ledger
                     WHERE organization_id = ? AND occurred_at >= ? AND occurred_at < ?), 0) AS shadow_ai,
                   COALESCE((SELECT sum(amount_vnd) FROM account_cost_entries
-                    WHERE organization_id = ? AND incurred_at >= ? AND incurred_at < ? AND voided_at IS NULL), 0) AS manual
+                    WHERE organization_id = ? AND incurred_at >= ? AND incurred_at < ? AND voided_at IS NULL), 0) AS manual,
+                  (SELECT count(*) FROM qa_provider_calls
+                    WHERE organization_id = ? AND started_at >= ? AND started_at < ?
+                      AND state IN ('STARTED', 'UNKNOWN')) AS unresolved_ai_calls
                 """,
                 (result, row) -> new CostTotals(
-                        result.getLong("actual_ai"), result.getLong("shadow_ai"), result.getLong("manual")
+                        result.getLong("actual_ai"), result.getLong("shadow_ai"), result.getLong("manual"),
+                        result.getLong("unresolved_ai_calls")
                 ),
+                organizationId, Timestamp.from(from), Timestamp.from(to),
                 organizationId, Timestamp.from(from), Timestamp.from(to),
                 organizationId, Timestamp.from(from), Timestamp.from(to),
                 organizationId, Timestamp.from(from), Timestamp.from(to)
@@ -174,7 +179,8 @@ public class ProfitabilityService {
         Double grossMargin = ratio(grossProfit, recognizedNet);
         Double contributionMargin = ratio(contributionProfit, recognizedNet);
         Double aiShare = ratio(shadowAiVnd, recognizedNet);
-        String status = status(profile, recognizedNet, grossMargin, contributionMargin, aiShare);
+        String status = costs.unresolvedAiCalls() > 0 ? "COST_UNVERIFIED"
+                : status(profile, recognizedNet, grossMargin, contributionMargin, aiShare);
         Long cacPaybackMonths = contributionProfit > 0 && profile.acquisitionCostVnd() > 0
                 ? (long) Math.ceil((double) profile.acquisitionCostVnd() / contributionProfit * months) : null;
         long monthlyContributionVnd = Math.round(contributionProfit / months);
@@ -189,7 +195,7 @@ public class ProfitabilityService {
                 actualAiVnd, shadowAiVnd, paymentFees, allocatedInfrastructure,
                 modeledSupport, costs.manualVnd(), taxReserve, grossProfit, contributionProfit,
                 grossMargin, contributionMargin, aiShare, cacPaybackMonths,
-                monthlyContributionVnd, contributionLtvVnd, ltvCacRatio
+                monthlyContributionVnd, contributionLtvVnd, ltvCacRatio, costs.unresolvedAiCalls()
         );
     }
 
@@ -268,9 +274,9 @@ public class ProfitabilityService {
             long taxReserveVnd, long grossProfitVnd, long contributionProfitVnd,
             Double grossMargin, Double contributionMargin, Double shadowAiRevenueShare,
             Long cacPaybackMonths, long monthlyContributionVnd, Long contributionLtvVnd,
-            Double ltvCacRatio
+            Double ltvCacRatio, long unresolvedAiCalls
     ) { }
 
     private record Revenue(long grossCashVnd, long refundsVnd, long recognizedVnd, long paymentCount) { }
-    private record CostTotals(long actualAiMicroUsd, long shadowAiMicroUsd, long manualVnd) { }
+    private record CostTotals(long actualAiMicroUsd, long shadowAiMicroUsd, long manualVnd, long unresolvedAiCalls) { }
 }

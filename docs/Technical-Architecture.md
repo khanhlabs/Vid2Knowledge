@@ -29,7 +29,7 @@ Browser/PWA
 | Auth | Supabase Auth | Google OAuth, magic link, invitation; giảm security code | Enterprise SSO qua adapter/IdP khi có hợp đồng |
 | Compute | Cloud Run Singapore | Scale-to-zero, container chuẩn, request-based | Min instance > 0 khi latency/revenue biện minh |
 | Queue | Cloud Tasks | Durable push, retry/rate limit, 1M ops free/tháng | Pub/Sub chỉ khi fan-out/event volume thực sự cần |
-| Scheduler | Cloud Scheduler | Outbox/reconciliation/notification, 3 jobs; cleanup và learning reminders được gộp vào hai cycle sau | Dedicated scheduler khi task set vượt giới hạn vận hành |
+| Scheduler | Cloud Scheduler | Outbox/reconciliation/privacy deletion và notification tùy chọn, tối đa 4 jobs; cleanup và learning reminders được gộp vào cycle tương ứng | Review chi phí theo số job thực tế; không chặn billing khi identity provider lỗi |
 | Storage | Cloudflare R2 | S3-compatible, free egress, lifecycle | Tách bucket/region hoặc enterprise storage theo compliance |
 | Payment | payOS/VietQR | Phù hợp Việt Nam, webhook và tiền về tài khoản | Thêm adapter quốc tế; Stripe không phải mặc định cho pháp nhân VN |
 | Email | Resend | API đơn giản, free 3.000 email/tháng | Dedicated provider/IP khi deliverability/volume yêu cầu |
@@ -90,11 +90,22 @@ Module giao tiếp bằng application ports và domain events trong cùng proces
   không đọc được lead PII và sales identity không gọi được task handler.
 - JWT xác thực identity; organization membership trong DB xác thực authorization.
 - Service-role key không xuất hiện trong frontend. Frontend chỉ dùng public Supabase key theo thiết kế.
+- Frontend tách QueryClient và component state theo Supabase user ID; đổi tài khoản/đăng xuất xóa
+  cache phiên cũ, còn refresh token cùng tài khoản giữ cache. Lựa chọn organization được reset khi
+  đổi danh tính. Bản nháp trên thiết bị có namespace user + organization + package; bản nháp legacy
+  chưa gắn user không tự khôi phục vì không xác minh được chủ sở hữu. Đây là cách ly trong ứng dụng,
+  không phải mã hóa dữ liệu trên thiết bị dùng chung.
+- Mỗi yêu cầu frontend giữ danh tính và tín hiệu hủy từ lúc bắt đầu đến lúc đọc xong response.
+  Đổi danh tính dừng upload/polling và loại response cũ trước khi tải file/chuyển sang thanh toán;
+  server vẫn có thể đã hoàn tất command trước khi browser hủy, nên idempotency backend vẫn bắt buộc.
 - R2 object private, presigned URL thời hạn ngắn, key prefix tenant-randomized.
 - Rate limit nhiều tầng: Cloudflare/WAF cho bot; application cho account/IP/org/endpoint; Cloud Tasks cho provider throughput.
 - Application limiter áp fixed window riêng cho mutation thường, AI-expensive và payment,
   đồng thời giới hạn số key trong memory. Đây là guardrail per-instance; quota transaction trong
   PostgreSQL mới là nguồn sự thật chống vượt chi phí, còn Cloudflare là distributed outer layer.
+- Anonymous request dùng servlet peer thực, không dùng principal `anonymousUser` hoặc địa chỉ
+  do forwarded header chưa được xác thực cung cấp. Peer có thể dùng chung sau proxy/NAT; cần kiểm
+  chứng trusted-edge routing trước khi coi đây là rate limit riêng cho từng khách trên production.
 - Audit không lưu secret hoặc raw sensitive body; log có retention và access policy.
 - Secrets rotate được; payOS webhook signature verify constant-time; replay event không tạo side effect.
 

@@ -28,10 +28,28 @@ The Terraform stack provisions the low-idle-cost GCP half of Vid2Knowledge: two 
 
 Production deletion protection is on. Secret versions, DNS, Supabase, payOS merchant activation, billing budgets, and GitHub OIDC trust intentionally require account-owner decisions and are not fabricated by this repository.
 
+The runtime may read only the configured application secrets, through individual secret IAM grants.
+It may enqueue tasks and act as the dedicated task-invoker identity, which is required to create
+OIDC-authenticated HTTP tasks; it cannot impersonate the sales identity. Cloud Run creation depends
+on those grants to avoid bootstrap races. For an existing stack, review the plan replacing the old
+project-level `runtime_secret_accessor` grant with per-secret grants. Apply at a quiet time and
+verify secret-backed startup plus one authenticated analysis task before switching traffic. These
+controls follow Google's [task creation permissions](https://cloud.google.com/sdk/gcloud/reference/tasks/create-http-task)
+and [secret-level IAM guidance](https://docs.cloud.google.com/secret-manager/docs/access-control).
+
 CI validates Terraform with the pinned CLI baseline. It also builds the actual backend container, rejects fixable high/critical image vulnerabilities, reviews pull-request dependency changes, and publishes CycloneDX SBOM artifacts for both applications. A scan exception must be narrow, expiry-dated, linked to a risk decision, and removed once an upstream fix is available.
 
 Set `billing_account_id` before production so Terraform creates a project-scoped monthly budget with alerts at 50%, 80%, and 100%. The default USD 25 budget is a guardrail, not a spending cap; provider consoles still need hard quota/cap settings where supported.
 
 Terraform creates critical alerts for API/worker 5xx bursts, analysis task failures, AI circuit opening, payOS reconciliation mismatches, notification dead letters, and Business webhook dead letters, plus a warning when queue depth remains above 50 for ten minutes. Production planning fails with fewer than two alert recipients. Google sends a verification request when an email notification channel is created; an unverified address is not operational coverage. Run the alert drill in `docs/Operations.md` after every production bootstrap or recipient change.
 
-The billing reconciliation schedule also processes due privacy deletions and retention cleanup, while the notification schedule discovers assignment/deadline/review reminders before dispatch. This keeps the workload inside the existing three Scheduler jobs. Retention defaults redact raw Gemini output after 30 days, processed payment webhook bodies after 90 days, and stale non-customer pilot PII after 180 days while preserving canonical packages, funnel events, and webhook dedupe keys; review the `RETENTION_*` values against signed contracts before deployment. Application rate limits are deliberately per Cloud Run instance and memory-bounded; Cloudflare rate limiting is still required as the distributed IP/bot layer, while entitlement reservation remains the canonical protection against paid AI overuse.
+The billing reconciliation schedule also processes retention cleanup, while the notification schedule
+discovers assignment/deadline/review reminders before dispatch. Privacy identity deletion uses a
+separate ten-minute schedule so provider retries do not delay payment reconciliation. With email
+enabled there are four Scheduler jobs; include this in the cost estimate instead of assuming every
+schedule stays inside the free allowance. Retention defaults redact raw Gemini output after 30 days,
+processed payment webhook bodies after 90 days, and stale non-customer pilot PII after 180 days while
+preserving canonical packages, funnel events, and webhook dedupe keys; review the `RETENTION_*`
+values against signed contracts before deployment. Application rate limits are deliberately per
+Cloud Run instance and memory-bounded; Cloudflare rate limiting is still required as the distributed
+IP/bot layer, while entitlement reservation remains the canonical protection against paid AI overuse.

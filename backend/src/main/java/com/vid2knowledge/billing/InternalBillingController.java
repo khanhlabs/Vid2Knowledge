@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.vid2knowledge.privacy.RetentionService;
+import com.vid2knowledge.delivery.GroundedQaService;
 
 @RestController
 @RequestMapping("/internal/tasks/billing/reconcile")
@@ -15,16 +16,18 @@ public class InternalBillingController {
 
     private final BillingService billing;
     private final RetentionService retention;
+    private final GroundedQaService groundedQa;
 
-    public InternalBillingController(BillingService billing, RetentionService retention) {
+    public InternalBillingController(BillingService billing, RetentionService retention, GroundedQaService groundedQa) {
         this.billing = billing;
         this.retention = retention;
+        this.groundedQa = groundedQa;
     }
 
     @PostMapping
     public MaintenanceResult reconcile() {
         return new MaintenanceResult(
-                billing.reconcilePendingPayments(), retention.cleanup()
+                billing.reconcilePendingPayments(), retention.cleanup(), groundedQa.reconcileExpiredRequests()
         );
     }
 
@@ -49,6 +52,7 @@ public class InternalBillingController {
 
     public record MaintenanceResult(
             BillingService.ReconciliationResult billing,
-            RetentionService.CleanupResult retention
+            RetentionService.CleanupResult retention,
+            int expiredQaRequests
     ) { }
 }

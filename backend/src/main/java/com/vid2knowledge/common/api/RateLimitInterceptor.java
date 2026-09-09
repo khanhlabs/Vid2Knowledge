@@ -1,8 +1,11 @@
 package com.vid2knowledge.common.api;
 
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletRequestWrapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -67,10 +70,20 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
     private static String requestIdentity(HttpServletRequest request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.isAuthenticated() && authentication.getName() != null) {
+        if (authentication != null && authentication.isAuthenticated()
+                && !(authentication instanceof AnonymousAuthenticationToken)
+                && authentication.getName() != null && !authentication.getName().isBlank()) {
             return "account:" + authentication.getName();
         }
-        return "ip:" + request.getRemoteAddr();
+        // Spring's framework forwarded-header filter wraps getRemoteAddr() using client-supplied
+        // headers. With the public Cloud Run origin, there is no enforced trusted-edge boundary.
+        // Use the actual servlet peer instead. Shared proxy/NAT peers can share this local budget;
+        // this is not a distributed per-client limit and cannot replace trusted-edge rate limiting.
+        ServletRequest peerRequest = request;
+        while (peerRequest instanceof ServletRequestWrapper wrapper) {
+            peerRequest = wrapper.getRequest();
+        }
+        return "ip:" + peerRequest.getRemoteAddr();
     }
 
     private static void enforce(RequestRateLimiter.Decision decision, HttpServletResponse response) {

@@ -687,6 +687,211 @@ class JdbcUsageQuotaIntegrationTest {
     }
 
     @Test
+    void concurrentQaRetriesHaveOneProviderOwnerAndRejectQuestionDriftBeforeSpending() throws Exception {
+        var fixture = qaFixture();
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        org.mockito.Mockito.when(fixture.provider().generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> {
+                    assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
+                            .isFalse();
+                    entered.countDown();
+                    assertThat(release.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                    return qaGeneration("{\"answer\":\"Evidence answer\",\"citations\":[1],\"insufficientEvidence\":false}");
+                });
+        String key = "q".repeat(160);
+        try (var executor = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var first = executor.submit(() -> fixture.qa().ask(
+                    fixture.learner(), fixture.assignmentId(), "Question?", key, "qa-concurrent-first"));
+            try {
+                assertThat(entered.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThatThrownBy(() -> fixture.qa().ask(
+                        fixture.learner(), fixture.assignmentId(), "Question?", key, "qa-concurrent-second"))
+                        .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                                error -> assertThat(error.getStatusCode().value()).isEqualTo(409));
+                assertThatThrownBy(() -> fixture.qa().ask(
+                        fixture.learner(), fixture.assignmentId(), "Changed question?", key, "qa-concurrent-drift"))
+                        .isInstanceOf(IdempotencyConflictException.class);
+            } finally {
+                release.countDown();
+            }
+            var answer = first.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(fixture.qa().ask(fixture.learner(), fixture.assignmentId(), "Question?", key, "qa-replay"))
+                    .isEqualTo(answer);
+        }
+        org.mockito.Mockito.verify(fixture.provider(), org.mockito.Mockito.times(1))
+                .generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString());
+        org.mockito.Mockito.verify(fixture.provider(), org.mockito.Mockito.times(2))
+                .embed(org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM qa_execution_requests WHERE organization_id = ? AND state = 'SUCCEEDED'",
+                Long.class, organizationId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM cost_ledger WHERE organization_id = ? AND operation LIKE 'QA_%'",
+                Long.class, organizationId)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM usage_ledger WHERE organization_id = ? AND event_type = 'COMMITTED'",
+                Long.class, organizationId)).isEqualTo(1);
+    }
+
+    @Test
+    void malformedQaOutputRetainsProviderCostAndFailureReplayDoesNotSpendAgain() {
+        var fixture = qaFixture();
+        org.mockito.Mockito.when(fixture.provider().generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(qaGeneration("{\"answer\":\"Unsupported answer without citations\"}"));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            assertThatThrownBy(() -> fixture.qa().ask(fixture.learner(), fixture.assignmentId(),
+                    "Question?", "qa-malformed", "qa-malformed-correlation"))
+                    .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                            error -> assertThat(error.getStatusCode().value()).isEqualTo(502));
+        }
+        org.mockito.Mockito.verify(fixture.provider(), org.mockito.Mockito.times(1))
+                .generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString());
+        assertThat(jdbc.queryForObject("SELECT state FROM qa_execution_requests WHERE organization_id = ?",
+                String.class, organizationId)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM qa_threads WHERE organization_id = ?",
+                Long.class, organizationId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT actual_cost_microusd FROM cost_ledger WHERE organization_id = ? AND operation = 'QA_ANSWER'",
+                Long.class, organizationId)).isEqualTo(140);
+        assertThat(jdbc.queryForObject("SELECT shadow_cost_microusd FROM cost_ledger WHERE organization_id = ? AND operation = 'QA_ANSWER'",
+                Long.class, organizationId)).isEqualTo(140);
+        assertThat(jdbc.queryForObject("SELECT status FROM usage_reservations WHERE organization_id = ? AND metric = 'QA_QUERY'",
+                String.class, organizationId)).isEqualTo("RELEASED");
+    }
+
+    @Test
+    void uncertainQaProviderFailureCannotBeRetriedUnderACommittedOrReleasedKey() {
+        var fixture = qaFixture();
+        org.mockito.Mockito.when(fixture.provider().generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString()))
+                .thenThrow(new com.vid2knowledge.analysis.application.AiProviderException("Transport result unknown", true))
+                .thenReturn(qaGeneration("{\"answer\":\"Evidence answer\",\"citations\":[1],\"insufficientEvidence\":false}"));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            assertThatThrownBy(() -> fixture.qa().ask(fixture.learner(), fixture.assignmentId(),
+                    "Question?", "qa-timeout", "qa-timeout-correlation"))
+                    .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                            error -> assertThat(error.getStatusCode().value()).isEqualTo(502));
+        }
+        org.mockito.Mockito.verify(fixture.provider(), org.mockito.Mockito.times(1))
+                .generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString());
+        assertThat(jdbc.queryForObject("SELECT state FROM qa_execution_requests WHERE organization_id = ?",
+                String.class, organizationId)).isEqualTo("UNCERTAIN");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM qa_provider_calls WHERE organization_id = ? AND state = 'UNKNOWN' AND cost_ledger_id IS NULL",
+                Long.class, organizationId)).isEqualTo(1);
+        var profitability = new ProfitabilityService(jdbc).report(
+                organizationId, Instant.now().minus(Duration.ofDays(1)), Instant.now().plusSeconds(1));
+        assertThat(profitability.unresolvedAiCalls()).isEqualTo(1);
+        assertThat(profitability.status()).isEqualTo("COST_UNVERIFIED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM cost_ledger WHERE organization_id = ? AND operation = 'QA_QUERY_EMBEDDING'",
+                Long.class, organizationId)).isEqualTo(1);
+        assertThat(fixture.qa().ask(fixture.learner(), fixture.assignmentId(), "Question?", "qa-new-request", "qa-new-correlation")
+                .answer()).isEqualTo("Evidence answer");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM usage_reservations WHERE organization_id = ? AND metric = 'QA_QUERY'",
+                Long.class, organizationId)).isEqualTo(2);
+    }
+
+    @Test
+    void rotatingFailedQaKeysCannotBypassTheOrganizationsProviderAttemptBudget() {
+        var fixture = qaFixture();
+        org.mockito.Mockito.when(fixture.provider().generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString()))
+                .thenThrow(new com.vid2knowledge.analysis.application.AiProviderException("Transport result unknown", true));
+        // Five purchased successful queries plus three failure attempts. No failed
+        // answer consumes customer allowance, yet provider spend remains bounded.
+        for (int attempt = 0; attempt < 8; attempt++) {
+            String key = "qa-failure-budget-" + attempt;
+            assertThatThrownBy(() -> fixture.qa().ask(fixture.learner(), fixture.assignmentId(),
+                    "Question?", key, "qa-budget-correlation"))
+                    .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                            error -> assertThat(error.getStatusCode().value()).isEqualTo(502));
+        }
+        assertThatThrownBy(() -> fixture.qa().ask(fixture.learner(), fixture.assignmentId(),
+                "Question?", "qa-budget-overflow", "qa-budget-correlation"))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                        error -> assertThat(error.getStatusCode().value()).isEqualTo(503));
+        org.mockito.Mockito.verify(fixture.provider(), org.mockito.Mockito.times(8))
+                .generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM usage_reservations WHERE organization_id = ? AND metric = 'QA_QUERY'",
+                Long.class, organizationId)).isEqualTo(8);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM usage_reservations WHERE organization_id = ? AND metric = 'QA_QUERY' AND status = 'RELEASED'",
+                Long.class, organizationId)).isEqualTo(8);
+    }
+
+    @Test
+    void expiredQaOwnerCannotPublishLateButItsSuccessfulProviderCostIsStillRecorded() throws Exception {
+        var fixture = qaFixture();
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        org.mockito.Mockito.when(fixture.provider().generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> {
+                    entered.countDown();
+                    assertThat(release.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                    return qaGeneration("{\"answer\":\"Late answer\",\"citations\":[1],\"insufficientEvidence\":false}");
+                });
+        try (var executor = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var first = executor.submit(() -> fixture.qa().ask(
+                    fixture.learner(), fixture.assignmentId(), "Question?", "qa-late", "qa-late-correlation"));
+            try {
+                assertThat(entered.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                jdbc.update("UPDATE qa_execution_requests SET expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second' WHERE organization_id = ?",
+                        organizationId);
+                assertThat(fixture.qa().reconcileExpiredRequests()).isEqualTo(1);
+                assertThat(fixture.qa().reconcileExpiredRequests()).isZero();
+            } finally {
+                release.countDown();
+            }
+            assertThatThrownBy(() -> first.get(10, java.util.concurrent.TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM qa_threads WHERE organization_id = ?",
+                Long.class, organizationId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM cost_ledger WHERE organization_id = ? AND operation LIKE 'QA_%'",
+                Long.class, organizationId)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT state FROM qa_execution_requests WHERE organization_id = ?",
+                String.class, organizationId)).isEqualTo("UNCERTAIN");
+        assertThatThrownBy(() -> fixture.qa().ask(fixture.learner(), fixture.assignmentId(),
+                "Question?", "qa-late", "qa-late-retry"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        org.mockito.Mockito.verify(fixture.provider(), org.mockito.Mockito.times(1))
+                .generateGroundedAnswer(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    private QaFixture qaFixture() {
+        UUID ownerId = jdbc.queryForObject("SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",
+                UUID.class, organizationId);
+        CurrentActor owner = new CurrentActor(ownerId, organizationId, CurrentActor.Role.OWNER);
+        CurrentActor learner = new CurrentActor(seedLearner(organizationId), organizationId, CurrentActor.Role.LEARNER);
+        UUID packageId = seedPublishedPackage(organizationId, ownerId);
+        var launch = new CatalogService(jdbc).launchProgram(owner, "Q&A recovery", packageId,
+                java.util.List.of(learner.userId()), Instant.now().minusSeconds(1), Instant.now().plus(Duration.ofDays(7)),
+                "qa-fixture-launch", "qa-fixture-correlation");
+        jdbc.update("""
+                INSERT INTO entitlements(id, organization_id, metric, allowance, period_start, period_end)
+                VALUES (?, ?, 'QA_QUERY', 5, ?, ?)
+                """, UuidV7Generator.generate(), organizationId, Timestamp.from(Instant.now().minusSeconds(1)),
+                Timestamp.from(Instant.now().plus(Duration.ofDays(7))));
+        KnowledgeAiProvider provider = org.mockito.Mockito.mock(KnowledgeAiProvider.class);
+        org.mockito.Mockito.when(provider.embeddingModel()).thenReturn("embedding-test-768");
+        org.mockito.Mockito.when(provider.embed(org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> {
+                    assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
+                            .isFalse();
+                    java.util.List<String> texts = invocation.getArgument(0);
+                    return texts.stream().map(text -> {
+                        var vector = new java.util.ArrayList<Double>(java.util.Collections.nCopies(768, 0.0));
+                        vector.set(0, 1.0);
+                        return java.util.List.copyOf(vector);
+                    }).toList();
+                });
+        var rate = new AiCostProperties.Rate(1_000_000, 2_000_000, 2_000_000);
+        var qa = new GroundedQaService(jdbc, new ObjectMapper(), provider, quota,
+                new AiCostProperties(rate, rate, 3, Duration.ofMinutes(5)), transactions, Clock.systemUTC());
+        qa.index(owner, packageId, "qa-fixture-index");
+        return new QaFixture(qa, provider, learner, launch.assignmentId());
+    }
+
+    private static AiGenerationResult qaGeneration(String output) {
+        return new AiGenerationResult("TEST", "grounded-test", "v1", 100, 20, 0, 50, 0, output);
+    }
+
+    private record QaFixture(GroundedQaService qa, KnowledgeAiProvider provider, CurrentActor learner, UUID assignmentId) { }
+
+    @Test
     void programLaunchIsAtomicIdempotentAndImmediatelyAssignable() {
         UUID ownerId = jdbc.queryForObject(
                 "SELECT user_id FROM memberships WHERE organization_id = ? AND role = 'OWNER'",

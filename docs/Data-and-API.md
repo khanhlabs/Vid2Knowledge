@@ -179,6 +179,16 @@ PENDING → PAID → PARTIALLY_REFUNDED → REFUNDED
 - `GET .../learner/reviews/due|summary`, `POST .../assignments/{assignmentId}/flashcards/{cardId}/reviews`; rating bắt buộc idempotent và tenant-scoped.
 - `POST .../packages/{packageId}/knowledge-index` tạo/cập nhật vector index bằng Gemini embedding batch; author chủ động bật để không phát sinh chi phí ngầm.
 - `POST .../learner/assignments/{assignmentId}/qa` bắt buộc `Idempotency-Key`; reserve `QA_QUERY` trước provider call, retrieval tenant/revision-scoped, response có citations hoặc explicit insufficient-evidence refusal.
+  V36 claim bền vững theo organization/assignment/user/key và fingerprint câu hỏi trước khi gọi AI;
+  request cùng key đang chạy trả 409, khác câu hỏi trả idempotency conflict, thành công replay nguyên
+  response. Request đã FAILED/UNCERTAIN trả 502 và không gọi provider lại bằng key đó.
+  `qa_provider_calls` lưu từng QUERY_EMBEDDING/ANSWER và liên kết cost ledger trước khi parse output;
+  lỗi mạng không có usage được ghi UNKNOWN, không giả định cost bằng 0. Failed answer trả lại quota
+  khách; ngân sách processing riêng mỗi entitlement period giới hạn tổng execution mới ở allowance
+  cộng 5% làm tròn lên (tối thiểu 3 lượt), gồm cả lượt lỗi. Hết ngân sách trả 503 trước khi gọi AI;
+  đổi user/key không vượt được cap organization. Cost embedding vẫn là ước tính theo text vì port hiện
+  không trả token usage. Margin report bổ sung `unresolvedAiCalls` và trạng thái `COST_UNVERIFIED`
+  khi còn STARTED/UNKNOWN trong kỳ, không báo HEALTHY với cost thiếu.
 - `POST .../feedback` và `POST .../reports`.
 - `POST .../courses/{courseId}/completion-rule|publish`, `POST .../lessons/{lessonId}/prerequisites` cho author; `POST .../certificates/{certificateId}/revoke` chỉ OWNER/ADMIN và bắt buộc lý do.
 - `GET .../learner/paths`, `POST .../learner/paths/{courseId}/cohorts/{cohortId}/certificate`; certificate chỉ cấp khi mọi lesson đạt passing score và delayed recall nếu buyer bật.

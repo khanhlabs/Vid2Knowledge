@@ -32,7 +32,7 @@ class PrivacyUpgradeIntegrationTest {
                     CURRENT_TIMESTAMP - INTERVAL '1 day', CURRENT_TIMESTAMP)
                 """, requestId, userId);
 
-        assertThat(Flyway.configure().dataSource(dataSource).load().migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(Flyway.configure().dataSource(dataSource).target("35").load().migrate().migrationsExecuted).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT state FROM privacy_deletion_requests WHERE id = ?",
                 String.class, requestId)).isEqualTo("IDENTITY_REVIEW");
         assertThat(jdbc.queryForObject("""
