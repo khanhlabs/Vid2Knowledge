@@ -1,4 +1,5 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
+import { useSessionMutation as useMutation } from '../../shared/hooks/useSessionMutation'
 import { useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../../shared/api/client'
@@ -14,9 +15,9 @@ export function AcceptInvitationPage() {
         method: 'POST',
         body: JSON.stringify({ token }),
       }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['me'] })
-      await navigate('/app', { replace: true })
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['me'] })
+      void navigate('/app', { replace: true })
     },
   })
 

@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { captureRequestScope, type RequestScope } from './request-scope'
 
 export interface ApiErrorBody {
   code?: string
@@ -19,25 +20,32 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await authenticatedFetch(path, init)
+  const scope = captureRequestScope()
+  const response = await authenticatedFetch(path, init, scope)
+  scope.assertCurrent()
   if (!response.ok) {
-    await throwApiError(response)
+    await throwApiError(response, scope)
   }
   if (response.status === 204) {
     return undefined as T
   }
-  return (await response.json()) as T
+  const body = (await response.json()) as T
+  scope.assertCurrent()
+  return body
 }
 
 export async function downloadApi(
   path: string,
   filename: string,
 ): Promise<void> {
-  const response = await authenticatedFetch(path)
+  const scope = captureRequestScope()
+  const response = await authenticatedFetch(path, {}, scope)
   if (!response.ok) {
-    await throwApiError(response)
+    await throwApiError(response, scope)
   }
-  const url = URL.createObjectURL(await response.blob())
+  const blob = await response.blob()
+  scope.assertCurrent()
+  const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
@@ -45,10 +53,18 @@ export async function downloadApi(
   URL.revokeObjectURL(url)
 }
 
-async function authenticatedFetch(path: string, init: RequestInit = {}) {
+async function authenticatedFetch(
+  path: string,
+  init: RequestInit,
+  scope: RequestScope,
+) {
   const session = supabase
     ? (await supabase.auth.getSession()).data.session
     : null
+  scope.assertCurrent()
+  if ((session?.user.id ?? null) !== scope.identity) {
+    throw new DOMException('Phiên đăng nhập đã thay đổi.', 'AbortError')
+  }
   const headers = new Headers(init.headers)
   if (init.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -56,12 +72,23 @@ async function authenticatedFetch(path: string, init: RequestInit = {}) {
   if (session?.access_token) {
     headers.set('Authorization', `Bearer ${session.access_token}`)
   }
-  const response = await fetch(path, { ...init, headers })
+  const response = await fetch(path, {
+    ...init,
+    headers,
+    signal: init.signal
+      ? AbortSignal.any([scope.signal, init.signal])
+      : scope.signal,
+  })
+  scope.assertCurrent()
   return response
 }
 
-async function throwApiError(response: Response): Promise<never> {
+async function throwApiError(
+  response: Response,
+  scope: RequestScope,
+): Promise<never> {
   const body = (await response.json().catch(() => ({}))) as ApiErrorBody
+  scope.assertCurrent()
   throw new ApiError(
     body.message ?? 'Yêu cầu không thể hoàn tất.',
     response.status,

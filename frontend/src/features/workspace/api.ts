@@ -363,6 +363,7 @@ export interface ProfitabilityReport {
     | 'NO_REVENUE'
     | 'NEGATIVE'
     | 'AI_COST_CRITICAL'
+    | 'COST_UNVERIFIED'
     | 'BELOW_FLOOR'
     | 'HEALTHY'
     | 'WATCH'
@@ -386,6 +387,7 @@ export interface ProfitabilityReport {
   monthlyContributionVnd: number
   contributionLtvVnd?: number
   ltvCacRatio?: number
+  unresolvedAiCalls: number
 }
 
 export interface ContentTemplate {
@@ -564,9 +566,13 @@ export const workspaceApi = {
     reservation: SourceUploadReservation,
     file: File,
     onProgress: (percent: number) => void,
+    signal?: AbortSignal,
   ) =>
     new Promise<void>((resolve, reject) => {
+      signal?.throwIfAborted()
       const request = new XMLHttpRequest()
+      const abort = () => request.abort()
+      const cleanup = () => signal?.removeEventListener('abort', abort)
       request.open('PUT', reservation.uploadUrl)
       Object.entries(reservation.requiredHeaders).forEach(([name, value]) =>
         request.setRequestHeader(name, value),
@@ -576,13 +582,22 @@ export const workspaceApi = {
           onProgress(Math.round((event.loaded / event.total) * 100))
       }
       request.onload = () => {
+        cleanup()
         if (request.status >= 200 && request.status < 300) resolve()
         else
           reject(
             new Error(`Object storage từ chối upload (${request.status}).`),
           )
       }
-      request.onerror = () => reject(new Error('Mất kết nối khi upload video.'))
+      request.onerror = () => {
+        cleanup()
+        reject(new Error('Mất kết nối khi upload video.'))
+      }
+      request.onabort = () => {
+        cleanup()
+        reject(new DOMException('Upload đã dừng.', 'AbortError'))
+      }
+      signal?.addEventListener('abort', abort, { once: true })
       request.send(file)
     }),
   completeSourceUpload: (organizationId: string, uploadId: string) =>

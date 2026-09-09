@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation } from '@tanstack/react-query'
+import { useSessionMutation as useMutation } from '../../shared/hooks/useSessionMutation'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import logo from '../../assets/logo/full_horizontal.png'

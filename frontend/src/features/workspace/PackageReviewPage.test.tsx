@@ -5,6 +5,10 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PackageReviewPage } from './PackageReviewPage'
 
+vi.mock('../auth/auth-context', () => ({
+  useAuth: () => ({ session: { user: { id: 'owner-1' } } }),
+}))
+
 afterEach(() => {
   cleanup()
   localStorage.clear()

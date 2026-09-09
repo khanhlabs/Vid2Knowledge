@@ -41,4 +41,22 @@ export default tseslint.config(
       '@typescript-eslint/no-floating-promises': 'error',
     },
   },
+  {
+    files: ['src/features/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@tanstack/react-query',
+              importNames: ['useMutation'],
+              message:
+                'Use shared/hooks/useSessionMutation to bind writes to the originating session.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 )

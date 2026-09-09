@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSessionMutation as useMutation } from '../../shared/hooks/useSessionMutation'
 import { Link } from 'react-router-dom'
 import { type EconomicProfile, workspaceApi } from './api'
 
@@ -24,6 +25,7 @@ const profitabilityStatus: Record<string, string> = {
   NO_REVENUE: 'Chưa có doanh thu',
   NEGATIVE: 'Đang lỗ',
   AI_COST_CRITICAL: 'Chi phí AI vượt ngưỡng',
+  COST_UNVERIFIED: 'Chi phí AI chưa đối soát đủ',
   BELOW_FLOOR: 'Biên lợi nhuận dưới sàn',
   HEALTHY: 'Biên lợi nhuận tốt',
   WATCH: 'Cần theo dõi',
@@ -98,6 +100,13 @@ function ProfitabilityPanel({ organizationId }: { organizationId: string }) {
           {profitabilityStatus[data.status] ?? data.status}
         </span>
       </div>
+      {data.unresolvedAiCalls > 0 && (
+        <p className="profit-warning" role="status">
+          Còn {data.unresolvedAiCalls} lượt xử lý AI chưa có chi phí được xác
+          nhận. Các số lợi nhuận dưới đây là tạm tính; cần đối soát trước khi
+          quyết định tăng ngân sách.
+        </p>
+      )}
       {!data.assumptionsConfirmed && (
         <p className="profit-warning">
           Hệ thống cố ý không kết luận tài khoản có lãi cho đến khi bạn xác nhận

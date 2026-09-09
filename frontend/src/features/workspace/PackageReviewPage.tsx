@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSessionMutation as useMutation } from '../../shared/hooks/useSessionMutation'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../../shared/api/client'
@@ -8,6 +9,8 @@ import {
   type LearningPackage,
 } from './api'
 import { PackageEditor } from './PackageEditor'
+import { packageDraftKey } from '../auth/identity-storage'
+import { useAuth } from '../auth/auth-context'
 
 const actionsByState: Record<
   string,
@@ -46,6 +49,7 @@ function localDraft(
 }
 
 export function PackageReviewPage() {
+  const { session } = useAuth()
   const { packageId = '' } = useParams()
   const organizationId = localStorage.getItem('v2k.organizationId') ?? ''
   const queryClient = useQueryClient()
@@ -58,7 +62,11 @@ export function PackageReviewPage() {
     enabled: Boolean(organizationId && packageId),
   })
   const me = useQuery({ queryKey: ['me'], queryFn: workspaceApi.me })
-  const draftKey = `v2k.package-draft.${organizationId}.${packageId}`
+  const draftKey = packageDraftKey(
+    session?.user.id ?? 'signed-out',
+    organizationId,
+    packageId,
+  )
   const storedDraft = localDraft(draftKey, result.data?.version)
   const activeDraft = draft ?? storedDraft ?? result.data?.content ?? null
   const hasUnsavedChanges = dirty || storedDraft != null

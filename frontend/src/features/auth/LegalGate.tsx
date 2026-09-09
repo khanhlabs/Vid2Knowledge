@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSessionMutation as useMutation } from '../../shared/hooks/useSessionMutation'
 import { legalApi, type LegalPolicy } from './legal-api'
 
 const labels: Record<LegalPolicy['type'], string> = {

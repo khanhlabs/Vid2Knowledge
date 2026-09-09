@@ -163,6 +163,36 @@ test('owner publishes a course, invited learner completes it, and tenant boundar
       },
     )
     expect(forbiddenOwnMembers.status()).toBe(403)
+
+    // Simulate the official SDK's cross-tab session event without reloading the
+    // existing owner's page; a reload would hide an in-memory cache leak.
+    await page.goto('/app')
+    await expect(
+      page.getByText(owner.user.email, { exact: true }).first(),
+    ).toBeVisible()
+    await page.evaluate((rawSession) => {
+      localStorage.setItem('sb-e2e-auth-token', rawSession)
+      const channel = new BroadcastChannel('sb-e2e-auth-token')
+      channel.postMessage({
+        event: 'SIGNED_IN',
+        session: JSON.parse(rawSession) as TestSession,
+      })
+      channel.close()
+    }, learnerRaw)
+    await expect(
+      page.getByText(learner.user.email, { exact: true }).first(),
+    ).toBeVisible()
+    await expect(page.getByText(owner.user.email, { exact: true })).toHaveCount(
+      0,
+    )
+    await expect(
+      page.getByRole('button', { name: 'Tạo link mời', exact: true }),
+    ).toHaveCount(0)
+    await expect
+      .poll(() =>
+        page.evaluate(() => localStorage.getItem('v2k.organizationId')),
+      )
+      .toBe(organization.id)
     expect(runtimeErrors).toEqual([])
   } finally {
     await learnerContext.close()

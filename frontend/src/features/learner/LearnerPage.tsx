@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSessionMutation as useMutation } from '../../shared/hooks/useSessionMutation'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { idempotencyKey } from '../../shared/api/client'

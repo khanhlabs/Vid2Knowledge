@@ -1,8 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSessionMutation as useMutation } from '../../shared/hooks/useSessionMutation'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import logo from '../../assets/logo/full_horizontal.png'
 import { ApiError } from '../../shared/api/client'
+import {
+  captureRequestScope,
+  waitForRequestScope,
+} from '../../shared/api/request-scope'
 import { useAuth } from '../auth/auth-context'
 import { acquisitionSource } from '../auth/acquisition'
 import {
@@ -235,10 +240,12 @@ export function WorkspacePage() {
   })
   const analyze = useMutation({
     mutationFn: async () => {
+      const scope = captureRequestScope()
       const source = await workspaceApi.registerSource(
         activeOrganizationId,
         youtubeUrl,
       )
+      scope.assertCurrent()
       return workspaceApi.createAnalysis(
         activeOrganizationId,
         source.id,
@@ -257,6 +264,7 @@ export function WorkspacePage() {
   })
   const analyzeUpload = useMutation({
     mutationFn: async () => {
+      const scope = captureRequestScope()
       if (!sourceFile) throw new Error('Hãy chọn một file MP4 hoặc WebM.')
       if (!/\.(mp4|webm)$/i.test(sourceFile.name)) {
         throw new Error('Hiện chỉ hỗ trợ file MP4 hoặc WebM.')
@@ -269,27 +277,34 @@ export function WorkspacePage() {
         activeOrganizationId,
         sourceFile,
       )
+      scope.assertCurrent()
       setUploadStage('Đang tải trực tiếp lên kho riêng tư…')
       await workspaceApi.putSourceUpload(
         reservation,
         sourceFile,
         setUploadProgress,
+        scope.signal,
       )
+      scope.assertCurrent()
       setUploadStage('Đang xác minh loại và kích thước file…')
       await workspaceApi.completeSourceUpload(
         activeOrganizationId,
         reservation.id,
       )
+      scope.assertCurrent()
       setUploadStage('Đang đọc metadata video…')
       await workspaceApi.ingestSourceUpload(
         activeOrganizationId,
         reservation.id,
       )
+      scope.assertCurrent()
       for (let attempt = 0; attempt < 240; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 2_500))
+        await waitForRequestScope(scope, 2_500)
+        scope.assertCurrent()
         const upload = (
           await workspaceApi.sourceUploads(activeOrganizationId)
         ).find((item) => item.id === reservation.id)
+        scope.assertCurrent()
         if (!upload) throw new Error('Không còn tìm thấy phiên upload.')
         if (upload.state === 'REJECTED' || upload.state === 'EXPIRED') {
           throw new Error(
@@ -321,15 +336,22 @@ export function WorkspacePage() {
     },
   })
   const checkout = useMutation({
-    mutationFn: (planId: string) =>
-      workspaceApi.checkout(
+    mutationFn: async (planId: string) => {
+      const scope = captureRequestScope()
+      const result = await workspaceApi.checkout(
         activeOrganizationId,
         planId,
         appliedPromotion?.planId === planId
           ? (appliedPromotion.quote.promotionCode ?? undefined)
           : undefined,
-      ),
-    onSuccess: ({ checkoutUrl }) => window.location.assign(checkoutUrl),
+      )
+      scope.assertCurrent()
+      return { ...result, scope }
+    },
+    onSuccess: ({ checkoutUrl, scope }) => {
+      scope.assertCurrent()
+      window.location.assign(checkoutUrl)
+    },
   })
   const validatePromotion = useMutation({
     mutationFn: () =>
